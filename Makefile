@@ -1,5 +1,10 @@
 # Команды разработки. Все Go-команды выполняются в backend/.
-.PHONY: run test migrate sqlc db
+SQLC_VERSION := 1.31.1
+
+# Git Bash/MSYS иначе переписывает "/src" в Windows-путь в аргументах docker.
+export MSYS_NO_PATHCONV := 1
+
+.PHONY: db run test test-short migrate migrate-status sqlc
 
 db:
 	docker compose up -d db
@@ -7,11 +12,20 @@ db:
 run:
 	cd backend && go run ./cmd/server
 
+# Интеграционные тесты используют БД из docker compose (make db).
 test:
 	cd backend && go test ./...
 
-migrate:
-	@echo "make migrate появится на шаге 2 (goose)" && exit 1
+# Только юнит-тесты, без PostgreSQL.
+test-short:
+	cd backend && go test -short ./...
 
+migrate:
+	cd backend && go run ./cmd/server migrate up
+
+migrate-status:
+	cd backend && go run ./cmd/server migrate status
+
+# Генерация кода запросов sqlc в Docker (на Windows go install sqlc требует cgo).
 sqlc:
-	@echo "make sqlc появится на шаге 3" && exit 1
+	docker run --rm -v "$(CURDIR)/backend:/src" -w /src sqlc/sqlc:$(SQLC_VERSION) generate
