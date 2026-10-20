@@ -154,6 +154,27 @@ func (s *Service) AddOperation(ctx context.Context, actor, centerID, studentID u
 
 var errKeyTaken = errors.New("idempotency key taken")
 
+// CreateCorrectionTx — поправка (correction) в транзакции вызывающего: начальный долг при импорте.
+// amount со знаком (долг — отрицательный), comment обязателен; пишет ledger.correction в журнал.
+func CreateCorrectionTx(ctx context.Context, tx pgx.Tx, actor, centerID, studentID uuid.UUID, amount int64, comment string) (uuid.UUID, error) {
+	if amount == 0 || amount > MaxOperationAmount || amount < -MaxOperationAmount || strings.TrimSpace(comment) == "" {
+		return uuid.Nil, fmt.Errorf("поправка: amount=%d comment=%q", amount, comment)
+	}
+	row, err := sqlc.New(tx).InsertOperation(ctx, sqlc.InsertOperationParams{
+		CenterID: centerID, StudentID: studentID, Kind: KindCorrection, Amount: amount, Comment: &comment, CreatedBy: &actor,
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("поправка: %w", err)
+	}
+	if err := audit.Record(ctx, tx, audit.Entry{
+		CenterID: centerID, UserID: &actor, Action: "ledger." + KindCorrection, Entity: "ledger", EntityID: &row.ID,
+		After: map[string]any{"student_id": studentID, "kind": KindCorrection, "amount": amount, "comment": comment},
+	}); err != nil {
+		return uuid.Nil, err
+	}
+	return row.ID, nil
+}
+
 // replay ищет операцию по ключу: ok=true — нашлась и совпадает; другие данные — ErrIdempotencyMismatch.
 func (s *Service) replay(ctx context.Context, centerID, studentID uuid.UUID, in OperationInput, signed int64) (Operation, bool, error) {
 	row, err := s.q.GetOperationByKey(ctx, sqlc.GetOperationByKeyParams{CenterID: centerID, IdempotencyKey: &in.IdempotencyKey})

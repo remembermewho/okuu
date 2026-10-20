@@ -16,7 +16,7 @@ import (
 )
 
 var wantTables = []string{
-	"attendance", "audit_log", "centers", "enrollments", "groups", "invites", "ledger",
+	"attendance", "audit_log", "centers", "enrollments", "groups", "import_sessions", "invites", "ledger",
 	"lessons", "memberships", "notifications", "parents", "payment_links", "sessions",
 	"students", "tariffs", "users",
 }

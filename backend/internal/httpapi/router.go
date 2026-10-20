@@ -10,10 +10,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"okuu/internal/attendance"
 	"okuu/internal/auth"
 	"okuu/internal/billing"
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
+	"okuu/internal/importer"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -26,26 +28,30 @@ type Pinger interface {
 
 // Deps — зависимости роутера.
 type Deps struct {
-	DB        Pinger
-	Auth      *auth.Service
-	Staff     *staff.Service
-	Tariffs   *tariffs.Service
-	Groups    *groups.Service
-	Students  *students.Service
-	Billing   *billing.Service
-	AppOrigin string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
-	Logger    *slog.Logger
+	DB         Pinger
+	Auth       *auth.Service
+	Staff      *staff.Service
+	Tariffs    *tariffs.Service
+	Groups     *groups.Service
+	Students   *students.Service
+	Billing    *billing.Service
+	Attendance *attendance.Service
+	Importer   *importer.Service
+	AppOrigin  string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
+	Logger     *slog.Logger
 }
 
 type handlers struct {
-	auth      *auth.Service
-	staff     *staff.Service
-	tariffs   *tariffs.Service
-	groups    *groups.Service
-	students  *students.Service
-	billing   *billing.Service
-	appOrigin string
-	logger    *slog.Logger
+	auth       *auth.Service
+	staff      *staff.Service
+	tariffs    *tariffs.Service
+	groups     *groups.Service
+	students   *students.Service
+	billing    *billing.Service
+	attendance *attendance.Service
+	importer   *importer.Service
+	appOrigin  string
+	logger     *slog.Logger
 }
 
 // NewRouter собирает все маршруты приложения.
@@ -55,7 +61,7 @@ func NewRouter(d Deps) http.Handler {
 	}
 	h := &handlers{
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
-		appOrigin: d.AppOrigin, logger: d.Logger,
+		attendance: d.Attendance, importer: d.Importer, appOrigin: d.AppOrigin, logger: d.Logger,
 	}
 
 	r := chi.NewRouter()
@@ -137,6 +143,25 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/students/{studentId}/ledger", h.studentLedger)
 					r.Post("/ledger/{ledgerId}/cancel", h.cancelOperation)
 					r.Get("/debtors", h.listDebtors)
+
+					// История посещений ученика — для карточки (S5).
+					r.Get("/students/{studentId}/attendance", h.studentAttendance)
+
+					// Импорт из Excel/CSV (F4).
+					r.Get("/import/template.xlsx", h.importTemplate)
+					r.Post("/import/preview", h.importPreview)
+					r.Post("/import/commit", h.importCommit)
+				})
+
+				// Посещаемость (F5): занятия и отметки — все сотрудники, преподаватель только свои группы
+				// и за последние 7 дней (R12); внеплановые занятия и отмена — owner и admin.
+				r.With(anyStaff).Get("/lessons", h.listLessons)
+				r.With(anyStaff).Get("/lessons/{lessonId}/attendance", h.getLessonAttendance)
+				r.With(anyStaff).Put("/lessons/{lessonId}/attendance", h.putAttendance)
+				r.Group(func(r chi.Router) {
+					r.Use(ownerOrAdmin)
+					r.Post("/lessons", h.createLesson)
+					r.Patch("/lessons/{lessonId}", h.patchLesson)
 				})
 			})
 		})

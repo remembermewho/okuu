@@ -95,33 +95,44 @@ func (s *Service) Get(ctx context.Context, centerID, id uuid.UUID, onlyTeacher *
 
 // Create создаёт группу. Преподаватель — сотрудник этого центра, тариф — этого центра и не архивный.
 func (s *Service) Create(ctx context.Context, actor, centerID uuid.UUID, in Input) (Group, error) {
-	in, err := validateInput(in)
-	if err != nil {
-		return Group{}, err
-	}
 	var id uuid.UUID
-	err = s.inTx(ctx, func(tx pgx.Tx, q *sqlc.Queries) error {
-		if err := checkRefs(ctx, q, centerID, in.TeacherID, in.DefaultTariffID); err != nil {
-			return err
-		}
-		schedule, err := json.Marshal(in.Schedule)
-		if err != nil {
-			return err
-		}
-		id, err = q.CreateGroup(ctx, sqlc.CreateGroupParams{
-			CenterID: centerID, Name: in.Name, TeacherID: in.TeacherID, Schedule: schedule, DefaultTariffID: in.DefaultTariffID,
-		})
-		if err != nil {
-			return err
-		}
-		return audit.Record(ctx, tx, audit.Entry{
-			CenterID: centerID, UserID: &actor, Action: audit.GroupCreate, Entity: "group", EntityID: &id, After: snapshot(in),
-		})
+	err := s.inTx(ctx, func(tx pgx.Tx, _ *sqlc.Queries) error {
+		var err error
+		id, err = s.CreateTx(ctx, tx, actor, centerID, in)
+		return err
 	})
 	if err != nil {
 		return Group{}, err
 	}
 	return s.Get(ctx, centerID, id, nil)
+}
+
+// CreateTx — то же, что Create, в транзакции вызывающего (импорт); возвращает id группы.
+func (s *Service) CreateTx(ctx context.Context, tx pgx.Tx, actor, centerID uuid.UUID, in Input) (uuid.UUID, error) {
+	in, err := validateInput(in)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	q := s.q.WithTx(tx)
+	if err := checkRefs(ctx, q, centerID, in.TeacherID, in.DefaultTariffID); err != nil {
+		return uuid.Nil, err
+	}
+	schedule, err := json.Marshal(in.Schedule)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	id, err := q.CreateGroup(ctx, sqlc.CreateGroupParams{
+		CenterID: centerID, Name: in.Name, TeacherID: in.TeacherID, Schedule: schedule, DefaultTariffID: in.DefaultTariffID,
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := audit.Record(ctx, tx, audit.Entry{
+		CenterID: centerID, UserID: &actor, Action: audit.GroupCreate, Entity: "group", EntityID: &id, After: snapshot(in),
+	}); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
 }
 
 // Update применяет частичное изменение. Ссылки (преподаватель, тариф) проверяются только если меняются:

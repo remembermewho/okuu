@@ -39,3 +39,11 @@ sql:
               import: okuu/internal/civil
               type: Date
               pointer: true
+          - db_type: time
+            go_type:
+              import: okuu/internal/civil
+              type: TimeOfDay
+          - db_type: pg_catalog.time
+            go_type:
+              import: okuu/internal/civil
+              type: TimeOfDay

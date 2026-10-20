@@ -45,6 +45,20 @@ const MaxPastYears = 5
 //
 // Прошлые месяцы не начисляются никогда: прошлые долги — поправкой (correction) или импортом.
 func (s *Service) Enroll(ctx context.Context, actor, centerID, studentID uuid.UUID, in EnrollInput) (Enrollment, *billing.Charge, error) {
+	var (
+		enr    Enrollment
+		charge *billing.Charge
+	)
+	err := s.inTx(ctx, func(tx pgx.Tx, _ *sqlc.Queries) error {
+		var err error
+		enr, charge, err = s.EnrollTx(ctx, tx, actor, centerID, studentID, in)
+		return err
+	})
+	return enr, charge, err
+}
+
+// EnrollTx — то же, что Enroll, в транзакции вызывающего (импорт).
+func (s *Service) EnrollTx(ctx context.Context, tx pgx.Tx, actor, centerID, studentID uuid.UUID, in EnrollInput) (Enrollment, *billing.Charge, error) {
 	if in.GroupID == uuid.Nil {
 		return Enrollment{}, nil, validate.Errorf("group_id", "Группа — обязательное поле")
 	}
@@ -68,7 +82,7 @@ func (s *Service) Enroll(ctx context.Context, actor, centerID, studentID uuid.UU
 		enr    Enrollment
 		charge *billing.Charge
 	)
-	err := s.inTx(ctx, func(tx pgx.Tx, q *sqlc.Queries) error {
+	err := func(tx pgx.Tx, q *sqlc.Queries) error {
 		center, err := s.center(ctx, q, centerID)
 		if err != nil {
 			return err
@@ -186,7 +200,7 @@ func (s *Service) Enroll(ctx context.Context, actor, centerID, studentID uuid.UU
 		}
 		enr, err = s.enrollmentView(ctx, q, centerID, studentID, row.ID)
 		return err
-	})
+	}(tx, s.q.WithTx(tx))
 	return enr, charge, err
 }
 

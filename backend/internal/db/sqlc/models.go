@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"okuu/internal/civil"
 )
 
@@ -18,6 +17,7 @@ type Attendance struct {
 	Status    string    `json:"status"`
 	MarkedBy  uuid.UUID `json:"marked_by"`
 	MarkedAt  time.Time `json:"marked_at"`
+	Deducted  bool      `json:"deducted"`
 }
 
 type AuditLog struct {
@@ -69,6 +69,18 @@ type Group struct {
 	Archived        bool       `json:"archived"`
 }
 
+type ImportSession struct {
+	ID          uuid.UUID  `json:"id"`
+	CenterID    uuid.UUID  `json:"center_id"`
+	CreatedBy   uuid.UUID  `json:"created_by"`
+	Filename    *string    `json:"filename"`
+	Rows        []byte     `json:"rows"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	CommittedAt *time.Time `json:"committed_at"`
+	Result      []byte     `json:"result"`
+}
+
 type Invite struct {
 	Token     string     `json:"token"`
 	CenterID  uuid.UUID  `json:"center_id"`
@@ -107,12 +119,12 @@ type Ledger struct {
 }
 
 type Lesson struct {
-	ID        uuid.UUID   `json:"id"`
-	CenterID  uuid.UUID   `json:"center_id"`
-	GroupID   uuid.UUID   `json:"group_id"`
-	Date      civil.Date  `json:"date"`
-	StartTime pgtype.Time `json:"start_time"`
-	Cancelled bool        `json:"cancelled"`
+	ID        uuid.UUID       `json:"id"`
+	CenterID  uuid.UUID       `json:"center_id"`
+	GroupID   uuid.UUID       `json:"group_id"`
+	Date      civil.Date      `json:"date"`
+	StartTime civil.TimeOfDay `json:"start_time"`
+	Cancelled bool            `json:"cancelled"`
 }
 
 type Membership struct {

@@ -1,1 +1,4 @@
 * text=auto eol=lf
+*.xlsx binary
+# Тестовые файлы импорта: BOM, CRLF и windows-1251 — намеренно, git их не трогает.
+backend/internal/importer/testdata/*.csv -text

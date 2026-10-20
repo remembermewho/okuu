@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/attendance"
 	"okuu/internal/auth"
 	"okuu/internal/billing"
 	"okuu/internal/civil"
@@ -30,6 +31,7 @@ import (
 	"okuu/internal/db"
 	"okuu/internal/groups"
 	"okuu/internal/httpapi"
+	"okuu/internal/importer"
 	"okuu/internal/jobs"
 	"okuu/internal/staff"
 	"okuu/internal/students"
@@ -103,18 +105,22 @@ func run(logger *slog.Logger, args []string) error {
 
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool) error {
 	authSvc := auth.NewService(pool, auth.Options{CookieSecure: cfg.Env == "prod", Logger: logger})
+	studentsSvc := students.NewService(pool, time.Now)
+	groupsSvc := groups.NewService(pool)
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			DB:        pool,
-			Auth:      authSvc,
-			Staff:     staff.NewService(pool, authSvc),
-			Tariffs:   tariffs.NewService(pool),
-			Groups:    groups.NewService(pool),
-			Students:  students.NewService(pool, time.Now),
-			Billing:   billing.NewService(pool, time.Now, logger),
-			AppOrigin: cfg.AppOrigin,
-			Logger:    logger,
+			DB:         pool,
+			Auth:       authSvc,
+			Staff:      staff.NewService(pool, authSvc),
+			Tariffs:    tariffs.NewService(pool),
+			Groups:     groupsSvc,
+			Students:   studentsSvc,
+			Billing:    billing.NewService(pool, time.Now, logger),
+			Attendance: attendance.NewService(pool, time.Now),
+			Importer:   importer.NewService(pool, studentsSvc, groupsSvc, time.Now),
+			AppOrigin:  cfg.AppOrigin,
+			Logger:     logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

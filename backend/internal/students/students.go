@@ -144,54 +144,61 @@ type CreateInput struct {
 // Create создаёт ученика и, если нужно, родителя. parentExisting=true — родитель с этим
 // телефоном уже был в центре: используем его как есть, имя не перезаписываем.
 func (s *Service) Create(ctx context.Context, actor, centerID uuid.UUID, in CreateInput) (st Student, parentExisting bool, err error) {
-	name, err := validate.Name("full_name", "ФИО", in.FullName)
-	if err != nil {
-		return Student{}, false, err
-	}
-	if err := billing.ValidateDiscount(in.Discount, tariffs.MaxPrice); err != nil {
-		return Student{}, false, err
-	}
-	pName, pPhone, err := validateParent(in.Parent.Name, in.Parent.Phone)
-	if err != nil {
-		return Student{}, false, err
-	}
-
 	var id uuid.UUID
 	err = s.inTx(ctx, func(tx pgx.Tx, q *sqlc.Queries) error {
-		today, err := s.centerToday(ctx, q, centerID)
-		if err != nil {
-			return err
-		}
-		if err := validateBirthDate(in.BirthDate, today); err != nil {
-			return err
-		}
-		parent, existing, err := upsertParent(ctx, q, centerID, pName, pPhone)
-		if err != nil {
-			return err
-		}
-		parentExisting = existing
-		kind, value := discountColumns(in.Discount)
-		row, err := q.CreateStudent(ctx, sqlc.CreateStudentParams{
-			CenterID: centerID, ParentID: &parent.ID, FullName: name, BirthDate: in.BirthDate,
-			DiscountKind: kind, DiscountValue: value,
-		})
-		if err != nil {
-			return err
-		}
-		id = row.ID
-		return audit.Record(ctx, tx, audit.Entry{
-			CenterID: centerID, UserID: &actor, Action: audit.StudentCreate, Entity: "student", EntityID: &id,
-			After: map[string]any{
-				"full_name": name, "birth_date": in.BirthDate, "discount": in.Discount,
-				"parent_id": parent.ID, "parent_existing": existing,
-			},
-		})
+		id, parentExisting, err = s.CreateTx(ctx, tx, actor, centerID, in)
+		return err
 	})
 	if err != nil {
 		return Student{}, false, err
 	}
 	st, err = s.Get(ctx, centerID, id)
 	return st, parentExisting, err
+}
+
+// CreateTx — то же, что Create, в транзакции вызывающего (импорт); возвращает id ученика.
+func (s *Service) CreateTx(ctx context.Context, tx pgx.Tx, actor, centerID uuid.UUID, in CreateInput) (id uuid.UUID, parentExisting bool, err error) {
+	name, err := validate.Name("full_name", "ФИО", in.FullName)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if err := billing.ValidateDiscount(in.Discount, tariffs.MaxPrice); err != nil {
+		return uuid.Nil, false, err
+	}
+	pName, pPhone, err := validateParent(in.Parent.Name, in.Parent.Phone)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	q := s.q.WithTx(tx)
+	today, err := s.centerToday(ctx, q, centerID)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if err := validateBirthDate(in.BirthDate, today); err != nil {
+		return uuid.Nil, false, err
+	}
+	parent, existing, err := upsertParent(ctx, q, centerID, pName, pPhone)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	kind, value := discountColumns(in.Discount)
+	row, err := q.CreateStudent(ctx, sqlc.CreateStudentParams{
+		CenterID: centerID, ParentID: &parent.ID, FullName: name, BirthDate: in.BirthDate,
+		DiscountKind: kind, DiscountValue: value,
+	})
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if err := audit.Record(ctx, tx, audit.Entry{
+		CenterID: centerID, UserID: &actor, Action: audit.StudentCreate, Entity: "student", EntityID: &row.ID,
+		After: map[string]any{
+			"full_name": name, "birth_date": in.BirthDate, "discount": in.Discount,
+			"parent_id": parent.ID, "parent_existing": existing,
+		},
+	}); err != nil {
+		return uuid.Nil, false, err
+	}
+	return row.ID, existing, nil
 }
 
 // Get — карточка ученика: родитель, все записи, баланс.

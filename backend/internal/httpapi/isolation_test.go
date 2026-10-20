@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"slices"
@@ -52,6 +53,21 @@ var isolationCases = map[string]any{
 	"GET /api/v1/c/{centerId}/students/{studentId}/ledger":    nil,
 	"POST /api/v1/c/{centerId}/ledger/{ledgerId}/cancel":      map[string]any{"reason": "тест изоляции"},
 	"GET /api/v1/c/{centerId}/debtors":                        nil,
+
+	// Посещаемость.
+	"GET /api/v1/c/{centerId}/lessons":                       nil, // 404 приходит раньше разбора ?date
+	"POST /api/v1/c/{centerId}/lessons":                      map[string]any{"group_id": "{groupId}", "date": "{today}", "start_time": "08:00"},
+	"PATCH /api/v1/c/{centerId}/lessons/{lessonId}":          map[string]any{"cancelled": true},
+	"GET /api/v1/c/{centerId}/lessons/{lessonId}/attendance": nil,
+	"PUT /api/v1/c/{centerId}/lessons/{lessonId}/attendance": map[string]any{
+		"marks": []map[string]any{{"student_id": "{studentId}", "status": "present"}},
+	},
+	"GET /api/v1/c/{centerId}/students/{studentId}/attendance": nil,
+
+	// Импорт. Превью — multipart, но 404 чужого центра приходит раньше разбора тела.
+	"GET /api/v1/c/{centerId}/import/template.xlsx": nil,
+	"POST /api/v1/c/{centerId}/import/preview":      nil,
+	"POST /api/v1/c/{centerId}/import/commit":       map[string]any{"preview_id": "{importId}", "first_month": "none"},
 }
 
 var routeParam = regexp.MustCompile(`\{(\w+)\}`)
@@ -88,6 +104,8 @@ func TestIsolationAllCenterRoutes(t *testing.T) {
 	inviteA, _ := createInvite(t, a.owner, a.center, "admin", "")
 	studentA := a.student(t, "Ученик А", "+996703900101", nil)
 	enrA := a.enroll(t, studentA.ID, map[string]any{"group_id": a.group.ID, "tariff_id": a.pkg.ID, "start_date": a.today.String()})
+	lessonA := createLesson(t, a, map[string]any{"group_id": a.group.ID, "date": a.today.String(), "start_time": "07:00"})
+	importA := a.preview(t, "a.csv", fixture(t, "utf8_semicolon.csv"))
 
 	// Центр Б — владелец Б и есть «чужой пользователь».
 	ownerB := api.client(t, "10.0.0.2")
@@ -98,6 +116,7 @@ func TestIsolationAllCenterRoutes(t *testing.T) {
 		"centerId": a.center.String(), "userId": teacherA.String(), "inviteId": inviteA.ID.String(),
 		"tariffId": a.monthly.ID.String(), "groupId": a.group.ID.String(), "studentId": studentA.ID.String(),
 		"enrollmentId": enrA.Enrollment.ID.String(), "ledgerId": enrA.Charge.ID.String(), "today": a.today.String(),
+		"lessonId": lessonA.ID.String(), "importId": importA.PreviewID.String(),
 	}
 	before := centerFingerprint(t, api, a.center, centerB)
 
@@ -158,17 +177,18 @@ func fill(s string, params map[string]string) string {
 	return routeParam.ReplaceAllStringFunc(s, func(m string) string { return params[m[1:len(m)-1]] })
 }
 
+// fillBody подставляет {параметры} во все строки тела на любой глубине (через JSON).
 func fillBody(body any, params map[string]string) any {
-	m, ok := body.(map[string]any)
-	if !ok {
-		return body
+	if body == nil {
+		return nil
 	}
-	out := map[string]any{}
-	for k, v := range m {
-		if s, ok := v.(string); ok {
-			v = fill(s, params)
-		}
-		out[k] = v
+	b, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	var out any
+	if err := json.Unmarshal([]byte(fill(string(b), params)), &out); err != nil {
+		panic(err)
 	}
 	return out
 }
@@ -188,6 +208,9 @@ func centerFingerprint(t *testing.T, api *testAPI, centers ...uuid.UUID) string 
 		  UNION ALL SELECT 'enrollments:' || count(*) || '/' || count(end_date) || '/' || coalesce(sum(lessons_left), 0) FROM enrollments WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'ledger:' || count(*) || '/' || coalesce(sum(amount), 0) FROM ledger WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'audit:' || count(*) FROM audit_log WHERE center_id = ANY($1)
+		  UNION ALL SELECT 'lessons:' || count(*) || '/' || count(*) FILTER (WHERE cancelled) FROM lessons WHERE center_id = ANY($1)
+		  UNION ALL SELECT 'attendance:' || count(*) FROM attendance a JOIN lessons l ON l.id = a.lesson_id WHERE l.center_id = ANY($1)
+		  UNION ALL SELECT 'imports:' || count(*) || '/' || count(committed_at) FROM import_sessions WHERE center_id = ANY($1)
 		) s`, centers).Scan(&fp)
 	if err != nil {
 		t.Fatal(err)

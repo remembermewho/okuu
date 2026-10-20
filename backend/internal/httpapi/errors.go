@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"okuu/internal/attendance"
 	"okuu/internal/auth"
 	"okuu/internal/billing"
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
+	"okuu/internal/importer"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -50,6 +52,16 @@ var knownErrors = []struct {
 	{billing.ErrAlreadyCancelled, http.StatusConflict, "already_cancelled", "Операция уже отменена"},
 	{billing.ErrIdempotencyMismatch, http.StatusUnprocessableEntity, "idempotency_mismatch", "Этот Idempotency-Key уже использован для другой операции"},
 	{billing.ErrFinikOwnerOnly, http.StatusForbidden, "forbidden", "Оплату через Finik может отменить только владелец"},
+
+	{attendance.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{attendance.ErrStudentNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{attendance.ErrLessonCancelled, http.StatusConflict, "lesson_cancelled", "Занятие отменено — отметки не ставятся"},
+	{attendance.ErrLessonExists, http.StatusConflict, "lesson_exists", "У группы уже есть занятие в это время"},
+	{attendance.ErrMarkWindow, http.StatusForbidden, "forbidden", "Преподаватель меняет отметки только за последние 7 дней"},
+
+	{importer.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{importer.ErrAlreadyCommitted, http.StatusConflict, "import_already_committed", "Этот импорт уже подтверждён"},
+	{importer.ErrExpired, http.StatusGone, "import_expired", "Превью устарело (хранится час) — загрузите файл заново"},
 }
 
 // fail переводит ошибку сервиса в ответ API.

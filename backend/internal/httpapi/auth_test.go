@@ -17,12 +17,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/attendance"
 	"okuu/internal/auth"
 	"okuu/internal/billing"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/groups"
 	"okuu/internal/httpapi"
 	"okuu/internal/httpx"
+	"okuu/internal/importer"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -61,11 +63,13 @@ func newTestAPI(t *testing.T) *testAPI {
 	pool := testdb.New(t)
 	clk := &clock{t: time.Now()}
 	svc := auth.NewService(pool, auth.Options{Now: clk.Now})
+	st, gr := students.NewService(pool, clk.Now), groups.NewService(pool)
 	return &testAPI{
 		h: httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc),
-			Tariffs: tariffs.NewService(pool), Groups: groups.NewService(pool),
-			Students: students.NewService(pool, clk.Now),
-			Billing:  billing.NewService(pool, clk.Now, nil), AppOrigin: testOrigin}),
+			Tariffs: tariffs.NewService(pool), Groups: gr, Students: st,
+			Billing: billing.NewService(pool, clk.Now, nil), Attendance: attendance.NewService(pool, clk.Now),
+			Importer:  importer.NewService(pool, st, gr, clk.Now),
+			AppOrigin: testOrigin}),
 		auth:  svc,
 		pool:  pool,
 		clock: clk,
