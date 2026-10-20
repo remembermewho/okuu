@@ -1,0 +1,151 @@
+# Посещаемость (экран «Сегодня») — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Запросы — по порядку сверху вниз; файл можно прогонять повторно.
+# Абонемент: «был» и «не был» списывают занятие, «уважительная» — по настройке центра
+# (excused_deducts, по умолчанию не списывает). Остаток может уйти в минус.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@today = {{$localDatetime "YYYY-MM-DD"}}
+@month = {{$localDatetime "YYYY-MM"}}
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@packageId = {{package.response.body.$.id}}
+@groupId = {{group.response.body.$.id}}
+@studentId = {{student.response.body.$.id}}
+@lessonId = {{lessons.response.body.$.items[0].id}}
+@extraId = {{extra.response.body.$.id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Абонемент на 8 занятий
+# Ожидаем: 201 Created
+# @name package
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "Танцы, 8 занятий", "kind": "package", "price": 400000, "lessons_count": 8 }
+
+### 3. Группа с занятием каждый день в 16:00 (чтобы занятие было сегодня в любой день недели)
+# Ожидаем: 201 Created
+# @name group
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Танцы, младшая",
+  "default_tariff_id": "{{packageId}}",
+  "schedule": [
+    { "dow": 1, "start": "16:00", "end": "17:00" }, { "dow": 2, "start": "16:00", "end": "17:00" },
+    { "dow": 3, "start": "16:00", "end": "17:00" }, { "dow": 4, "start": "16:00", "end": "17:00" },
+    { "dow": 5, "start": "16:00", "end": "17:00" }, { "dow": 6, "start": "16:00", "end": "17:00" },
+    { "dow": 7, "start": "16:00", "end": "17:00" }
+  ]
+}
+
+### 4. Ученик
+# Ожидаем: 201 Created
+# @name student
+POST {{host}}/api/v1/c/{{centerId}}/students
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "full_name": "Мамытова Аружан", "parent": { "name": "Мамытова Гулзат", "phone": "0555{{$randomInt 100000 999999}}" } }
+
+### 5. Записать на абонемент с сегодняшнего дня
+# Ожидаем: 201 Created, lessons_left 8
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "start_date": "{{today}}" }
+
+### 6. Занятия на сегодня (создаются по расписанию при первом открытии)
+# Ожидаем: 200 OK, {items: [...]}; у группы «Танцы, младшая» — занятие 16:00–17:00,
+# в students — Мамытова Аружан, status null, lessons_left 8, has_debt true (абонемент не оплачен).
+# Повторный запрос возвращает те же занятия (новых не создаёт).
+# @name lessons
+GET {{host}}/api/v1/c/{{centerId}}/lessons?date={{today}}
+
+### 7. Отметить «был»
+# Ожидаем: 200 OK, status "present", lessons_left 7, marked_count 1
+# (если в items[0] оказалась другая группа — подставьте нужный id занятия в @lessonId)
+PUT {{host}}/api/v1/c/{{centerId}}/lessons/{{lessonId}}/attendance
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "marks": [{ "student_id": "{{studentId}}", "status": "present" }] }
+
+### 8. Исправить на «уважительная»
+# Ожидаем: 200 OK, status "excused", lessons_left 8 (уважительная не списывает — занятие вернулось)
+PUT {{host}}/api/v1/c/{{centerId}}/lessons/{{lessonId}}/attendance
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "marks": [{ "student_id": "{{studentId}}", "status": "excused" }] }
+
+### 9. Исправить на «не был»
+# Ожидаем: 200 OK, status "absent", lessons_left 7
+PUT {{host}}/api/v1/c/{{centerId}}/lessons/{{lessonId}}/attendance
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "marks": [{ "student_id": "{{studentId}}", "status": "absent" }] }
+
+### 10. Снять отметку
+# Ожидаем: 200 OK, status null, lessons_left 8
+PUT {{host}}/api/v1/c/{{centerId}}/lessons/{{lessonId}}/attendance
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "marks": [{ "student_id": "{{studentId}}", "status": null }] }
+
+### 11. Внеплановое занятие сегодня в 19:00
+# Ожидаем: 201 Created, end_time null
+# @name extra
+POST {{host}}/api/v1/c/{{centerId}}/lessons
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "date": "{{today}}", "start_time": "19:00" }
+
+### 12. Отметить «был» на внеплановом
+# Ожидаем: 200 OK, lessons_left 7
+PUT {{host}}/api/v1/c/{{centerId}}/lessons/{{extraId}}/attendance
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "marks": [{ "student_id": "{{studentId}}", "status": "present" }] }
+
+### 13. Отменить внеплановое занятие (праздник) — отметки удаляются, занятие возвращается
+# Ожидаем: 200 OK, cancelled true, marked_count 0, lessons_left 8
+PATCH {{host}}/api/v1/c/{{centerId}}/lessons/{{extraId}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "cancelled": true }
+
+### 14. Отметить на отменённом занятии
+# Ожидаем: 409 Conflict, error.code "lesson_cancelled"
+PUT {{host}}/api/v1/c/{{centerId}}/lessons/{{extraId}}/attendance
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "marks": [{ "student_id": "{{studentId}}", "status": "present" }] }
+
+### 15. История посещений ученика за месяц (для карточки)
+# Ожидаем: 200 OK, {items: []} — отметку из шага 10 сняли, на отменённом занятии отметок нет
+GET {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/attendance?month={{month}}
+
+### 16. Дата дальше чем через 30 дней
+# Ожидаем: 400 Bad Request, error.field "date"
+GET {{host}}/api/v1/c/{{centerId}}/lessons?date={{$localDatetime "YYYY-MM-DD" 31 d}}

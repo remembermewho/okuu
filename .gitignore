@@ -2,4 +2,3 @@
 backend/bin/
 *.exe
 .vscode/
-requests/

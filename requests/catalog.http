@@ -1,0 +1,165 @@
+# Тарифы и группы — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Запросы — по порядку сверху вниз; файл можно прогонять повторно.
+# Цены — в тыйынах: 300000 = 3000 сом.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@ownerId = {{login.response.body.$.id}}
+@monthlyId = {{monthly.response.body.$.id}}
+@packageId = {{package.response.body.$.id}}
+@groupId = {{group.response.body.$.id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "0700 100 200",
+  "password": "secret-pass"
+}
+
+### 2. Тариф «в месяц»
+# Ожидаем: 201 Created, kind "monthly", lessons_count null
+# @name monthly
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Английский, месяц",
+  "kind": "monthly",
+  "price": 300000,
+  "lessons_count": null
+}
+
+### 3. Абонемент на 8 занятий
+# Ожидаем: 201 Created, kind "package", lessons_count 8
+# @name package
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Абонемент 8 занятий",
+  "kind": "package",
+  "price": 400000,
+  "lessons_count": 8
+}
+
+### 4. Абонемент без числа занятий
+# Ожидаем: 400 Bad Request, error.code "validation", error.field "lessons_count"
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Сломанный",
+  "kind": "package",
+  "price": 400000
+}
+
+### 5. Активные тарифы
+# Ожидаем: 200 OK, {items: [...], next_cursor: null} — архивные не входят
+GET {{host}}/api/v1/c/{{centerId}}/tariffs
+
+### 6. Поменять цену (действует со следующего начисления, R6)
+# Ожидаем: 200 OK, price 350000
+PATCH {{host}}/api/v1/c/{{centerId}}/tariffs/{{monthlyId}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "price": 350000
+}
+
+### 7. Группа: ведёт сам владелец, пн и ср 16:00–17:30, тариф по умолчанию — месячный
+# Ожидаем: 201 Created, teacher_name — имя владельца, students_count 0
+# @name group
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Английский A1",
+  "teacher_id": "{{ownerId}}",
+  "schedule": [
+    { "dow": 1, "start": "16:00", "end": "17:30" },
+    { "dow": 3, "start": "16:00", "end": "17:30" }
+  ],
+  "default_tariff_id": "{{monthlyId}}"
+}
+
+### 8. Группа с пересечением в расписании
+# Ожидаем: 400 Bad Request, error.field "schedule", «Занятия 1 и 2 пересекаются по времени»
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Пересечение",
+  "schedule": [
+    { "dow": 2, "start": "10:00", "end": "11:30" },
+    { "dow": 2, "start": "11:00", "end": "12:00" }
+  ]
+}
+
+### 9. Группа с преподавателем не из этого центра
+# Ожидаем: 422 Unprocessable Entity, error.field "teacher_id"
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Чужой учитель",
+  "teacher_id": "00000000-0000-0000-0000-000000000001"
+}
+
+### 10. Список групп
+# Ожидаем: 200 OK, {items: [...], next_cursor: null}, у каждой группы teacher_name и students_count
+GET {{host}}/api/v1/c/{{centerId}}/groups
+
+### 11. Одна группа
+# Ожидаем: 200 OK
+GET {{host}}/api/v1/c/{{centerId}}/groups/{{groupId}}
+
+### 12. Снять преподавателя и сменить тариф на абонемент
+# Ожидаем: 200 OK, teacher_id null, default_tariff_id = абонемент
+PATCH {{host}}/api/v1/c/{{centerId}}/groups/{{groupId}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "teacher_id": null,
+  "default_tariff_id": "{{packageId}}"
+}
+
+### 13. Архивировать группу
+# Ожидаем: 204 No Content
+DELETE {{host}}/api/v1/c/{{centerId}}/groups/{{groupId}}
+Origin: {{origin}}
+
+### 14. Архивировать абонемент
+# Ожидаем: 204 No Content
+DELETE {{host}}/api/v1/c/{{centerId}}/tariffs/{{packageId}}
+Origin: {{origin}}
+
+### 15. Архивные тарифы
+# Ожидаем: 200 OK, {items: [абонемент с archived true], next_cursor: null}
+GET {{host}}/api/v1/c/{{centerId}}/tariffs?archived=true
+
+### 16. Назначить архивный тариф новой группе
+# Ожидаем: 422 Unprocessable Entity, error.field "default_tariff_id"
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "С архивным тарифом",
+  "default_tariff_id": "{{packageId}}"
+}

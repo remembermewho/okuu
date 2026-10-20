@@ -1,0 +1,183 @@
+# Ученики, родители, записи в группы — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Запросы — по порядку сверху вниз; файл можно прогонять повторно.
+# Деньги — в тыйынах: 300000 = 3000 сом. Баланс < 0 — долг.
+# @today — сегодняшняя дата на этом компьютере (для Бишкека совпадает с датой центра).
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@today = {{$localDatetime "YYYY-MM-DD"}}
+@parentPhone = 0555{{$randomInt 100000 999999}}
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@monthlyId = {{monthly.response.body.$.id}}
+@packageId = {{package.response.body.$.id}}
+@groupId = {{group.response.body.$.id}}
+@oldGroupId = {{oldGroup.response.body.$.id}}
+@studentId = {{student.response.body.$.id}}
+@siblingId = {{sibling.response.body.$.id}}
+@monthlyEnrollmentId = {{enrollMonthly.response.body.$.enrollment.id}}
+@packageEnrollmentId = {{enrollPackage.response.body.$.enrollment.id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "0700 100 200",
+  "password": "secret-pass"
+}
+
+### 2. Тариф «в месяц» — 3000 сом
+# Ожидаем: 201 Created
+# @name monthly
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "Английский, месяц", "kind": "monthly", "price": 300000, "lessons_count": null }
+
+### 3. Абонемент на 8 занятий — 4000 сом
+# Ожидаем: 201 Created
+# @name package
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "Абонемент 8", "kind": "package", "price": 400000, "lessons_count": 8 }
+
+### 4. Группа с месячным тарифом по умолчанию
+# Ожидаем: 201 Created
+# @name group
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Английский A1",
+  "schedule": [{ "dow": 2, "start": "15:00", "end": "16:00" }],
+  "default_tariff_id": "{{monthlyId}}"
+}
+
+### 4a. Вторая группа — для ученика, который учится давно
+# Ожидаем: 201 Created
+# @name oldGroup
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "Английский B1", "default_tariff_id": "{{monthlyId}}" }
+
+### 5. Ученик с родителем и скидкой 10%
+# Ожидаем: 201 Created, parent_existing false, balance 0
+# @name student
+POST {{host}}/api/v1/c/{{centerId}}/students
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "full_name": "Асанов Бакыт",
+  "birth_date": "2015-03-08",
+  "parent": { "name": "Асанова Гульнара", "phone": "{{parentPhone}}" },
+  "discount": { "kind": "percent", "value": 10 }
+}
+
+### 6. Второй ребёнок того же родителя (имя родителя другое — не перезапишется)
+# Ожидаем: 201 Created, parent_existing true, parent.name «Асанова Гульнара»
+# @name sibling
+POST {{host}}/api/v1/c/{{centerId}}/students
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "full_name": "Асанова Айпери",
+  "parent": { "name": "Мама", "phone": "{{parentPhone}}" }
+}
+
+### 7. Запись на месяц с сегодняшнего дня, первый месяц — полностью (R5)
+# Ожидаем: 201 Created, charge.amount -270000 (3000 сом − 10%), period = 1-е число, due_date = сегодня + 5
+# enrollment.billed_through = 1-е число текущего месяца: решение за этот месяц принято
+# @name enrollMonthly
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "start_date": "{{today}}", "first_month": "full" }
+
+### 8. Повторная запись в ту же группу
+# Ожидаем: 409 Conflict, error.code "already_enrolled"
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "start_date": "{{today}}", "first_month": "none" }
+
+### 8a. Ученик учится давно (перенос из Excel): прошлые месяцы не начисляются, текущий — по first_month
+# Ожидаем: 201 Created, одно начисление -270000 за текущий месяц, due_date = billing_day + due_days (6-е число)
+# @name enrollOld
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{oldGroupId}}", "start_date": "2024-09-02", "first_month": "full" }
+
+### 9. Второго ребёнка — на абонемент (R8: начисление сразу, lessons_left 8)
+# Ожидаем: 201 Created, charge.amount -400000, lessons_left 8
+# @name enrollPackage
+POST {{host}}/api/v1/c/{{centerId}}/students/{{siblingId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "tariff_id": "{{packageId}}", "start_date": "{{today}}" }
+
+### 10. Продлить абонемент
+# Ожидаем: 200 OK, lessons_left 16, новое начисление -400000
+POST {{host}}/api/v1/c/{{centerId}}/students/{{siblingId}}/enrollments/{{packageEnrollmentId}}/renew
+Origin: {{origin}}
+
+### 11. Список учеников: поиск по телефону родителя
+# Ожидаем: 200 OK, двое детей, balance -540000 (две месячные записи) и -800000
+GET {{host}}/api/v1/c/{{centerId}}/students?q={{parentPhone}}
+
+### 12. Список: ученики группы, по 1 на страницу
+# Ожидаем: 200 OK, {items: [1 ученик], next_cursor: "…"} — подставьте next_cursor в &cursor= для следующей страницы
+GET {{host}}/api/v1/c/{{centerId}}/students?group={{groupId}}&limit=1
+
+### 13. Карточка ученика
+# Ожидаем: 200 OK, parent с tg_status "none", две активные записи, balance -540000
+GET {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}
+
+### 14. Изменить родителя (виден у обоих детей) и снять скидку
+# Ожидаем: 200 OK, parent.name «Гульнара Асанова», discount null
+PATCH {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "discount": null,
+  "parent": { "name": "Гульнара Асанова" }
+}
+
+### 15. Завершить запись на месяц (по умолчанию — сегодня)
+# Ожидаем: 200 OK, active false, end_date = сегодня
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments/{{monthlyEnrollmentId}}/end
+Origin: {{origin}}
+
+### 16. Второй ребёнок ушёл (R7): активные записи закрываются, долг остаётся
+# Ожидаем: 200 OK, status "left", все enrollments active false, balance -800000
+PATCH {{host}}/api/v1/c/{{centerId}}/students/{{siblingId}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "status": "left" }
+
+### 17. Ушедшего нельзя записать заново
+# Ожидаем: 409 Conflict, error.code "student_left"
+POST {{host}}/api/v1/c/{{centerId}}/students/{{siblingId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "start_date": "{{today}}", "first_month": "full" }

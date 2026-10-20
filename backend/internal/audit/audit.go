@@ -44,6 +44,8 @@ const (
 	ImportCommit         = "import.commit"
 	CenterUpdate         = "center.update"
 	ReminderManual       = "reminder.manual" // «Напомнить»: кому ушло, сколько пропущено
+	// Оплата от провайдера на сумму, отличную от ссылки: записана как пришла.
+	PaymentAmountMismatch = "payment.amount_mismatch"
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

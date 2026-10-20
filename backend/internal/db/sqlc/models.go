@@ -173,13 +173,21 @@ type Parent struct {
 }
 
 type PaymentLink struct {
-	Token     string    `json:"token"`
-	CenterID  uuid.UUID `json:"center_id"`
-	ParentID  uuid.UUID `json:"parent_id"`
-	Amount    int64     `json:"amount"`
-	FinikID   *string   `json:"finik_id"`
-	Status    string    `json:"status"`
-	ExpiresAt time.Time `json:"expires_at"`
+	Token             string     `json:"token"`
+	CenterID          uuid.UUID  `json:"center_id"`
+	ParentID          uuid.UUID  `json:"parent_id"`
+	Amount            int64      `json:"amount"`
+	ProviderPaymentID *string    `json:"provider_payment_id"`
+	Status            string     `json:"status"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	ID                uuid.UUID  `json:"id"`
+	StudentID         uuid.UUID  `json:"student_id"`
+	Provider          string     `json:"provider"`
+	PayUrl            *string    `json:"pay_url"`
+	QrPayload         *string    `json:"qr_payload"`
+	CreatedAt         time.Time  `json:"created_at"`
+	PaidAt            *time.Time `json:"paid_at"`
+	LedgerID          *uuid.UUID `json:"ledger_id"`
 }
 
 type Session struct {

@@ -18,6 +18,7 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/notify"
 	"okuu/internal/parents"
+	"okuu/internal/payments"
 	"okuu/internal/reminders"
 	"okuu/internal/telegram"
 	"okuu/internal/telegram/bot"
@@ -35,6 +36,9 @@ type botEnv struct {
 	tg  *telegramtest.Server
 	bot *bot.Bot
 	rem *reminders.Service // напоминания через ту же очередь отправки
+	pay *payments.Service  // оплата: онлайн-провайдер — фейковый (для центров с finik_creds)
+
+	provider *fakeProvider
 
 	mu         sync.Mutex
 	nextUpdate int64
@@ -61,7 +65,10 @@ func newBotEnv(t *testing.T) *botEnv {
 			OnBlocked: bot.MarkBlocked(api.pool, logger),
 			Logger:    logger,
 		})
-		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger})
+		env.provider = newFakeProvider()
+		env.pay = payments.NewService(payments.Options{Pool: api.pool, Online: env.provider, AppOrigin: testOrigin, Now: api.clock.Now, Logger: logger})
+		d.Payments = env.pay
+		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger, Payments: env.pay})
 		env.rem = reminders.NewService(api.pool, sender, api.clock.Now, logger)
 		d.Reminders = env.rem
 		d.Bot = env.bot

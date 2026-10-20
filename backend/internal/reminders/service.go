@@ -164,6 +164,15 @@ func childDebt(name string, d billing.Debt) notify.ChildDebt {
 	return notify.ChildDebt{Name: name, Debt: d.Debt, Due: d.OldestDue, DaysOverdue: d.DaysOverdue}
 }
 
+// payKids — кнопки «Оплатить» по детям сообщения (students и children идут парами).
+func payKids(students []uuid.UUID, children []notify.ChildDebt) []bot.PayChild {
+	out := make([]bot.PayChild, 0, len(students))
+	for i, id := range students {
+		out = append(out, bot.PayChild{StudentID: id, Name: children[i].Name, Debt: children[i].Debt})
+	}
+	return out
+}
+
 // payDetails — реквизиты в сообщении о долге, пока центр не подключил Finik.
 func payDetails(details *string, finikConnected bool) string {
 	if finikConnected || details == nil {
@@ -366,7 +375,7 @@ func (s *Service) autoCenter(ctx context.Context, c sqlc.ListCentersForReminders
 		}
 		tx := notify.For(g.r.lang)
 		text := notify.DebtReminder(tx, g.kind, c.Name, g.due, g.children, details)
-		outcome, err := s.send(ctx, id, g.r, text, bot.BalanceKeyboard(tx), true)
+		outcome, err := s.send(ctx, id, g.r, text, bot.DebtKeyboard(tx, payKids(g.students, g.children)), true)
 		if err != nil {
 			return res, err
 		}
@@ -543,7 +552,7 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 	for _, g := range groups {
 		tx := notify.For(g.r.lang)
 		text := notify.DebtReminder(tx, notify.KindManual, c.Name, today, g.children, details)
-		outcome, err := s.send(ctx, g.id, g.r, text, bot.BalanceKeyboard(tx), true)
+		outcome, err := s.send(ctx, g.id, g.r, text, bot.DebtKeyboard(tx, payKids(g.students, g.children)), true)
 		if err != nil {
 			return res, err
 		}

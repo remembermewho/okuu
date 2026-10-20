@@ -1,0 +1,95 @@
+# Импорт учеников из Excel / CSV — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Запросы — по порядку сверху вниз; файл можно прогонять повторно (тариф и телефоны — случайные).
+# Превью хранится час; подтверждение — одной транзакцией, только строки ok/warning без дубликатов.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@tariffName = Импорт, месяц {{$randomInt 1000 9999}}
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@previewId = {{preview.response.body.$.preview_id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Шаблон .xlsx (в REST Client: «Save Response Body» → okuu-import.xlsx)
+# Ожидаем: 200 OK, файл с листами «Ученики» (заголовки + пример) и «Справка» (тарифы и группы центра).
+# Колонка «Осталось занятий» — для абонементов: абонемент из Excel не начисляется заново,
+# остаток берётся из файла (обязателен, 0–200); долг — только через «Текущий долг».
+GET {{host}}/api/v1/c/{{centerId}}/import/template.xlsx
+
+### 3. Тариф для импорта (в файле тариф ищется по названию без учёта регистра)
+# Ожидаем: 201 Created
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "{{tariffName}}", "kind": "monthly", "price": 300000, "lessons_count": null }
+
+### 4. Превью CSV: разделитель «;», заголовки — синонимы, даты и телефоны в разных форматах
+# Ожидаем: 200 OK, summary {total 4, warning 3, error 1, to_import 3} при первом прогоне:
+#   строки 2–4 — warning «Группа … будет создана без расписания» (групп «Импорт: …» ещё нет);
+#   строка 4 — ещё и «Телефон без 0 в начале (Excel убрал ноль)»; строка 5 — error (телефон, тариф, дата).
+#   При повторном прогоне группы уже есть — строка 2 станет ok.
+# @name preview
+POST {{host}}/api/v1/c/{{centerId}}/import/preview
+Origin: {{origin}}
+Content-Type: multipart/form-data; boundary=okuu-boundary
+
+--okuu-boundary
+Content-Disposition: form-data; name="file"; filename="ученики.csv"
+Content-Type: text/csv
+
+ФИО;Родитель;Телефон;Группа;Тариф;Дата начала;Долг
+Исаков Нурбек;Исакова Жылдыз;0555 {{$randomInt 100000 999999}};Импорт: группа А;{{tariffName}};01.09.2025;1 500
+Осмонова Мээрим;Осмонов Талант;+996 777 {{$randomInt 100000 999999}};Импорт: группа Б;{{tariffName}};2025-10-01;
+Сыдыков Арген;Сыдыкова Бермет;700{{$randomInt 100000 999999}};Импорт: группа А;{{tariffName}};;2500,50
+Ошибкина Строка;Родитель;123;Импорт: группа А;Нет такого тарифа;31.02.2025;
+--okuu-boundary--
+
+### 5. Подтвердить импорт: за текущий месяц не начислять (first_month none)
+# Ожидаем: 200 OK, {students_created 3, parents_created 3, groups_created 2, enrollments_created 3,
+#   skipped 0, debt_total 400050} — начальные долги 1500 и 2500,50 сом внесены поправками
+POST {{host}}/api/v1/c/{{centerId}}/import/commit
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "preview_id": "{{previewId}}", "first_month": "none" }
+
+### 6. Подтвердить ещё раз
+# Ожидаем: 409 Conflict, error.code "import_already_committed"
+POST {{host}}/api/v1/c/{{centerId}}/import/commit
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "preview_id": "{{previewId}}", "first_month": "none" }
+
+### 7. Импортированные ученики
+# Ожидаем: 200 OK, Исаков (balance -150000), Осмонова (0), Сыдыков (-250050)
+GET {{host}}/api/v1/c/{{centerId}}/students?q=ов
+
+### 8. Должники: начальный долг сегодня — в pending (срок сегодня), с завтрашнего дня — в items (R14)
+# Ожидаем: 200 OK, summary.pending_total включает 400050
+GET {{host}}/api/v1/c/{{centerId}}/debtors
+
+### 9. Превью готового xlsx из тестов (нужны тарифы «Английский, месяц» и «Абонемент 8» — из catalog.http / students.http)
+# Ожидаем: 200 OK; строка 3 — абонемент с остатком 5, телефон без 0 и новая группа «Шахматы»;
+# строка 4 — ошибки; строка 5 — дубликат строки 2; строка 7 — остаток у месячного тарифа не учитывается;
+# строки 8–9 — абонемент без остатка и с остатком 201 (ошибки)
+POST {{host}}/api/v1/c/{{centerId}}/import/preview
+Origin: {{origin}}
+Content-Type: multipart/form-data; boundary=okuu-boundary
+
+--okuu-boundary
+Content-Disposition: form-data; name="file"; filename="students.xlsx"
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+
+< ../backend/internal/importer/testdata/students.xlsx
+--okuu-boundary--

@@ -1,0 +1,77 @@
+# Напоминания родителям (R17–R19) — ручная проверка через VS Code REST Client.
+# Сервер: make run с ботом (TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME). Родитель «Тестов» привязан
+# к вашему Telegram по telegram.http. Запросы — по порядку сверху вниз.
+#
+# Автонапоминания (задача reminders.auto, раз в час, 9:00–20:00 по поясу центра):
+#   за 3 дня до срока, в день срока, через 3 и 7 дней просрочки — одно сообщение на родителя в день.
+# Событийные — сразу (ночью — утром): «оплата получена», «осталось 1 занятие», «не был» (notify_absent).
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@studentId = {{student.response.body.$.items[0].id}}
+@groupId = {{groups.response.body.$.items[0].id}}
+
+### 1. Войти владельцем
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Настройки: реквизиты (идут в напоминание, пока Finik не подключён) и «не был»
+# Ожидаем: 200 OK, notify_absent true
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "pay_details": "MBank: 0700 000 000 (получатель — центр)", "notify_absent": true, "reminders_on": true }
+
+### 3. Ученик «Тестов Бот» из telegram.http
+# @name student
+GET {{host}}/api/v1/c/{{centerId}}/students?q=Тестов
+
+### 4. Группа для записи
+# @name groups
+GET {{host}}/api/v1/c/{{centerId}}/groups
+
+### 5. Записать в группу с начислением за текущий месяц — появится долг
+# Ожидаем: 201 Created, charge.amount < 0
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "start_date": "{{$datetime 'YYYY-MM-DD'}}", "first_month": "full" }
+
+### 6. «Напомнить» ученику
+# Ожидаем: 200 OK, {sent 1, messages 1, skipped []}; в Telegram — «напоминание об оплате» с суммой и реквизитами.
+# Повтор в течение часа — skipped [{reason "rate_limited"}].
+# Причины пропуска: no_telegram, stopped, blocked, rate_limited, no_debt, send_failed.
+POST {{host}}/api/v1/c/{{centerId}}/reminders
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "student_ids": ["{{studentId}}"] }
+
+### 7. «Напомнить всем должникам»
+POST {{host}}/api/v1/c/{{centerId}}/reminders
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "all": true }
+
+### 8. Оплата — в Telegram сразу «спасибо, оплата получена» (если сейчас 9:00–20:00 по Бишкеку)
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+Idempotency-Key: reminders-http-{{$randomInt 1 999999}}
+
+{ "kind": "payment", "amount": 100000, "method": "cash" }
+
+### 9. Карточка: parent.last_reminder_at — время последнего напоминания о долге
+GET {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}
+
+### 10. Журнал: reminder.manual — кто и кому напомнил
+GET {{host}}/api/v1/c/{{centerId}}/audit?action=reminder.

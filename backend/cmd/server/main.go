@@ -35,6 +35,8 @@ import (
 	"okuu/internal/importer"
 	"okuu/internal/jobs"
 	"okuu/internal/parents"
+	"okuu/internal/payments"
+	"okuu/internal/payments/finik"
 	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
@@ -139,10 +141,19 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		tgBot  *bot.Bot
 		sender *telegram.Sender // nil — Telegram выключен: напоминания не отправляются
 	)
+	// Оплата родителем: по умолчанию — реквизиты центра; Finik — за флагом (пока заглушка).
+	var online payments.Provider
+	if cfg.FinikEnabled {
+		online = finik.New(cfg.FinikAPIKey.Reveal())
+		logger.Warn("FINIK_ENABLED: провайдер Finik — заглушка, онлайн-оплата пока не работает")
+	}
+	paymentsSvc := payments.NewService(payments.Options{Pool: pool, Online: online, AppOrigin: cfg.AppOrigin, Now: time.Now, Logger: logger})
+	deps.Payments = paymentsSvc
+
 	if cfg.Telegram.Mode != config.TelegramOff {
 		tgAPI = telegram.NewClient(cfg.Telegram.Token.Reveal(), telegram.ClientOptions{})
 		sender = telegram.NewSender(tgAPI, telegram.SenderOptions{OnBlocked: bot.MarkBlocked(pool, logger), Logger: logger})
-		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger})
+		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Payments: paymentsSvc})
 		if cfg.Telegram.Mode == config.TelegramWebhook {
 			deps.Bot = tgBot
 			deps.TelegramWebhookSecret = cfg.Telegram.WebhookSecret.Reveal()
@@ -159,6 +170,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 
 	// Фоновые задачи: billing.monthly и reminders.auto раз в час (и сразу при старте).
 	go (&jobs.Scheduler{Pool: pool, Logger: logger, Reminders: remindersSvc}).Run(ctx)
+	// payments.reconcile раз в 15 минут: потерянные вебхуки, истёкшие ссылки.
+	go jobs.RunReconcile(ctx, pool, logger, paymentsSvc, jobs.ReconcileInterval)
 
 	if tgBot != nil {
 		go tgBot.Run(ctx)

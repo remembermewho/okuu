@@ -1,0 +1,154 @@
+# Оплаты, отмены, история, должники — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Запросы — по порядку сверху вниз; файл можно прогонять повторно.
+# Деньги — в тыйынах: 300000 = 3000 сом. Баланс < 0 — долг.
+#
+# Ежемесячные начисления (billing.monthly) сервер запускает сам раз в час. Вручную, для проверки:
+#   cd backend && go run ./cmd/server billing run --center=<centerId> --date=2026-11-01
+# Повторный запуск ничего не дублирует.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@today = {{$localDatetime "YYYY-MM-DD"}}
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@tariffId = {{tariff.response.body.$.id}}
+@groupId = {{group.response.body.$.id}}
+@studentId = {{student.response.body.$.id}}
+@paymentId = {{payment.response.body.$.id}}
+# Ключ уникален для каждого прогона файла (новый ученик) и одинаков при повторе запроса.
+@payKey = pay-{{studentId}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Тариф «в месяц» — 3000 сом
+# Ожидаем: 201 Created
+# @name tariff
+POST {{host}}/api/v1/c/{{centerId}}/tariffs
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "Математика, месяц", "kind": "monthly", "price": 300000, "lessons_count": null }
+
+### 3. Группа
+# Ожидаем: 201 Created
+# @name group
+POST {{host}}/api/v1/c/{{centerId}}/groups
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "name": "Математика 5 класс", "default_tariff_id": "{{tariffId}}" }
+
+### 4. Ученик
+# Ожидаем: 201 Created
+# @name student
+POST {{host}}/api/v1/c/{{centerId}}/students
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "full_name": "Токтогулов Нурсултан", "parent": { "name": "Токтогулова Айнура", "phone": "0555{{$randomInt 100000 999999}}" } }
+
+### 5. Запись с сегодняшнего дня, первый месяц полностью — начисление 3000 сом
+# Ожидаем: 201 Created, charge.amount -300000
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/enrollments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "group_id": "{{groupId}}", "start_date": "{{today}}", "first_month": "full" }
+
+### 6. Оплата наличными 1000 сом (частичная)
+# Ожидаем: 201 Created, kind "payment", amount 100000
+# @name payment
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+Idempotency-Key: {{payKey}}
+
+{ "kind": "payment", "amount": 100000, "method": "cash", "comment": "Наличные в кассу" }
+
+### 7. Повтор того же запроса (сеть моргнула, фронт отправил ещё раз)
+# Ожидаем: 200 OK и та же операция (тот же id), вторая оплата не создаётся
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+Idempotency-Key: {{payKey}}
+
+{ "kind": "payment", "amount": 100000, "method": "cash", "comment": "Наличные в кассу" }
+
+### 8. Тот же Idempotency-Key, но другая сумма
+# Ожидаем: 422 Unprocessable Entity, error.code "idempotency_mismatch"
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+Idempotency-Key: {{payKey}}
+
+{ "kind": "payment", "amount": 200000, "method": "cash" }
+
+### 9. Без Idempotency-Key
+# Ожидаем: 400 Bad Request, error.field "Idempotency-Key"
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "kind": "payment", "amount": 100000, "method": "cash" }
+
+### 10. Возврат 200 сом на карту (уменьшает баланс)
+# Ожидаем: 201 Created, amount -20000
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+Idempotency-Key: refund-{{studentId}}
+
+{ "kind": "refund", "amount": 20000, "method": "card" }
+
+### 11. Поправка: долг за сентябрь из Excel (со знаком минус, причина обязательна)
+# Ожидаем: 201 Created, amount -150000
+POST {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/payments
+Origin: {{origin}}
+Content-Type: application/json
+Idempotency-Key: correction-{{studentId}}
+
+{ "kind": "correction", "amount": -150000, "comment": "Долг за сентябрь из Excel" }
+
+### 12. Отменить оплату из шага 6 (ошибка кассира)
+# Ожидаем: 200 OK, cancelled true, cancel_reason «Внесли не тому ученику»
+POST {{host}}/api/v1/c/{{centerId}}/ledger/{{paymentId}}/cancel
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "reason": "Внесли не тому ученику" }
+
+### 13. Отменить ещё раз
+# Ожидаем: 409 Conflict, error.code "already_cancelled"
+POST {{host}}/api/v1/c/{{centerId}}/ledger/{{paymentId}}/cancel
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "reason": "Ещё раз" }
+
+### 14. История операций ученика — новые сверху
+# Ожидаем: 200 OK, {items: [поправка, возврат, отменённая оплата, начисление], next_cursor: null}
+GET {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}/ledger
+
+### 15. Карточка: баланс
+# Ожидаем: 200 OK, balance -470000 (−300000 − 20000 − 150000; отменённая оплата не считается)
+GET {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}
+
+### 16. Должники и итоги месяца
+# Ожидаем: 200 OK, {items, next_cursor: null, summary}. Ученика из этого файла в items нет:
+# у него долг, но срок ни одного списания ещё не прошёл (начисление — сегодня + 5, возврат и
+# поправка — сегодня), а должник по R14 — только с просрочкой. Появится, когда срок пройдёт.
+# summary за текущий месяц: charged, collected (оплаты − возвраты), debt_total, debtors_count;
+# pending_total / pending_count — долг без просрочки (сюда попадёт ученик из этого файла: 470000 / 1).
+GET {{host}}/api/v1/c/{{centerId}}/debtors
+
+### 17. Должники одной группы
+# Ожидаем: 200 OK, только ученики, у которых была запись в эту группу; summary — по всему центру
+GET {{host}}/api/v1/c/{{centerId}}/debtors?group={{groupId}}

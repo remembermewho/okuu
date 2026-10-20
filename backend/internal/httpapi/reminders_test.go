@@ -165,7 +165,7 @@ func TestRemindersAutoKindsAndTiming(t *testing.T) {
 		if m.Text != wantText {
 			t.Errorf("день %d:\n%s\nwant:\n%s", day, m.Text, wantText)
 		}
-		if b := m.Buttons(); len(b) != 1 || b[0] != "Баланс и посещения|balance" {
+		if b := m.Buttons(); fmt.Sprint(b) != fmt.Sprintf("[💳 Оплатить: Бакыт — 3 000 сом|pay:%s Баланс и посещения|balance]", s.ID) {
 			t.Errorf("кнопки: %v", b)
 		}
 		rows := notificationsOf(t, env.api, s.Parent.ID)

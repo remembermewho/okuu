@@ -21,6 +21,15 @@ func TestSom(t *testing.T) {
 	}
 }
 
+func TestFirstName(t *testing.T) {
+	for in, want := range map[string]string{"Асанов Бакыт": "Бакыт", "Асанова Айпери Нурлановна": "Айпери",
+		"  Тимур  ": "Тимур", "": "", "Ли  Мин": "Мин"} {
+		if got := FirstName(in); got != want {
+			t.Errorf("FirstName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestPluralRU(t *testing.T) {
 	for n, want := range map[int64]string{1: "занятие", 2: "занятия", 4: "занятия", 5: "занятий", 11: "занятий",
 		12: "занятий", 14: "занятий", 21: "занятие", 22: "занятия", 25: "занятий", 101: "занятие", 111: "занятий"} {

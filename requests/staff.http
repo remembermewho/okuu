@@ -1,0 +1,109 @@
+# Сотрудники и приглашения — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Запросы — по порядку сверху вниз.
+#
+# Шаг 3: после «создать приглашение» скопируйте из ответа часть url после /invite/
+# в @inviteToken ниже — REST Client не умеет вырезать её сам.
+# Телефон нового сотрудника случайный, поэтому файл можно прогонять повторно.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@ownerPhone = 0700 100 200
+@ownerPassword = secret-pass
+@staffPhone = 0555{{$randomInt 100000 999999}}
+@inviteToken = NdEBG6Yy_opcR7mflU8gcyMUG5QSKrR1PJfJrMzrrVE
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@staffId = {{accept.response.body.$.id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK, centers[0].role = "owner"
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "{{ownerPhone}}",
+  "password": "{{ownerPassword}}"
+}
+
+### 2. Создать приглашение преподавателю
+# Ожидаем: 201 Created, {id, url, role: "teacher", name, expires_at (+7 дней)}
+# Токен есть только в этом ответе (внутри url) — дальше его нигде не увидеть.
+POST {{host}}/api/v1/c/{{centerId}}/staff/invites
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "role": "teacher",
+  "name": "Бекзат Токтогулов"
+}
+
+### 3. Действующие приглашения центра
+# Ожидаем: 200 OK, {items: [...], next_cursor: null} — без токенов и url
+GET {{host}}/api/v1/c/{{centerId}}/staff/invites
+
+### 4. Открыть приглашение по ссылке (публично, без входа)
+# Ожидаем: 200 OK, {center_name, role: "teacher", name: "Бекзат Токтогулов", expires_at}
+# @no-cookie-jar
+GET {{host}}/api/v1/invites/{{inviteToken}}
+
+### 5. Принять приглашение новым пользователем (без входа)
+# Ожидаем: 200 OK, профиль нового сотрудника: centers[0].role = "teacher"; name взят из приглашения.
+# @no-cookie-jar — иначе cookie нового сотрудника заменит сессию владельца для запросов ниже.
+# @name accept
+# @no-cookie-jar
+POST {{host}}/api/v1/invites/{{inviteToken}}/accept
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "{{staffPhone}}",
+  "password": "teacher-pass"
+}
+
+### 6. Повторное принятие того же приглашения
+# Ожидаем: 404 Not Found, error.code "invite_invalid"
+# @no-cookie-jar
+POST {{host}}/api/v1/invites/{{inviteToken}}/accept
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "0555000000",
+  "password": "teacher-pass"
+}
+
+### 7. Сотрудники центра
+# Ожидаем: 200 OK, {items: [owner, teacher «Бекзат Токтогулов»], next_cursor: null}
+GET {{host}}/api/v1/c/{{centerId}}/staff
+
+### 8. Сменить роль: teacher → admin
+# Ожидаем: 200 OK, {user_id, name, phone, role: "admin"}
+PATCH {{host}}/api/v1/c/{{centerId}}/staff/{{staffId}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "role": "admin"
+}
+
+### 9. Попытка понизить владельца
+# Ожидаем: 409 Conflict, error.code "owner_protected"
+PATCH {{host}}/api/v1/c/{{centerId}}/staff/{{login.response.body.$.id}}
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "role": "admin"
+}
+
+### 10. Удалить сотрудника из центра
+# Ожидаем: 204 No Content (если у него есть активные группы — 409 teacher_has_groups)
+DELETE {{host}}/api/v1/c/{{centerId}}/staff/{{staffId}}
+Origin: {{origin}}
+
+### 11. Сотрудники после удаления
+# Ожидаем: 200 OK, {items: [только владелец], next_cursor: null}
+GET {{host}}/api/v1/c/{{centerId}}/staff

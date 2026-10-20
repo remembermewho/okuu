@@ -25,6 +25,10 @@ type Config struct {
 	AppOrigin     string // разрешённый Origin для изменяющих запросов (CSRF)
 	EncryptionKey []byte
 	Telegram      Telegram
+	// FinikEnabled — онлайн-оплата через Finik (FINIK_ENABLED). Пока провайдер — заглушка:
+	// без него оплата идёт по реквизитам центра.
+	FinikEnabled bool
+	FinikAPIKey  Secret
 }
 
 // Режимы Telegram-бота.
@@ -96,6 +100,14 @@ func Load() (Config, error) {
 	if cfg.Telegram, err = loadTelegram(cfg.Env); err != nil {
 		errs = append(errs, err)
 	}
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("FINIK_ENABLED"))); v {
+	case "", "0", "false", "no":
+	case "1", "true", "yes":
+		cfg.FinikEnabled = true
+	default:
+		errs = append(errs, fmt.Errorf("FINIK_ENABLED: ожидается true или false, получено %q", v))
+	}
+	cfg.FinikAPIKey = Secret(strings.TrimSpace(os.Getenv("FINIK_API_KEY")))
 
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)

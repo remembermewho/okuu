@@ -1,0 +1,76 @@
+# Настройки центра (экран S8) — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http (сначала выполните там register).
+# Читают настройки owner и admin, меняет только owner. Ключи Finik здесь не читаются и не пишутся.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+
+@centerId = {{login.response.body.$.centers[0].id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Текущие настройки
+# Ожидаем: 200 OK, {name, phone, timezone "Asia/Bishkek", billing_day 1, billing_day_next null,
+#   due_days 5, excused_deducts false, reminders_on true, pay_details, plan, finik_connected}
+GET {{host}}/api/v1/c/{{centerId}}/settings
+
+### 3. Изменить название, срок оплаты, правило «уважительной» и реквизиты
+# Ожидаем: 200 OK с новыми значениями; в журнале — center.update
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "name": "Учебный центр «Билим»",
+  "due_days": 7,
+  "excused_deducts": false,
+  "pay_details": "MBank: 0700 100 200 (Асанова Айгуль). В комментарии — ФИО ребёнка."
+}
+
+### 4. Сменить день начисления на 10-е
+# Ожидаем: 200 OK, billing_day остаётся прежним в этом месяце, billing_day_next 10,
+#   billing_day_next_from — 1-е число следующего месяца (новый день действует со следующего периода)
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "billing_day": 10 }
+
+### 5. Передумали: вернуть 1-е число
+# Ожидаем: 200 OK, billing_day 1, billing_day_next null
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "billing_day": 1 }
+
+### 6. Несуществующий часовой пояс
+# Ожидаем: 400 Bad Request, error.field "timezone"
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "timezone": "Asia/Frunze2" }
+
+### 7. День начисления 29
+# Ожидаем: 400 Bad Request, error.field "billing_day" (1–28)
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "billing_day": 29 }
+
+### 8. Попытка записать ключи Finik через настройки
+# Ожидаем: 400 Bad Request, error.code "bad_request" (такого поля нет)
+PATCH {{host}}/api/v1/c/{{centerId}}/settings
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "finik_creds": "secret" }

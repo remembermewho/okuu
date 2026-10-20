@@ -1,0 +1,57 @@
+# Приглашение родителя в Telegram-бот — ручная проверка через VS Code REST Client.
+# Сервер: make run с TELEGRAM_BOT_TOKEN и TELEGRAM_BOT_USERNAME в .env (TELEGRAM_MODE=polling).
+# Владелец из auth.http (сначала выполните там register). Запросы — по порядку сверху вниз.
+#
+# Дальше — в Telegram с телефона, номер которого указан у родителя:
+#   открыть bot_url → «Запустить» → «Согласен» → «📱 Поделиться номером» → «Готово! …»;
+#   /balance — баланс, абонемент, посещения; /lang — язык; /stop — отключить; /start — включить снова.
+# Статус связи виден в карточке ученика: parent.tg_status (none → active → stopped / blocked).
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+# Подставьте номер телефона своего Telegram-аккаунта: с ним бот сверит контакт.
+@myPhone = 0700 000 000
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@studentId = {{student.response.body.$.id}}
+@parentId = {{student.response.body.$.parent.id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Ученик с родителем на ваш номер (если родитель с этим номером уже есть — он переиспользуется)
+# Ожидаем: 201 Created, parent.tg_status "none", parent.last_reminder_at null
+# @name student
+POST {{host}}/api/v1/c/{{centerId}}/students
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "full_name": "Тестов Бот", "parent": { "name": "Родитель Тестов", "phone": "{{myPhone}}" } }
+
+### 3. Пригласить родителя
+# Ожидаем: 201 Created, {id, bot_url "https://t.me/<бот>?start=<токен>", expires_at (+30 дней),
+#   texts {ru, ky}, lang "ru", whatsapp_url "https://wa.me/996…?text=…", tg_status}
+# Без TELEGRAM_BOT_USERNAME — 409 telegram_not_configured.
+POST {{host}}/api/v1/c/{{centerId}}/parents/{{parentId}}/invite
+Origin: {{origin}}
+
+### 4. Карточка: после привязки в Telegram — parent.tg_status "active"
+GET {{host}}/api/v1/c/{{centerId}}/students/{{studentId}}
+
+### 5. Подключённые / отключившие уведомления / заблокировавшие бота
+GET {{host}}/api/v1/c/{{centerId}}/students?tg=active
+
+###
+GET {{host}}/api/v1/c/{{centerId}}/students?tg=stopped
+
+###
+GET {{host}}/api/v1/c/{{centerId}}/students?tg=blocked
+
+### 6. Журнал: invite.create, parent.telegram_link (с consent_at), parent.telegram_stop / _resume
+GET {{host}}/api/v1/c/{{centerId}}/audit?action=parent.

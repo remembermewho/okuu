@@ -26,6 +26,7 @@ import (
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
 	"okuu/internal/parents"
+	"okuu/internal/payments"
 	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
@@ -91,7 +92,8 @@ func newTestAPIWith(t *testing.T, setup func(api *testAPI, d *httpapi.Deps)) *te
 		Importer: importer.NewService(pool, st, gr, clk.Now),
 		Settings: settings.NewService(pool, clk.Now), Reports: reports.NewService(pool, clk.Now),
 		Parents: parents.NewService(pool, testBotUsername), Pool: pool,
-		Reminders: reminders.NewService(pool, nil, clk.Now, nil), // без Telegram; бот — в newBotEnv
+		Reminders: reminders.NewService(pool, nil, clk.Now, nil),                                          // без Telegram; бот — в newBotEnv
+		Payments:  payments.NewService(payments.Options{Pool: pool, AppOrigin: testOrigin, Now: clk.Now}), // только реквизиты
 		AppOrigin: testOrigin}
 	if setup != nil {
 		setup(api, &d)

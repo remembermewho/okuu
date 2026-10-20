@@ -13,6 +13,7 @@ import (
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
 	"okuu/internal/parents"
+	"okuu/internal/payments"
 	"okuu/internal/reminders"
 	"okuu/internal/staff"
 	"okuu/internal/students"
@@ -63,6 +64,13 @@ var knownErrors = []struct {
 
 	{parents.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{parents.ErrBotNotConfigured, http.StatusConflict, "telegram_not_configured", "Telegram-бот не настроен (TELEGRAM_BOT_USERNAME)"},
+
+	{payments.ErrNotFound, http.StatusNotFound, "not_found", "Ссылка оплаты недействительна или устарела"},
+	{payments.ErrAlreadyPaid, http.StatusConflict, "already_paid", "Эта ссылка уже оплачена"},
+	{payments.ErrProviderUnavailable, http.StatusBadGateway, "provider_unavailable", "Платёжный сервис недоступен, попробуйте позже"},
+	{payments.ErrBadSignature, http.StatusUnauthorized, "bad_signature", "Неверная подпись"},
+	{payments.ErrBadEvent, http.StatusBadRequest, "bad_request", "Некорректное уведомление"},
+	{payments.ErrNotImplemented, http.StatusServiceUnavailable, "provider_unavailable", "Платёжный сервис ещё не подключён"},
 
 	{reminders.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{reminders.ErrTelegramOff, http.StatusConflict, "telegram_not_configured", "Telegram-бот не запущен (TELEGRAM_BOT_TOKEN)"},

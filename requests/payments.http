@@ -1,0 +1,20 @@
+# Страница оплаты родителя (B2) — ручная проверка через VS Code REST Client. Без входа.
+# Токен — из ссылки, которую прислал бот по кнопке «💳 Оплатить» (…/pay/<токен>).
+# Ссылка — на один ребёнка, на сумму долга, действует 24 часа. Лимит — 30 запросов в минуту с IP.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+# Подставьте токен из сообщения бота:
+@token = PASTE_TOKEN_FROM_BOT
+
+### 1. Страница оплаты
+# Ожидаем: 200 OK, {center_name, student_first_name (без фамилии), amount, provider "manual",
+#   pay_details (реквизиты центра), status "pending", expires_at}. Телефонов и фамилий нет.
+# Неизвестная или истёкшая ссылка — одинаково 404 not_found.
+GET {{host}}/api/v1/pay/{{token}}
+
+### 2. «Оплатить» на странице
+# Ожидаем: 200 OK; manual — {provider "manual", amount, pay_details}: перевести по реквизитам,
+#   оплату отметит администратор. С Finik — {provider "finik", pay_url, qr_payload} (пока заглушка).
+POST {{host}}/api/v1/pay/{{token}}/start
+Origin: {{origin}}

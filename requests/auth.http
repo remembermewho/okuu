@@ -1,0 +1,73 @@
+# Авторизация сотрудников — ручная проверка через VS Code REST Client.
+# Сервер: make run. Запросы выполнять по порядку сверху вниз: cookie сессии
+# REST Client запоминает сам (rest-client.rememberCookiesForSubsequentRequests).
+#
+# Повторный прогон: register вернёт 409 phone_taken — это нормально, дальше всё работает.
+# 5 неверных паролей за 15 минут блокируют вход (429) — сервер помнит это до рестарта.
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@phone = 0700 100 200
+@password = secret-pass
+
+### 1. Регистрация владельца и центра
+# Ожидаем: 201 Created, Set-Cookie okuu_session; повторно — 409 phone_taken
+POST {{host}}/api/v1/auth/register
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "{{phone}}",
+  "password": "{{password}}",
+  "name": "Айгуль Асанова",
+  "center_name": "Учебный центр «Билим»"
+}
+
+### 2. Профиль
+# Ожидаем: 200 OK, phone "+996700100200", centers: [{"role": "owner", ...}]
+GET {{host}}/api/v1/me
+
+### 3. Выход
+# Ожидаем: 204 No Content, cookie очищена
+POST {{host}}/api/v1/auth/logout
+Origin: {{origin}}
+
+### 4. Профиль после выхода
+# Ожидаем: 401 Unauthorized, error.code "unauthorized"
+GET {{host}}/api/v1/me
+
+### 5. Вход с неверным паролем
+# Ожидаем: 401 Unauthorized, error.code "invalid_credentials"
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "{{phone}}",
+  "password": "wrong-password"
+}
+
+### 6. Вход с верным паролем (телефон в другом формате — нормализуется)
+# Ожидаем: 200 OK, Set-Cookie okuu_session, тело как у /me
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{
+  "phone": "+996700100200",
+  "password": "{{password}}"
+}
+
+### 7. Профиль после входа
+# Ожидаем: 200 OK
+GET {{host}}/api/v1/me
+
+### 8. Изменяющий запрос без Origin (защита от CSRF)
+# Ожидаем: 403 Forbidden, error.code "bad_origin" — даже с верным паролем
+POST {{host}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "phone": "{{phone}}",
+  "password": "{{password}}"
+}

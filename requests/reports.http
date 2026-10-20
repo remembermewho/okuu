@@ -1,0 +1,51 @@
+# Отчёт за месяц (S7) и журнал действий (S9) — ручная проверка через VS Code REST Client.
+# Сервер: make run. Владелец из auth.http. Только владелец; админ получает 403.
+# Месяц — календарный, в часовом поясе центра. Деньги — в тыйынах.
+# debt_end — сумма отрицательных балансов по операциям, созданным до конца месяца; отменённые
+# не учитываются, даже если их отменили уже после конца месяца (см. debt_end_note в ответе).
+
+@host = http://localhost:8080
+@origin = http://localhost:5173
+@month = {{$localDatetime "YYYY-MM"}}
+@today = {{$localDatetime "YYYY-MM-DD"}}
+
+@centerId = {{login.response.body.$.centers[0].id}}
+@ownerId = {{login.response.body.$.id}}
+
+### 1. Войти владельцем
+# Ожидаем: 200 OK
+# @name login
+POST {{host}}/api/v1/auth/login
+Origin: {{origin}}
+Content-Type: application/json
+
+{ "phone": "0700 100 200", "password": "secret-pass" }
+
+### 2. Отчёт за текущий месяц
+# Ожидаем: 200 OK, {month, charged, collected {total, cash, transfer, card, finik}, refunds, collected_net,
+#   corrections, debt_end, debt_end_note, debtors_end, students_active_end, joined, left}
+GET {{host}}/api/v1/c/{{centerId}}/reports/month?m={{month}}
+
+### 3. Выгрузка в Excel (в REST Client: «Save Response Body» → okuu-report-ГГГГ-ММ.xlsx)
+# Ожидаем: 200 OK, файл с листами «Итоги», «Операции», «Должники на конец месяца»; суммы — в сомах
+GET {{host}}/api/v1/c/{{centerId}}/reports/month/export.xlsx?m={{month}}
+
+### 4. Месяц в неверном формате
+# Ожидаем: 400 Bad Request, error.field "m"
+GET {{host}}/api/v1/c/{{centerId}}/reports/month?m=10.2026
+
+### 5. Журнал действий — последние 20 записей
+# Ожидаем: 200 OK, {items, next_cursor}; новые сверху; у начислений billing.monthly user null, user_name «Система»
+GET {{host}}/api/v1/c/{{centerId}}/audit?limit=20
+
+### 6. Журнал: только операции с деньгами (префикс с точкой)
+# Ожидаем: 200 OK, только ledger.charge / ledger.payment / ledger.refund / ledger.correction / ledger.cancel
+GET {{host}}/api/v1/c/{{centerId}}/audit?action=ledger.
+
+### 7. Журнал: мои действия за сегодня
+# Ожидаем: 200 OK, записи владельца за сегодня (по часовому поясу центра)
+GET {{host}}/api/v1/c/{{centerId}}/audit?user={{ownerId}}&from={{today}}&to={{today}}
+
+### 8. Следующая страница журнала (подставьте next_cursor из шага 5)
+# Ожидаем: 200 OK, записи старше последней из шага 5
+GET {{host}}/api/v1/c/{{centerId}}/audit?limit=20&cursor=ВСТАВЬТЕ_NEXT_CURSOR

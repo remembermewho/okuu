@@ -111,6 +111,18 @@ var ky = &Texts{
 	PayDetails:     func(details string) string { return "Төлөм реквизиттери:\n" + details },
 	ReminderFooter: "Эгер төлөп койгон болсоңуз, көңүл бурбаңыз: администратор төлөмдү белгилейт, бот ырастоо жөнөтөт.",
 
+	PayButton: func(name string, debt int64) string {
+		return "💳 Төлөө: " + name + " — " + Som(debt) + " сом"
+	},
+	PayLink: func(center, child string, amount int64, url string) string {
+		return fmt.Sprintf("🏫 «%s» борбору: %s үчүн төлөм — %s сом.\nТөлөм шилтемеси 24 саат жарактуу:\n%s", center, child, Som(amount), url)
+	},
+	PayLinkButton: "Төлөөгө өтүү",
+	PayNoDebt: func(center, child string) string {
+		return fmt.Sprintf("🏫 «%s» борбору: %s боюнча карыз жок — төлөөнүн кереги жок.", center, child)
+	},
+	PayUnavailable: "Төлөмдү даярдоо мүмкүн болбоду. Кийинчерээк аракет кылыңыз же борборго кайрылыңыз.",
+
 	Paid: func(center, child string, amount, balance int64) string {
 		return fmt.Sprintf("🏫 «%s» борбору: рахмат, төлөм алынды — %s сом (%s).\n%s", center, Som(amount), child, balanceKY(balance))
 	},

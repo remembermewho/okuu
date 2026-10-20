@@ -18,6 +18,7 @@ import (
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
 	"okuu/internal/parents"
+	"okuu/internal/payments"
 	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
@@ -46,8 +47,10 @@ type Deps struct {
 	Reports    *reports.Service
 	Parents    *parents.Service
 	Reminders  *reminders.Service
-	Pool       *pgxpool.Pool // чтение журнала действий
-	AppOrigin  string        // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
+	Payments   *payments.Service // страница оплаты; вебхук — если есть онлайн-провайдер
+	PayLimiter *auth.Limiter     // лимит /pay по IP; nil — 30 запросов в минуту
+	Pool       *pgxpool.Pool     // чтение журнала действий
+	AppOrigin  string            // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger     *slog.Logger
 
 	// Telegram-вебхук: маршрут есть, только если заданы оба (режим webhook).
@@ -68,6 +71,8 @@ type handlers struct {
 	reports    *reports.Service
 	parents    *parents.Service
 	reminders  *reminders.Service
+	payments   *payments.Service
+	payLimiter *auth.Limiter
 	pool       *pgxpool.Pool
 	appOrigin  string
 	logger     *slog.Logger
@@ -81,9 +86,12 @@ func NewRouter(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
+	if d.PayLimiter == nil {
+		d.PayLimiter = auth.NewLimiter(payRateLimit, payRateWindow, nil)
+	}
 	h := &handlers{
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
-		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents, reminders: d.Reminders,
+		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents, reminders: d.Reminders, payments: d.Payments, payLimiter: d.PayLimiter,
 		pool: d.Pool, appOrigin: d.AppOrigin, logger: d.Logger, bot: d.Bot, tgWebhookSecret: d.TelegramWebhookSecret,
 	}
 
@@ -104,6 +112,10 @@ func NewRouter(d Deps) http.Handler {
 	if d.Bot != nil && d.TelegramWebhookSecret != "" {
 		r.Post("/webhooks/telegram/{secret}", h.telegramWebhook)
 	}
+	// Вебхук платёжного провайдера (Finik) — только если онлайн-провайдер включён; доступ — по подписи.
+	if d.Payments != nil && d.Payments.Online() != nil {
+		r.Post("/webhooks/"+d.Payments.Online().Name(), h.providerWebhook)
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(auth.RequireOrigin(d.AppOrigin))
@@ -115,6 +127,12 @@ func NewRouter(d Deps) http.Handler {
 		// Публичные: страница приглашения и его принятие (вход необязателен).
 		r.Get("/invites/{token}", h.getInvite)
 		r.Post("/invites/{token}/accept", h.acceptInvite)
+
+		// Публичная страница оплаты родителя (B2): по токену из ссылки, без входа.
+		if d.Payments != nil {
+			r.Get("/pay/{token}", h.getPayLink)
+			r.Post("/pay/{token}/start", h.startPayment)
+		}
 
 		r.Group(func(r chi.Router) {
 			r.Use(d.Auth.RequireAuth)
@@ -230,7 +248,12 @@ func healthz(d Deps) http.HandlerFunc {
 }
 
 func (h *handlers) internalError(w http.ResponseWriter, r *http.Request, err error) {
-	h.logger.Error("ошибка обработки запроса", "method", r.Method, "path", r.URL.Path,
+	// Шаблон маршрута, а не путь: в путях /pay/{token} и /invites/{token} — секретные токены.
+	route := r.Method
+	if rc := chi.RouteContext(r.Context()); rc != nil {
+		route = rc.RoutePattern()
+	}
+	h.logger.Error("ошибка обработки запроса", "method", r.Method, "route", route,
 		"request_id", middleware.GetReqID(r.Context()), "err", err)
 	httpx.Error(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 }

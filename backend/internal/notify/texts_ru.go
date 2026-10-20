@@ -107,6 +107,18 @@ var ru = &Texts{
 	PayDetails:     func(details string) string { return "Реквизиты для оплаты:\n" + details },
 	ReminderFooter: "Если вы уже оплатили, не обращайте внимания: администратор отметит оплату, и бот пришлёт подтверждение.",
 
+	PayButton: func(name string, debt int64) string {
+		return "💳 Оплатить: " + name + " — " + Som(debt) + " сом"
+	},
+	PayLink: func(center, child string, amount int64, url string) string {
+		return fmt.Sprintf("🏫 Центр «%s»: оплата за %s — %s сом.\nСсылка на оплату действует 24 часа:\n%s", center, child, Som(amount), url)
+	},
+	PayLinkButton: "Перейти к оплате",
+	PayNoDebt: func(center, child string) string {
+		return fmt.Sprintf("🏫 Центр «%s»: %s — долга нет, оплачивать нечего.", center, child)
+	},
+	PayUnavailable: "Не получилось подготовить оплату. Попробуйте позже или обратитесь в центр.",
+
 	Paid: func(center, child string, amount, balance int64) string {
 		return fmt.Sprintf("🏫 Центр «%s»: спасибо, оплата получена — %s сом (%s).\n%s", center, Som(amount), child, balanceRU(balance))
 	},

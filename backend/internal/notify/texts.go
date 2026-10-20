@@ -61,6 +61,13 @@ type Texts struct {
 	PayDetails     func(details string) string
 	ReminderFooter string
 
+	// Оплата по ссылке (B2): кнопка на каждого ребёнка с долгом и ответ на неё.
+	PayButton      func(firstName string, debt int64) string
+	PayLink        func(center, child string, amount int64, url string) string
+	PayLinkButton  string
+	PayNoDebt      func(center, child string) string
+	PayUnavailable string
+
 	// Событийные.
 	Paid       func(center, child string, amount, balance int64) string
 	PackageLow func(center, child, group string) string
@@ -92,6 +99,19 @@ func DebtReminder(tx *Texts, kind, center string, due civil.Date, children []Chi
 	}
 	lines = append(lines, "", tx.ReminderFooter)
 	return strings.Join(lines, "\n")
+}
+
+// FirstName — имя из ФИО «Фамилия Имя [Отчество]» (так их вводят в центрах и в импорте):
+// «Асанов Бакыт» → «Бакыт». Одно слово — оно и есть имя.
+func FirstName(full string) string {
+	parts := strings.Fields(full)
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	}
+	return parts[1]
 }
 
 // ddmm — «06.10».

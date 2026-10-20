@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"okuu/internal/db/sqlc"
+	"okuu/internal/payments"
 	"okuu/internal/telegram"
 )
 
@@ -35,23 +36,25 @@ type Options struct {
 	Sender    *telegram.Sender
 	Now       func() time.Time // «сегодня» в поясе центра для /balance; nil — time.Now
 	Logger    *slog.Logger
-	Workers   int // по умолчанию 4
-	QueueSize int // на воркер; по умолчанию 256
+	Payments  *payments.Service // кнопка «Оплатить»; nil — «оплата недоступна»
+	Workers   int               // по умолчанию 4
+	QueueSize int               // на воркер; по умолчанию 256
 }
 
 // Bot — обработчик апдейтов.
 type Bot struct {
-	pool   *pgxpool.Pool
-	q      *sqlc.Queries
-	tg     *telegram.Sender
-	now    func() time.Time
-	logger *slog.Logger
-	queues []chan telegram.Update
+	pool     *pgxpool.Pool
+	q        *sqlc.Queries
+	tg       *telegram.Sender
+	now      func() time.Time
+	logger   *slog.Logger
+	payments *payments.Service
+	queues   []chan telegram.Update
 }
 
 // New создаёт бота; воркеры запускает Run.
 func New(o Options) *Bot {
-	b := &Bot{pool: o.Pool, q: sqlc.New(o.Pool), tg: o.Sender, now: o.Now, logger: o.Logger}
+	b := &Bot{pool: o.Pool, q: sqlc.New(o.Pool), tg: o.Sender, now: o.Now, logger: o.Logger, payments: o.Payments}
 	if b.now == nil {
 		b.now = time.Now
 	}

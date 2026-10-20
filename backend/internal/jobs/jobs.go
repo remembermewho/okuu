@@ -14,6 +14,7 @@ import (
 	"okuu/internal/billing"
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
+	"okuu/internal/payments"
 	"okuu/internal/reminders"
 )
 
@@ -22,7 +23,47 @@ const (
 	BillingLockKey   int64 = 0x6f6b7575_00000001 // billing.monthly
 	RemindersLockKey int64 = 0x6f6b7575_00000002 // reminders.auto
 	DispatchLockKey  int64 = 0x6f6b7575_00000003 // отправка событийных уведомлений
+	ReconcileLockKey int64 = 0x6f6b7575_00000004 // payments.reconcile
 )
+
+// ReconcileInterval — как часто payments.reconcile.
+const ReconcileInterval = 15 * time.Minute
+
+// RunReconcile — payments.reconcile раз в interval (и сразу при старте) до отмены ctx.
+func RunReconcile(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *payments.Service, interval time.Duration) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if interval <= 0 {
+		interval = ReconcileInterval
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		if _, err := ReconcileOnce(ctx, pool, logger, svc); err != nil && ctx.Err() == nil {
+			logger.Error("payments.reconcile: запуск не удался", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// ReconcileOnce — один запуск payments.reconcile под advisory lock.
+func ReconcileOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *payments.Service) (bool, error) {
+	unlock, ok, err := tryLock(ctx, pool, ReconcileLockKey)
+	if err != nil || !ok {
+		return false, err
+	}
+	defer unlock()
+	res, err := svc.Reconcile(ctx)
+	if res.Paid > 0 || res.Expired > 0 {
+		logger.Info("payments.reconcile", "checked", res.Checked, "paid", res.Paid, "expired", res.Expired)
+	}
+	return true, err
+}
 
 // Scheduler — тикер раз в Interval; первый запуск — сразу при старте (рестарт в день начисления не пропустит его).
 // После billing.monthly — reminders.auto (если задан Reminders): свежие начисления сразу видны напоминаниям.
