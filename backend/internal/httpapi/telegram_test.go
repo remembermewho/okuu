@@ -622,7 +622,7 @@ func TestTelegramWebhook(t *testing.T) {
 	env := newBotEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go env.bot.Run(ctx)
+	go env.bot.Run(ctx, ctx)
 
 	const chat = 6000001
 	update := fmt.Sprintf(`{"update_id":1,"message":{"message_id":1,"from":{"id":%d,"first_name":"Т"},"chat":{"id":%d,"type":"private"},"date":1,"text":"/start","unknown_field":{"x":1}}}`, chat, chat)
@@ -665,7 +665,7 @@ func TestBotPolling(t *testing.T) {
 	env := newBotEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go env.bot.Run(ctx)
+	go env.bot.Run(ctx, ctx)
 	go bot.Poll(ctx, env.tg.Client(), env.bot, slog.New(slog.DiscardHandler))
 
 	const chat = 6100001

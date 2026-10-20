@@ -1,0 +1,77 @@
+# CI: проверки backend и сборка образа. Деплоя здесь нет (делается вручную, см. README).
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: vet, test, sqlc diff
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: okuu
+          POSTGRES_PASSWORD: okuu_ci_password
+          POSTGRES_DB: okuu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U okuu -d okuu"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # Интеграционные тесты создают свою базу на каждый тест (internal/testdb).
+      TEST_DATABASE_URL: postgres://okuu:okuu_ci_password@localhost:5432/okuu?sslmode=disable
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "не отформатировано:"; echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -count=1 ./...
+
+      - name: sqlc diff (сгенерированный код совпадает с queries/)
+        run: docker run --rm -v "$PWD:/src" -w /src sqlc/sqlc:1.31.1 diff
+
+  image:
+    name: docker image
+    needs: backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          tags: okuu-app:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

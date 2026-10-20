@@ -13,17 +13,20 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/alerts"
 	"okuu/internal/attendance"
 	"okuu/internal/auth"
 	"okuu/internal/billing"
@@ -47,30 +50,78 @@ import (
 	"okuu/internal/telegram/bot"
 )
 
+// shutdownTimeout — сколько ждём текущие запросы и фоновые задачи при остановке.
+const shutdownTimeout = 20 * time.Second
+
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	if err := run(logger, os.Args[1:]); err != nil {
+	// healthcheck — для HEALTHCHECK в Docker (в distroless нет curl): без БД и конфигурации.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
+	// .env читаем только локально: в prod переменные задаёт окружение.
+	var dotenv string
+	if os.Getenv("APP_ENV") != "prod" {
+		path, err := config.LoadDotEnv(".env", "../.env")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ошибка .env:", err)
+			os.Exit(2)
+		}
+		dotenv = path
+	}
+	logger := newLogger(os.Getenv("APP_ENV"))
+	if dotenv != "" {
+		logger.Info("загружен .env", "path", dotenv)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		// Понятный список того, что не так, и выход без запуска.
+		fmt.Fprintln(os.Stderr, "Ошибка конфигурации — сервер не запущен:")
+		for _, line := range strings.Split(err.Error(), "\n") {
+			fmt.Fprintln(os.Stderr, "  -", line)
+		}
+		os.Exit(2)
+	}
+	if err := run(logger, cfg, os.Args[1:]); err != nil {
 		logger.Error("сервер остановлен с ошибкой", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, args []string) error {
-	// .env читаем только локально: в prod переменные задаёт окружение.
-	if os.Getenv("APP_ENV") != "prod" {
-		path, err := config.LoadDotEnv(".env", "../.env")
-		if err != nil {
-			return err
-		}
-		if path != "" {
-			logger.Info("загружен .env", "path", path)
-		}
+// newLogger — JSON в prod (для сбора логов), текст локально.
+func newLogger(env string) *slog.Logger {
+	if env == "prod" {
+		return slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	}
+	return slog.New(slog.NewTextHandler(os.Stdout, nil))
+}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+// healthcheck — GET /readyz своего же сервера (HTTP_ADDR); 0 — готов.
+func healthcheck() int {
+	addr := os.Getenv("HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
 	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "HTTP_ADDR:", err)
+		return 1
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get("http://127.0.0.1:" + port + "/readyz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "readyz:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "readyz:", resp.Status)
+		return 1
+	}
+	return 0
+}
+
+func run(logger *slog.Logger, cfg config.Config, args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -132,6 +183,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		Pool:       pool,
 		AppOrigin:  cfg.AppOrigin,
 		Logger:     logger,
+
+		TrustedProxies: cfg.TrustedProxies,
 	}
 
 	// Telegram-бот: токен уходит только в клиент; в логах — никогда.
@@ -153,7 +206,16 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	if cfg.Telegram.Mode != config.TelegramOff {
 		tgAPI = telegram.NewClient(cfg.Telegram.Token.Reveal(), telegram.ClientOptions{})
 		sender = telegram.NewSender(tgAPI, telegram.SenderOptions{OnBlocked: bot.MarkBlocked(pool, logger), Logger: logger})
-		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Payments: paymentsSvc})
+	}
+	// Алерты команде: в служебный чат через того же бота; без бота или чата — только лог.
+	var alertSender alerts.Sender
+	if sender != nil {
+		alertSender = sender
+	}
+	alerter := alerts.New(alerts.Options{Sender: alertSender, ChatID: cfg.AlertChatID, Env: cfg.Env, Logger: logger})
+	deps.Alerts = alerter
+	if cfg.Telegram.Mode != config.TelegramOff {
+		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Payments: paymentsSvc, Alerts: alerter})
 		if cfg.Telegram.Mode == config.TelegramWebhook {
 			deps.Bot = tgBot
 			deps.TelegramWebhookSecret = cfg.Telegram.WebhookSecret.Reveal()
@@ -162,30 +224,72 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	remindersSvc := reminders.NewService(pool, sender, time.Now, logger)
 	deps.Reminders = remindersSvc
 
+	scheduler := &jobs.Scheduler{Pool: pool, Logger: logger, Reminders: remindersSvc, Alerts: alerter}
+	migrator, err := db.NewMigrator(pool)
+	if err != nil {
+		return err
+	}
+	defer migrator.Close()
+	deps.Ready = func(ctx context.Context) map[string]error {
+		checks := map[string]error{"scheduler": nil, "migrations": nil}
+		if !scheduler.Started() {
+			checks["scheduler"] = errors.New("планировщик не запущен")
+		}
+		if pending, err := migrator.HasPending(ctx); err != nil {
+			checks["migrations"] = err
+		} else if pending {
+			checks["migrations"] = errors.New("есть неприменённые миграции")
+		}
+		return checks
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           httpapi.NewRouter(deps),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second, // импорт до 5 МБ с мобильного интернета
+		WriteTimeout:      60 * time.Second, // выгрузка отчёта в xlsx
+		IdleTimeout:       120 * time.Second,
+		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 
-	// Фоновые задачи: billing.monthly и reminders.auto раз в час (и сразу при старте).
-	go (&jobs.Scheduler{Pool: pool, Logger: logger, Reminders: remindersSvc}).Run(ctx)
+	// Фоновые задачи. stopBg — новых запусков не начинать; killBg — прервать текущие, если
+	// они не закончились за срок остановки.
+	stopCtx, stopBg := context.WithCancel(context.Background())
+	workCtx, killBg := context.WithCancel(context.Background())
+	defer killBg()
+	var bg sync.WaitGroup
+	start := func(fn func()) {
+		bg.Add(1)
+		go func() {
+			defer bg.Done()
+			fn()
+		}()
+	}
+
+	// billing.monthly и reminders.auto раз в час (и сразу при старте).
+	start(func() { scheduler.Run(stopCtx, workCtx) })
 	// payments.reconcile раз в 15 минут: потерянные вебхуки, истёкшие ссылки.
-	go jobs.RunReconcile(ctx, pool, logger, paymentsSvc, jobs.ReconcileInterval)
+	start(func() {
+		jobs.RunReconcile(stopCtx, workCtx, pool, logger, alerter, paymentsSvc, jobs.ReconcileInterval)
+	})
+	// Алерты по журналу: discount_capped, payment.amount_mismatch.
+	start(func() { alerter.WatchAudit(stopCtx, pool, time.Minute) })
 
 	if tgBot != nil {
-		go tgBot.Run(ctx)
+		start(func() { tgBot.Run(stopCtx, workCtx) })
 		// Событийные уведомления (paid, package_low, absent) — сразу после события.
-		go jobs.RunDispatcher(ctx, pool, logger, remindersSvc, time.Minute)
+		start(func() { jobs.RunDispatcher(stopCtx, workCtx, pool, logger, alerter, remindersSvc, time.Minute) })
 		switch cfg.Telegram.Mode {
 		case config.TelegramPolling:
-			go bot.Poll(ctx, tgAPI, tgBot, logger)
+			start(func() { bot.Poll(stopCtx, tgAPI, tgBot, logger) })
 		case config.TelegramWebhook:
 			// В адресе вебхука секрет — сам адрес не логируем.
 			secret := cfg.Telegram.WebhookSecret.Reveal()
 			hook := strings.TrimSuffix(cfg.AppOrigin, "/") + "/webhooks/telegram/" + secret
 			if err := bot.SetupWebhook(ctx, tgAPI, hook, secret); err != nil {
 				logger.Error("telegram: не удалось установить вебхук", "err", err)
+				alerter.Alert("telegram:webhook", fmt.Sprintf("не удалось установить вебхук Telegram — бот не получает сообщения: %v", err))
 			} else {
 				logger.Info("telegram: бот запущен (webhook)", "origin", cfg.AppOrigin)
 			}
@@ -200,19 +304,43 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		errCh <- srv.ListenAndServe()
 	}()
 
+	var serveErr error
 	select {
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return err
+			serveErr = err
 		}
-		return nil
 	case <-ctx.Done():
 	}
 
+	// Остановка: HTTP дожидается текущих запросов, фоновые задачи — текущих запусков
+	// (новые не начинаются). Всё вместе — не дольше shutdownTimeout.
 	logger.Info("остановка сервера")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	stopBg()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("HTTP: не все запросы завершились", "err", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		bg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		logger.Info("фоновые задачи остановлены")
+	case <-shutdownCtx.Done():
+		logger.Warn("фоновые задачи не завершились за срок — прерываем", "timeout", shutdownTimeout)
+		killBg()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			logger.Error("фоновые задачи не остановились после прерывания")
+		}
+	}
+	alerter.Wait()
+	return serveErr
 }
 
 func migrateUp(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool) error {

@@ -101,13 +101,13 @@ func (e *botEnv) webhook(t *testing.T, w fakeWebhook, badSig bool) *httptest.Res
 }
 
 type payPageResp struct {
-	CenterName       string    `json:"center_name"`
-	StudentFirstName string    `json:"student_first_name"`
-	Amount           int64     `json:"amount"`
-	Provider         string    `json:"provider"`
-	PayDetails       *string   `json:"pay_details"`
-	Status           string    `json:"status"`
-	ExpiresAt        time.Time `json:"expires_at"`
+	CenterName  string    `json:"center_name"`
+	StudentName string    `json:"student_name"`
+	Amount      int64     `json:"amount"`
+	Provider    string    `json:"provider"`
+	PayDetails  *string   `json:"pay_details"`
+	Status      string    `json:"status"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type payStartResp struct {
@@ -181,7 +181,7 @@ func TestPayFromBotManual(t *testing.T) {
 
 	// /balance: по кнопке «Оплатить» на каждого ребёнка с долгом.
 	bal := one(t, u.send("/balance"))
-	want := fmt.Sprintf("[💳 Оплатить: Бакыт — 3 000 сом|pay:%s 💳 Оплатить: Айпери — 3 000 сом|pay:%s Баланс и посещения|balance]", s1.ID, s2.ID)
+	want := fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s 💳 Оплатить: Асанова Айпери — 3 000 сом|pay:%s Баланс и посещения|balance]", s1.ID, s2.ID)
 	if fmt.Sprint(bal.Buttons()) != want {
 		t.Errorf("кнопки /balance:\n%v\nwant\n%s", bal.Buttons(), want)
 	}
@@ -209,7 +209,7 @@ func TestPayFromBotManual(t *testing.T) {
 		t.Errorf("payment_links: %s %s %d %v %s", stored, provider, amount, expires, student)
 	}
 
-	// Публичная страница: имя без фамилии, без телефонов.
+	// Публичная страница: ФИО ученика целиком, без данных родителя.
 	anon := env.api.client(t, "10.9.0.1")
 	anon.origin = testOrigin
 	rec := payPage(anon, tok)
@@ -217,11 +217,12 @@ func TestPayFromBotManual(t *testing.T) {
 		t.Fatalf("страница: %d %s", rec.Code, rec.Body)
 	}
 	page := decode[payPageResp](t, rec)
-	if page.CenterName != c.centerName(t) || page.StudentFirstName != "Бакыт" || page.Amount != 300_000 ||
+	if page.CenterName != c.centerName(t) || page.StudentName != "Асанов Бакыт" || page.Amount != 300_000 ||
 		page.Provider != "manual" || page.PayDetails == nil || *page.PayDetails != "MBank: 0700 000 000" || page.Status != "pending" {
 		t.Errorf("страница: %+v", page)
 	}
-	for _, leak := range []string{"Асанов", "Родитель", "708300101", s1.ID.String(), s1.Parent.ID.String()} {
+	// ФИО ученика есть, а родителя (имя, телефон), id и других детей — нет.
+	for _, leak := range []string{"Родитель", "708300101", "Айпери", s1.ID.String(), s1.Parent.ID.String()} {
 		if strings.Contains(rec.Body.String(), leak) {
 			t.Errorf("на странице лишнее %q: %s", leak, rec.Body)
 		}

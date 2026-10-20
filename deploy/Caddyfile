@@ -1,0 +1,49 @@
+# Caddy: HTTPS (Let's Encrypt) для {$DOMAIN}; /api/* и /webhooks/* → app, остальное — статика
+# фронтенда из /srv/frontend (SPA: неизвестные пути → index.html).
+# Журнал запросов Caddy не включаем: в путях /api/v1/pay/<токен> и /webhooks/telegram/<секрет> —
+# секреты. Свой журнал (с шаблонами маршрутов вместо путей) пишет app.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# API и вебхуки. Caddy передаёт IP клиента в X-Forwarded-For (заголовок от клиента
+	# не принимается) — app верит ему только от Caddy (TRUSTED_PROXIES).
+	@backend path /api/* /webhooks/*
+	handle @backend {
+		reverse_proxy app:8080
+	}
+
+	# /healthz и /readyz — только изнутри (docker healthcheck), наружу не отдаём.
+	@internal path /healthz /readyz
+	handle @internal {
+		respond 404
+	}
+
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+			Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		}
+		# index.html — всегда свежий, ассеты Vite с хэшем в имени — навсегда в кэше.
+		@index path / /index.html
+		header @index Cache-Control "no-cache"
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+	}
+}

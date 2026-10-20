@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -94,7 +95,9 @@ func newTestAPIWith(t *testing.T, setup func(api *testAPI, d *httpapi.Deps)) *te
 		Parents: parents.NewService(pool, testBotUsername), Pool: pool,
 		Reminders: reminders.NewService(pool, nil, clk.Now, nil),                                          // без Telegram; бот — в newBotEnv
 		Payments:  payments.NewService(payments.Options{Pool: pool, AppOrigin: testOrigin, Now: clk.Now}), // только реквизиты
-		AppOrigin: testOrigin}
+		AppOrigin: testOrigin,
+		Logger:    slog.New(slog.DiscardHandler), // журнал запросов в тестах не нужен; свой — в setup
+	}
 	if setup != nil {
 		setup(api, &d)
 	}

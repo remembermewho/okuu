@@ -273,6 +273,7 @@ func (s *Service) RunAuto(ctx context.Context) (AutoResult, error) {
 		return res, err
 	}
 	now := s.now()
+	var errs []error
 	for _, c := range centers {
 		r, err := s.autoCenter(ctx, c, now)
 		res.add(r)
@@ -281,9 +282,10 @@ func (s *Service) RunAuto(ctx context.Context) (AutoResult, error) {
 				return res, ctx.Err()
 			}
 			s.logger.Error("reminders.auto: центр не обработан", "center_id", c.ID, "err", err)
+			errs = append(errs, fmt.Errorf("центр %s: %w", c.ID, err))
 		}
 	}
-	return res, nil
+	return res, errors.Join(errs...) // ошибка центра не мешает остальным, но видна задаче (алерт)
 }
 
 func (s *Service) autoCenter(ctx context.Context, c sqlc.ListCentersForRemindersRow, now time.Time) (AutoResult, error) {

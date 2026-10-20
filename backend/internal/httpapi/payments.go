@@ -11,7 +11,7 @@ import (
 	"okuu/internal/httpx"
 )
 
-// Публичная страница оплаты (B2): без входа, по токену из ссылки. Без телефонов и фамилий.
+// Публичная страница оплаты (B2): без входа, по токену из ссылки. Без телефонов, родителя и id.
 
 // Лимит запросов к /pay по IP: токены не перебрать, но и страницу не задавить.
 const (
@@ -20,13 +20,13 @@ const (
 )
 
 type payLinkDTO struct {
-	CenterName       string    `json:"center_name"`
-	StudentFirstName string    `json:"student_first_name"`
-	Amount           int64     `json:"amount"`
-	Provider         string    `json:"provider"`              // manual | finik
-	PayDetails       *string   `json:"pay_details,omitempty"` // реквизиты — только для manual
-	Status           string    `json:"status"`                // pending | paid
-	ExpiresAt        time.Time `json:"expires_at"`
+	CenterName  string    `json:"center_name"`
+	StudentName string    `json:"student_name"` // ФИО ученика, как записано в центре
+	Amount      int64     `json:"amount"`
+	Provider    string    `json:"provider"`              // manual | finik
+	PayDetails  *string   `json:"pay_details,omitempty"` // реквизиты — только для manual
+	Status      string    `json:"status"`                // pending | paid
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type payStartDTO struct {
@@ -39,7 +39,7 @@ type payStartDTO struct {
 
 // payLimited — 429, если IP превысил лимит; каждый запрос считается.
 func (h *handlers) payLimited(w http.ResponseWriter, r *http.Request) bool {
-	ip := "pay:" + clientIP(r)
+	ip := "pay:" + h.clientIP(r)
 	if blocked, retry := h.payLimiter.Blocked(ip); blocked {
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
 		httpx.Error(w, http.StatusTooManyRequests, "too_many_requests", "Слишком много запросов. Попробуйте через минуту")
@@ -60,7 +60,7 @@ func (h *handlers) getPayLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, payLinkDTO{
-		CenterName: l.CenterName, StudentFirstName: l.StudentFirstName, Amount: l.Amount, Provider: l.Provider,
+		CenterName: l.CenterName, StudentName: l.StudentName, Amount: l.Amount, Provider: l.Provider,
 		PayDetails: l.PayDetails, Status: l.Status, ExpiresAt: l.ExpiresAt,
 	})
 }

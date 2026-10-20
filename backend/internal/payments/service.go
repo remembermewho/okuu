@@ -114,15 +114,16 @@ func (s *Service) CreateLink(ctx context.Context, centerID, studentID uuid.UUID)
 	return Link{ID: row.ID, URL: s.origin + "/pay/" + raw, Amount: row.Amount, ExpiresAt: row.ExpiresAt}, nil
 }
 
-// PublicLink — то, что видит родитель на странице оплаты: без телефонов и фамилий.
+// PublicLink — то, что видит родитель на странице оплаты: центр, ученик (ФИО как записано
+// в центре), сумма. Без телефонов, имени родителя и id.
 type PublicLink struct {
-	CenterName       string
-	StudentFirstName string
-	Amount           int64
-	Provider         string
-	PayDetails       *string // реквизиты — только для manual
-	Status           string  // pending | paid
-	ExpiresAt        time.Time
+	CenterName  string
+	StudentName string
+	Amount      int64
+	Provider    string
+	PayDetails  *string // реквизиты — только для manual
+	Status      string  // pending | paid
+	ExpiresAt   time.Time
 }
 
 // Get — публичная страница ссылки. Неизвестная и истёкшая — одинаково ErrNotFound.
@@ -131,7 +132,7 @@ func (s *Service) Get(ctx context.Context, raw string) (PublicLink, error) {
 	if err != nil {
 		return PublicLink{}, err
 	}
-	p := PublicLink{CenterName: l.CenterName, StudentFirstName: notify.FirstName(l.FullName), Amount: l.Amount,
+	p := PublicLink{CenterName: l.CenterName, StudentName: l.FullName, Amount: l.Amount,
 		Provider: l.Provider, Status: l.Status, ExpiresAt: l.ExpiresAt}
 	if l.Provider == ProviderManual {
 		p.PayDetails = l.PayDetails

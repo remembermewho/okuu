@@ -1,0 +1,2467 @@
+openapi: 3.1.0
+info:
+  title: Окуу API
+  version: 1.0.0
+  summary: Учёт оплат для учебных центров — API для фронтенда.
+  license:
+    name: Proprietary
+  description: |
+    REST + JSON. Все пути — под `/api/v1`. Источник правды по правилам — `docs/TZ.md`,
+    по кодам ошибок — [docs/errors.md](errors.md). Этот файл сверяется с роутером тестом
+    (`backend/internal/httpapi/openapi_test.go`): маршрут без описания здесь — тест красный.
+
+    **Авторизация.** Сессия — httpOnly cookie `okuu_session` (SameSite=Lax, 30 дней), её ставят
+    `register`, `login` и `invites/{token}/accept`. Фронтенд шлёт запросы с `credentials: "include"`.
+    Без сессии защищённые маршруты отвечают `401 unauthorized`.
+
+    **CSRF.** Для `POST`, `PUT`, `PATCH`, `DELETE` обязателен заголовок `Origin`, равный адресу
+    фронтенда (`APP_ORIGIN`); иначе `403 bad_origin`. Браузер ставит его сам.
+
+    **Данные центра** — под `/api/v1/c/{centerId}`. Пользователь не из этого центра получает
+    `404 not_found` (как будто центра нет), сотрудник с неподходящей ролью — `403 forbidden`.
+    Роли: `owner` (владелец), `admin`, `teacher`; нужные роли — в начале описания каждой операции.
+
+    **Деньги** — целые тыйыны (`integer`, 1 сом = 100 тыйын), со знаком там, где сказано.
+    **Даты** — `string`, формат `date` (`ГГГГ-ММ-ДД`), в часовом поясе центра; моменты времени —
+    `date-time` (RFC 3339). Время занятий — `ЧЧ:ММ`. Месяц — `ГГГГ-ММ`.
+
+    **Списки** — `{"items": [...], "next_cursor": "..." | null}`. `next_cursor = null` — страница
+    последняя; следующая — тем же запросом с `?cursor=<next_cursor>`. Короткие списки (тарифы,
+    группы, сотрудники) отдаются целиком.
+
+    **Ошибки** — `{"error": {"code": "...", "message": "...", "field": "..."}}`: `code` — для кода
+    фронтенда, `message` — для человека (по-русски), `field` — поле запроса у `validation`.
+    Для любого маршрута возможны также: 405 `method_not_allowed`, 413 `too_large` (тело больше
+    1 МБ; импорт — 6 МБ), 500 `internal`.
+
+    **Прочее.** В каждом ответе — `X-Request-ID` (тот же id — в логах сервера). Ответы API не
+    кэшируются (`Cache-Control: no-store`).
+
+servers:
+  - url: /
+    description: Тот же домен, что и фронтенд (Caddy проксирует /api/* на backend)
+
+tags:
+  - name: auth
+    description: Регистрация, вход, профиль
+  - name: invites
+    description: Приглашения сотрудников (публичная страница и принятие)
+  - name: pay
+    description: Публичная страница оплаты родителя (без входа, по ссылке из бота)
+  - name: settings
+    description: Настройки центра, отчёт, журнал
+  - name: staff
+    description: Сотрудники и приглашения
+  - name: catalog
+    description: Тарифы и группы
+  - name: students
+    description: Ученики, родители, записи в группы
+  - name: money
+    description: Оплаты, отмены, история, должники, напоминания
+  - name: attendance
+    description: Занятия и посещаемость
+  - name: import
+    description: Импорт учеников из Excel/CSV
+
+paths:
+  # ---------------------------------------------------------------- auth
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Регистрация владельца и центра
+      security: []
+      description: |
+        **Без входа.** Создаёт пользователя, центр и делает его владельцем (`owner`); ставит cookie сессии.
+        Телефон — в любом виде (`0700 123 456`, `+996700123456`), хранится как `+996XXXXXXXXX`.
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Зарегистрирован; профиль
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetSession' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '409':
+          description: '`phone_taken` — телефон уже зарегистрирован'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Вход
+      security: []
+      description: |
+        **Без входа.** Ставит cookie сессии. Лимит: 5 неудачных попыток за 15 минут на телефон
+        и на IP — затем `429 too_many_attempts` с `Retry-After`.
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Вошёл; профиль
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetSession' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: '`invalid_credentials` — неверный телефон или пароль'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '429':
+          description: '`too_many_attempts` — лимит попыток входа'
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Выход
+      security: [{}, { cookieAuth: [] }] # сессия необязательна
+      description: '**Без входа** (без сессии — тоже 204). Удаляет сессию и cookie.'
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204':
+          description: Вышел
+        '403': { $ref: '#/components/responses/BadOrigin' }
+
+  /api/v1/me:
+    get:
+      tags: [auth]
+      operationId: me
+      summary: Профиль и центры пользователя
+      description: '**Любой вошедший.**'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- invites (public)
+  /api/v1/invites/{token}:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    get:
+      tags: [invites]
+      operationId: getInvite
+      summary: Публичная страница приглашения сотрудника
+      security: []
+      description: '**Без входа.** Токен — из ссылки `APP_ORIGIN/invite/<токен>`.'
+      responses:
+        '200':
+          description: Приглашение действует
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicInvite' }
+        '404':
+          description: '`invite_invalid` — приглашения нет, оно использовано, отозвано или просрочено'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/invites/{token}/accept:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    post:
+      tags: [invites]
+      operationId: acceptInvite
+      summary: Принять приглашение
+      security: [{}, { cookieAuth: [] }] # вошедший — по сессии, новый — без неё
+      description: |
+        **Без входа или вошедший.** Вошедший пользователь принимает без тела. Новый — с телом
+        `{name, phone, password}`: создаётся пользователь и ставится cookie сессии. Ответ — как `/me`,
+        с новым центром в списке.
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptInviteRequest' }
+      responses:
+        '200':
+          description: Принято; профиль
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/SetSession' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404':
+          description: '`invite_invalid` — приглашение недействительно'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: |
+            `login_required` — телефон уже зарегистрирован: войдите и примите снова;
+            `already_member` — вы уже сотрудник этого центра
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------------------------------------------------------- pay (public)
+  /api/v1/pay/{token}:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    get:
+      tags: [pay]
+      operationId: getPayLink
+      summary: Страница оплаты родителя
+      security: []
+      description: |
+        **Без входа.** Ссылка — из бота (кнопка «Оплатить»), на одного ученика, на сумму его долга,
+        действует 24 часа. Без телефонов и данных родителя. Лимит — 30 запросов в минуту с IP.
+      responses:
+        '200':
+          description: Ссылка действует (или уже оплачена — `status = paid`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayLink' }
+        '404':
+          description: '`not_found` — ссылки нет или она истекла (ответ одинаковый)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/v1/pay/{token}/start:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    post:
+      tags: [pay]
+      operationId: startPayment
+      summary: Начать оплату
+      security: []
+      description: |
+        **Без входа.** `manual` — вернёт реквизиты центра (оплату отметит администратор);
+        онлайн-провайдер (`finik`) — создаст платёж и вернёт ссылку банка / QR. Повторный вызов
+        возвращает тот же платёж.
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '200':
+          description: Что делать дальше
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayStart' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404':
+          description: '`not_found` — ссылки нет или она истекла'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`already_paid` — по ссылке уже заплатили'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502':
+          description: '`provider_unavailable` — платёжный сервис не создал платёж (или онлайн-оплата ещё не подключена)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------------------------------------------------------- settings, reports, audit
+  /api/v1/c/{centerId}/settings:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [settings]
+      operationId: getSettings
+      summary: Настройки центра
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Настройки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [settings]
+      operationId: patchSettings
+      summary: Изменить настройки
+      description: |
+        **Роли:** owner. Частичное изменение: переданные поля меняются, `null` очищает необязательные.
+        Новый `billing_day` действует со следующего месяца (`billing_day_next`, `billing_day_next_from`).
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchSettingsRequest' }
+      responses:
+        '200':
+          description: Новые настройки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/reports/month:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/Month'
+    get:
+      tags: [settings]
+      operationId: monthReport
+      summary: Отчёт за месяц
+      description: '**Роли:** owner.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Отчёт
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonthReport' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/reports/month/export.xlsx:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/Month'
+    get:
+      tags: [settings]
+      operationId: monthReportXLSX
+      summary: Выгрузка отчёта за месяц в Excel
+      description: '**Роли:** owner. Файл `okuu-report-ГГГГ-ММ.xlsx` (листы: итоги, операции, должники, ученики).'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Файл .xlsx
+          headers:
+            Content-Disposition: { $ref: '#/components/headers/Attachment' }
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { $ref: '#/components/schemas/Binary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/audit:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [settings]
+      operationId: listAudit
+      summary: Журнал действий
+      description: |
+        **Роли:** owner. Новые сверху. `action` с точкой на конце (`ledger.`) — все действия с этим префиксом.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: user
+          in: query
+          description: id сотрудника
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          description: 'Действие (`ledger.cancel`) или префикс (`ledger.`)'
+          schema: { type: string, maxLength: 100 }
+        - name: from
+          in: query
+          description: С даты (включительно), пояс центра
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: По дату (включительно)
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Страница журнала
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- staff
+  /api/v1/c/{centerId}/staff:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [staff]
+      operationId: listStaff
+      summary: Сотрудники центра
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Сотрудники
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/staff/invites:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [staff]
+      operationId: listInvites
+      summary: Действующие приглашения
+      description: '**Роли:** owner.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Приглашения
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InviteList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [staff]
+      operationId: createInvite
+      summary: Пригласить сотрудника
+      description: |
+        **Роли:** owner. Ссылка (`url`) с одноразовым токеном — только в этом ответе; срок 7 дней.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInviteRequest' }
+      responses:
+        '201':
+          description: Приглашение создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedInvite' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/staff/invites/{inviteId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/InviteId'
+    delete:
+      tags: [staff]
+      operationId: revokeInvite
+      summary: Отозвать приглашение
+      description: '**Роли:** owner.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204':
+          description: Отозвано
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/staff/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      tags: [staff]
+      operationId: changeStaffRole
+      summary: Сменить роль сотрудника
+      description: '**Роли:** owner.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeRoleRequest' }
+      responses:
+        '200':
+          description: Сотрудник
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffMember' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`owner_protected` — роль владельца не меняется'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [staff]
+      operationId: removeStaff
+      summary: Удалить сотрудника из центра
+      description: '**Роли:** owner. Его сессии в этом центре больше не действуют.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204':
+          description: Удалён
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StaffConflict' }
+
+  # ---------------------------------------------------------------- tariffs
+  /api/v1/c/{centerId}/tariffs:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [catalog]
+      operationId: listTariffs
+      summary: Тарифы
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Archived'
+      responses:
+        '200':
+          description: Тарифы
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TariffList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [catalog]
+      operationId: createTariff
+      summary: Создать тариф
+      description: '**Роли:** owner, admin. У абонемента (`package`) обязателен `lessons_count`, у месячного — `null`.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTariffRequest' }
+      responses:
+        '201':
+          description: Тариф
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tariff' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/tariffs/{tariffId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/TariffId'
+    patch:
+      tags: [catalog]
+      operationId: patchTariff
+      summary: Изменить тариф
+      description: '**Роли:** owner, admin. Новая цена действует со следующего начисления (R6).'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchTariffRequest' }
+      responses:
+        '200':
+          description: Тариф
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tariff' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`tariff_in_use` — на тариф записаны ученики: тип менять нельзя'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [catalog]
+      operationId: archiveTariff
+      summary: Архивировать тариф
+      description: '**Роли:** owner, admin. Удаление = архив; существующие записи остаются.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204':
+          description: В архиве
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- groups
+  /api/v1/c/{centerId}/groups:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [catalog]
+      operationId: listGroups
+      summary: Группы
+      description: '**Роли:** owner, admin, teacher (преподаватель видит только свои группы).'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Archived'
+      responses:
+        '200':
+          description: Группы
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [catalog]
+      operationId: createGroup
+      summary: Создать группу
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateGroupRequest' }
+      responses:
+        '201':
+          description: Группа
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /api/v1/c/{centerId}/groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [catalog]
+      operationId: getGroup
+      summary: Группа
+      description: '**Роли:** owner, admin, teacher (только своя группа, чужая — 404).'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Группа
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [catalog]
+      operationId: patchGroup
+      summary: Изменить группу
+      description: '**Роли:** owner, admin. `null` у `teacher_id` / `default_tariff_id` — снять.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchGroupRequest' }
+      responses:
+        '200':
+          description: Группа
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [catalog]
+      operationId: archiveGroup
+      summary: Архивировать группу
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '204':
+          description: В архиве
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- students
+  /api/v1/c/{centerId}/students:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [students]
+      operationId: listStudents
+      summary: Ученики с балансом
+      description: '**Роли:** owner, admin. По алфавиту, постранично.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: q
+          in: query
+          description: Поиск по ФИО или телефону родителя (от 3 цифр)
+          schema: { type: string }
+        - name: group
+          in: query
+          description: id группы — только с активной записью в неё
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/StudentStatus' }
+        - name: tg
+          in: query
+          description: Статус связи родителя с Telegram-ботом
+          schema: { $ref: '#/components/schemas/TgStatus' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Страница списка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudentList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [students]
+      operationId: createStudent
+      summary: Создать ученика (и родителя)
+      description: |
+        **Роли:** owner, admin. Родитель с тем же телефоном в центре переиспользуется
+        (`parent_existing = true`) — так у родителя бывает несколько детей.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateStudentRequest' }
+      responses:
+        '201':
+          description: Карточка ученика
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedStudent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/students/{studentId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [students]
+      operationId: getStudent
+      summary: Карточка ученика
+      description: '**Роли:** owner, admin. Родитель, все записи в группы, баланс.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Student' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [students]
+      operationId: patchStudent
+      summary: Изменить ученика и его родителя
+      description: |
+        **Роли:** owner, admin. `status = left` завершает активные записи. Смена телефона родителя
+        отвязывает его от Telegram (нужно новое приглашение). Изменения родителя видны у всех его детей.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchStudentRequest' }
+      responses:
+        '200':
+          description: Карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Student' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`parent_phone_taken` — телефон уже у другого родителя в центре'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/students/{studentId}/enrollments:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+    post:
+      tags: [students]
+      operationId: createEnrollment
+      summary: Записать в группу
+      description: |
+        **Роли:** owner, admin. Месячный тариф — начисление за текущий месяц по `first_month` (R5):
+        `full` — цена со скидкой, `manual` — `manual_amount`, `none` — не начислять. Абонемент —
+        начисление на его цену и `lessons_left = lessons_count` (R8). `charge = null` — не начислено.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrollRequest' }
+      responses:
+        '201':
+          description: Запись и начисление
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrollResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `already_enrolled` — уже есть активная запись в эту группу;
+            `student_left` — ученик ушёл, сначала верните статус
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/end:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+      - $ref: '#/components/parameters/EnrollmentId'
+    post:
+      tags: [students]
+      operationId: endEnrollment
+      summary: Завершить запись
+      description: '**Роли:** owner, admin. Тело необязательно: без `end_date` — сегодня.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EndEnrollmentRequest' }
+      responses:
+        '200':
+          description: Запись
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Enrollment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`enrollment_ended` — запись уже завершена'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/renew:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+      - $ref: '#/components/parameters/EnrollmentId'
+    post:
+      tags: [students]
+      operationId: renewEnrollment
+      summary: Продлить абонемент
+      description: |
+        **Роли:** owner, admin. Новое начисление на цену тарифа; к остатку добавляется `lessons_count`
+        (минусовые занятия вычитаются из нового, R10).
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '200':
+          description: Запись и начисление
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrollResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `enrollment_ended` — запись завершена; `not_package` — тариф записи не абонемент;
+            `student_left` — ученик ушёл
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/parents/{parentId}/invite:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/ParentId'
+    post:
+      tags: [students]
+      operationId: createParentInvite
+      summary: Пригласить родителя в Telegram-бот
+      description: |
+        **Роли:** owner, admin. Одноразовая ссылка на бота (30 дней) и готовый текст для WhatsApp
+        на русском и кыргызском; `whatsapp_url` — на языке родителя.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '201':
+          description: Приглашение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParentInvite' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`telegram_not_configured` — бот не настроен (нет TELEGRAM_BOT_USERNAME)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------------------------------------------------------- money
+  /api/v1/c/{centerId}/students/{studentId}/payments:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+    post:
+      tags: [money]
+      operationId: createOperation
+      summary: Оплата, возврат или поправка
+      description: |
+        **Роли:** owner, admin. `payment` и `refund` — `amount > 0` и `method` (cash, transfer, card);
+        `correction` — `amount` со знаком (≠ 0) и обязательный `comment`. Оплата зачисляется на баланс
+        (R13), возврат его уменьшает (R16). Заголовок `Idempotency-Key` обязателен: повтор с тем же
+        ключом и теми же данными — `200` с той же операцией, с другими данными — `422 idempotency_mismatch`.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OperationRequest' }
+      responses:
+        '201':
+          description: Операция создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '200':
+          description: Повтор с тем же Idempotency-Key — та же операция
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: '`idempotency_mismatch` — ключ уже использован для другой операции'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/students/{studentId}/ledger:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [money]
+      operationId: studentLedger
+      summary: История операций ученика
+      description: '**Роли:** owner, admin. Новые сверху, отменённые — тоже (с `cancelled = true`).'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Страница истории
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/ledger/{ledgerId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/LedgerId'
+    post:
+      tags: [money]
+      operationId: cancelOperation
+      summary: Отменить операцию
+      description: |
+        **Роли:** owner, admin; оплату Finik — только owner (R15). Операции не удаляются и не
+        редактируются — только отмена с причиной.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelRequest' }
+      responses:
+        '200':
+          description: Отменённая операция
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: '`forbidden` — роль не подходит или оплату Finik отменяет не владелец; `bad_origin`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`already_cancelled` — операция уже отменена'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/debtors:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [money]
+      operationId: listDebtors
+      summary: Должники и итоги месяца
+      description: |
+        **Роли:** owner, admin. Должник — баланс < 0 и срок самого старого непогашенного начисления
+        прошёл (R14). По убыванию долга. `summary` — по всему центру (без фильтра `group`).
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: group
+          in: query
+          description: id группы — ученики, у которых была запись в неё
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Должники
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DebtorsResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/reminders:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    post:
+      tags: [money]
+      operationId: sendReminders
+      summary: «Напомнить» в Telegram
+      description: |
+        **Роли:** owner, admin. По выбранным ученикам (`student_ids`, до 500) или по всем должникам
+        (`all: true`). Дети одного родителя — одним сообщением (R18); об ученике — не чаще раза в час (R17).
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RemindersRequest' }
+      responses:
+        '200':
+          description: Итог
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RemindersResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------------------------------------------------------- attendance
+  /api/v1/c/{centerId}/students/{studentId}/attendance:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [attendance]
+      operationId: studentAttendance
+      summary: Посещения ученика за месяц
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: month
+          in: query
+          description: Месяц ГГГГ-ММ; по умолчанию — текущий в поясе центра
+          schema: { $ref: '#/components/schemas/MonthString' }
+      responses:
+        '200':
+          description: Отметки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceHistoryList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/lessons:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [attendance]
+      operationId: listLessons
+      summary: Занятия на дату
+      description: |
+        **Роли:** owner, admin, teacher (свои группы, с сегодня − 7 дней по сегодня). Занятия по расписанию
+        создаются при первом открытии даты (R11). Владелец и админ — до 30 дней вперёд.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Занятия
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LessonList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [attendance]
+      operationId: createLesson
+      summary: Внеплановое занятие
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateLessonRequest' }
+      responses:
+        '201':
+          description: Занятие
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lesson' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`lesson_exists` — у группы уже есть занятие в это время'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /api/v1/c/{centerId}/lessons/{lessonId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/LessonId'
+    patch:
+      tags: [attendance]
+      operationId: patchLesson
+      summary: Отменить / вернуть занятие
+      description: '**Роли:** owner, admin. Отменённое занятие ничего не списывает; отметки снимаются (R11).'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchLessonRequest' }
+      responses:
+        '200':
+          description: Занятие
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lesson' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/lessons/{lessonId}/attendance:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/LessonId'
+    get:
+      tags: [attendance]
+      operationId: getLessonAttendance
+      summary: Занятие с учениками и отметками
+      description: '**Роли:** owner, admin, teacher (своя группа). Преподаватель не видит `has_debt`.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Занятие
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lesson' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [attendance]
+      operationId: putAttendance
+      summary: Сохранить отметки
+      description: |
+        **Роли:** owner, admin, teacher (своя группа и только за 7 дней, R12). Пакетно; `status = null` —
+        снять отметку. «Был»/«не был» списывают занятие с абонемента, «уважительная» — по настройке (R9).
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MarkRequest' }
+      responses:
+        '200':
+          description: Занятие с новыми отметками
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lesson' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: '`forbidden` — роль, чужая группа или преподаватель за пределами 7 дней; `bad_origin`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`lesson_cancelled` — занятие отменено'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  # ---------------------------------------------------------------- import
+  /api/v1/c/{centerId}/import/template.xlsx:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [import]
+      operationId: importTemplate
+      summary: Шаблон импорта
+      description: '**Роли:** owner, admin. Лист «Ученики» (заголовки + пример) и «Справка» (тарифы и группы центра).'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Файл okuu-import.xlsx
+          headers:
+            Content-Disposition: { $ref: '#/components/headers/Attachment' }
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { $ref: '#/components/schemas/Binary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/import/preview:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    post:
+      tags: [import]
+      operationId: importPreview
+      summary: Разобрать файл импорта
+      description: |
+        **Роли:** owner, admin. `multipart/form-data`, поле `file`: .xlsx или .csv (UTF-8 / windows-1251,
+        разделитель `,` или `;`) до 5 МБ и 2000 строк. Ничего не сохраняет, кроме превью (на час).
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  contentMediaType: application/octet-stream
+      responses:
+        '200':
+          description: Превью
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: '`file_too_large` — файл больше 5 МБ (поле `file`)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/import/commit:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    post:
+      tags: [import]
+      operationId: importCommit
+      summary: Подтвердить импорт
+      description: |
+        **Роли:** owner, admin. Одной транзакцией: строки ok/warning без дубликатов. `first_month` — как у записи
+        в группу (R5) для месячных тарифов. Начальный долг — поправкой со сроком в день импорта.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImportCommitRequest' }
+      responses:
+        '200':
+          description: Итоги
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`import_already_committed` — этот импорт уже подтверждён'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '410':
+          description: '`import_expired` — превью устарело (хранится час)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: okuu_session
+      description: Сессия; ставят register, login и invites/{token}/accept.
+
+  headers:
+    SetSession:
+      description: '`okuu_session=<токен>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000` (в prod — Secure)'
+      schema: { type: string }
+    RetryAfter:
+      description: Через сколько секунд можно повторить
+      schema: { type: integer, minimum: 1 }
+    Attachment:
+      description: '`attachment; filename="…xlsx"`'
+      schema: { type: string }
+
+  parameters:
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      description: Адрес фронтенда (APP_ORIGIN) — защита от CSRF; браузер ставит сам. Иначе `403 bad_origin`.
+      schema: { type: string, format: uri }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 'Уникальный ключ операции (например, UUID), 1–100 символов. Повтор запроса с тем же ключом не создаёт вторую операцию.'
+      schema: { type: string, minLength: 1, maxLength: 100 }
+    Token:
+      name: token
+      in: path
+      required: true
+      description: Токен из ссылки (43 символа base64url)
+      schema: { type: string }
+    CenterId:
+      name: centerId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StudentId:
+      name: studentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EnrollmentId:
+      name: enrollmentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TariffId:
+      name: tariffId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LessonId:
+      name: lessonId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LedgerId:
+      name: ledgerId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ParentId:
+      name: parentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      description: Размер страницы (по умолчанию 50)
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: '`next_cursor` из прошлого ответа'
+      schema: { type: string }
+    Archived:
+      name: archived
+      in: query
+      description: true — архивные, false (по умолчанию) — активные
+      schema: { type: boolean, default: false }
+    Month:
+      name: m
+      in: query
+      description: Месяц ГГГГ-ММ; по умолчанию — текущий в поясе центра
+      schema: { $ref: '#/components/schemas/MonthString' }
+
+  responses:
+    BadRequest:
+      description: |
+        `validation` — неверное значение поля (`field` — какого); `bad_request` — тело не JSON,
+        в нём лишние поля или несколько объектов
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unprocessable:
+      description: '`validation` — значение допустимо само по себе, но не подходит по смыслу (ссылка на чужую группу, дата в будущем и т. п.); `field` — поле'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: '`unauthorized` — нет сессии или она истекла'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadOrigin:
+      description: '`bad_origin` — заголовок Origin не совпадает с адресом фронтенда'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: '`forbidden` — роль не подходит для операции; `bad_origin` — неверный Origin (изменяющие запросы)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: '`not_found` — центра нет среди ваших, или нет сущности в этом центре (некорректный id — тоже 404)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: '`too_many_requests` — больше 30 запросов в минуту с одного IP'
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    StaffConflict:
+      description: |
+        `owner_protected` — владельца нельзя удалить;
+        `teacher_has_groups` — у преподавателя есть активные группы: сначала назначьте им другого
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ---------------------------------------------------------------- общие
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              description: Машинный код — список в docs/errors.md
+              examples: [validation]
+            message:
+              type: string
+              description: Сообщение для человека, по-русски
+            field:
+              type: string
+              description: Поле запроса (у validation)
+    Money:
+      type: integer
+      format: int64
+      description: Тыйыны (1 сом = 100 тыйын)
+    UUID:
+      type: string
+      format: uuid
+    NullableUUID:
+      type: [string, 'null']
+      format: uuid
+    Date:
+      type: string
+      format: date
+    NullableDate:
+      type: [string, 'null']
+      format: date
+    DateTime:
+      type: string
+      format: date-time
+    NullableDateTime:
+      type: [string, 'null']
+      format: date-time
+    MonthString:
+      type: string
+      pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+      examples: ['2026-10']
+    TimeOfDay:
+      type: string
+      pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+      examples: ['16:00']
+    Binary:
+      type: string
+      contentMediaType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    NextCursor:
+      type: [string, 'null']
+      description: null — страница последняя
+    Ref:
+      type: object
+      required: [id, name]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+    Role:
+      type: string
+      enum: [owner, admin, teacher]
+    StudentStatus:
+      type: string
+      enum: [active, paused, left]
+    TgStatus:
+      type: string
+      enum: [none, active, stopped, blocked]
+      description: 'none — не подключён; active — подключён; stopped — отключил уведомления (/stop); blocked — заблокировал бота'
+    Phone:
+      type: string
+      description: 'Телефон КР: +996XXXXXXXXX или 0XXXXXXXXX (пробелы, дефисы, скобки допустимы)'
+      examples: ['0700 123 456']
+    Discount:
+      type: object
+      required: [kind, value]
+      additionalProperties: false
+      description: 'fixed — сом в тыйынах, не больше цены (иначе начисление 0); percent — 1..100'
+      properties:
+        kind: { type: string, enum: [fixed, percent] }
+        value: { type: integer, format: int64, minimum: 0 }
+    NullableDiscount:
+      oneOf:
+        - { $ref: '#/components/schemas/Discount' }
+        - { type: 'null' }
+
+    # ---------------------------------------------------------------- auth, staff
+    Me:
+      type: object
+      required: [id, name, phone, centers]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        phone: { type: string, examples: ['+996700123456'] }
+        centers:
+          type: array
+          items:
+            type: object
+            required: [id, name, role]
+            additionalProperties: false
+            properties:
+              id: { $ref: '#/components/schemas/UUID' }
+              name: { type: string }
+              role: { $ref: '#/components/schemas/Role' }
+    RegisterRequest:
+      type: object
+      required: [phone, password, name, center_name]
+      additionalProperties: false
+      properties:
+        phone: { $ref: '#/components/schemas/Phone' }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        center_name: { type: string, minLength: 1, maxLength: 100 }
+    LoginRequest:
+      type: object
+      required: [phone, password]
+      additionalProperties: false
+      properties:
+        phone: { $ref: '#/components/schemas/Phone' }
+        password: { type: string }
+    PublicInvite:
+      type: object
+      required: [center_name, role, name, expires_at]
+      additionalProperties: false
+      properties:
+        center_name: { type: string }
+        role: { type: string, enum: [admin, teacher] }
+        name: { type: [string, 'null'], description: 'Имя, которое указал владелец' }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+    AcceptInviteRequest:
+      type: object
+      additionalProperties: false
+      description: Только для нового пользователя (без сессии)
+      properties:
+        name: { type: string, maxLength: 100 }
+        phone: { $ref: '#/components/schemas/Phone' }
+        password: { type: string, minLength: 8, maxLength: 128 }
+    StaffMember:
+      type: object
+      required: [user_id, name, phone, role]
+      additionalProperties: false
+      properties:
+        user_id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        phone: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+    StaffList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/StaffMember' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    InviteFields:
+      type: object
+      required: [id, role, name, expires_at, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        role: { type: string, enum: [admin, teacher] }
+        name: { type: [string, 'null'] }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+    Invite:
+      allOf: [{ $ref: '#/components/schemas/InviteFields' }]
+      unevaluatedProperties: false
+    CreatedInvite:
+      allOf:
+        - { $ref: '#/components/schemas/InviteFields' }
+        - type: object
+          required: [url]
+          properties:
+            url:
+              type: string
+              format: uri
+              description: 'APP_ORIGIN/invite/<токен> — показать один раз'
+      unevaluatedProperties: false
+    InviteList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Invite' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    CreateInviteRequest:
+      type: object
+      required: [role]
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [admin, teacher] }
+        name: { type: string, maxLength: 100, description: 'Кого приглашают — подсказка на странице приглашения' }
+    ChangeRoleRequest:
+      type: object
+      required: [role]
+      additionalProperties: false
+      properties:
+        role: { type: string, enum: [admin, teacher] }
+
+    # ---------------------------------------------------------------- settings, reports, audit
+    Settings:
+      type: object
+      required: [name, phone, timezone, billing_day, billing_day_next, billing_day_next_from, due_days,
+                 excused_deducts, reminders_on, notify_absent, pay_details, plan, finik_connected]
+      additionalProperties: false
+      properties:
+        name: { type: string }
+        phone: { type: [string, 'null'] }
+        timezone: { type: string, examples: [Asia/Bishkek] }
+        billing_day: { type: integer, minimum: 1, maximum: 28, description: 'Действует сейчас' }
+        billing_day_next: { type: [integer, 'null'], description: 'Новый день, ещё не вступивший в силу' }
+        billing_day_next_from: { $ref: '#/components/schemas/NullableDate' }
+        due_days: { type: integer, minimum: 0, maximum: 60 }
+        excused_deducts: { type: boolean, description: '«Уважительная» списывает занятие с абонемента' }
+        reminders_on: { type: boolean, description: 'Автонапоминания о долге' }
+        notify_absent: { type: boolean, description: 'Сообщать родителю «не был на занятии»' }
+        pay_details: { type: [string, 'null'], description: 'Реквизиты — в напоминаниях, пока нет Finik' }
+        plan: { type: string }
+        finik_connected: { type: boolean }
+    PatchSettingsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        phone: { type: [string, 'null'] }
+        timezone: { type: string, description: 'IANA, например Asia/Bishkek' }
+        billing_day: { type: integer, minimum: 1, maximum: 28 }
+        due_days: { type: integer, minimum: 0, maximum: 60 }
+        excused_deducts: { type: boolean }
+        reminders_on: { type: boolean }
+        notify_absent: { type: boolean }
+        pay_details: { type: [string, 'null'], maxLength: 1000 }
+    MonthReport:
+      type: object
+      required: [month, period, period_end, charged, collected, refunds, collected_net, corrections, debt_end,
+                 debt_end_note, debtors_end, students_active_end, joined, left]
+      additionalProperties: false
+      properties:
+        month: { $ref: '#/components/schemas/MonthString' }
+        period: { $ref: '#/components/schemas/Date' }
+        period_end: { $ref: '#/components/schemas/Date' }
+        charged: { $ref: '#/components/schemas/Money' }
+        collected:
+          type: object
+          required: [total, cash, transfer, card, finik]
+          additionalProperties: false
+          properties:
+            total: { $ref: '#/components/schemas/Money' }
+            cash: { $ref: '#/components/schemas/Money' }
+            transfer: { $ref: '#/components/schemas/Money' }
+            card: { $ref: '#/components/schemas/Money' }
+            finik: { $ref: '#/components/schemas/Money' }
+        refunds: { $ref: '#/components/schemas/Money' }
+        collected_net: { $ref: '#/components/schemas/Money' }
+        corrections: { $ref: '#/components/schemas/Money' }
+        debt_end: { $ref: '#/components/schemas/Money' }
+        debt_end_note: { type: string }
+        debtors_end: { type: integer }
+        students_active_end: { type: integer }
+        joined: { type: integer }
+        left: { type: integer }
+    AuditItem:
+      type: object
+      required: [id, at, user, user_name, action, entity, entity_id, before, after]
+      additionalProperties: false
+      properties:
+        id: { type: integer, format: int64 }
+        at: { $ref: '#/components/schemas/DateTime' }
+        user:
+          oneOf:
+            - type: object
+              required: [id, name]
+              additionalProperties: false
+              properties:
+                id: { $ref: '#/components/schemas/UUID' }
+                name: { type: string }
+            - type: 'null'
+          description: null — система (фоновые задачи, бот)
+        user_name: { type: string, description: '«Система», если user = null' }
+        action: { type: string, examples: [ledger.cancel] }
+        entity: { type: string }
+        entity_id: { $ref: '#/components/schemas/NullableUUID' }
+        before: { description: 'Состояние до (любой JSON или null)' }
+        after: { description: 'Состояние после (любой JSON или null)' }
+    AuditList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AuditItem' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+
+    # ---------------------------------------------------------------- catalog
+    TariffKind:
+      type: string
+      enum: [monthly, package]
+    Tariff:
+      type: object
+      required: [id, name, kind, price, lessons_count, archived]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        kind: { $ref: '#/components/schemas/TariffKind' }
+        price: { $ref: '#/components/schemas/Money' }
+        lessons_count: { type: [integer, 'null'], description: 'Занятий в абонементе; у месячного — null' }
+        archived: { type: boolean }
+    TariffList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Tariff' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    CreateTariffRequest:
+      type: object
+      required: [name, kind, price]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        kind: { $ref: '#/components/schemas/TariffKind' }
+        price: { type: integer, format: int64, minimum: 0, maximum: 1000000000 }
+        lessons_count: { type: [integer, 'null'], minimum: 1 }
+    PatchTariffRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        kind: { $ref: '#/components/schemas/TariffKind' }
+        price: { type: integer, format: int64, minimum: 0, maximum: 1000000000 }
+        lessons_count: { type: [integer, 'null'], minimum: 1 }
+    Slot:
+      type: object
+      required: [dow, start, end]
+      additionalProperties: false
+      properties:
+        dow: { type: integer, minimum: 1, maximum: 7, description: '1 — понедельник … 7 — воскресенье' }
+        start: { $ref: '#/components/schemas/TimeOfDay' }
+        end: { $ref: '#/components/schemas/TimeOfDay' }
+    Group:
+      type: object
+      required: [id, name, teacher_id, teacher_name, schedule, default_tariff_id, archived, students_count]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        teacher_id: { $ref: '#/components/schemas/NullableUUID' }
+        teacher_name: { type: [string, 'null'] }
+        schedule: { type: array, items: { $ref: '#/components/schemas/Slot' } }
+        default_tariff_id: { $ref: '#/components/schemas/NullableUUID' }
+        archived: { type: boolean }
+        students_count: { type: integer, description: 'Активных записей' }
+    GroupList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Group' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    CreateGroupRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        teacher_id: { $ref: '#/components/schemas/NullableUUID' }
+        schedule: { type: [array, 'null'], items: { $ref: '#/components/schemas/Slot' } }
+        default_tariff_id: { $ref: '#/components/schemas/NullableUUID' }
+    PatchGroupRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        teacher_id: { $ref: '#/components/schemas/NullableUUID' }
+        schedule: { type: array, items: { $ref: '#/components/schemas/Slot' } }
+        default_tariff_id: { $ref: '#/components/schemas/NullableUUID' }
+
+    # ---------------------------------------------------------------- students
+    Parent:
+      type: object
+      required: [id, name, phone, tg_status, last_reminder_at]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        phone: { type: string }
+        tg_status: { $ref: '#/components/schemas/TgStatus' }
+        last_reminder_at: { $ref: '#/components/schemas/NullableDateTime' }
+    NullableParent:
+      oneOf:
+        - { $ref: '#/components/schemas/Parent' }
+        - { type: 'null' }
+    Enrollment:
+      type: object
+      required: [id, group, tariff, start_date, end_date, lessons_left, billed_through, active]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        group: { $ref: '#/components/schemas/Ref' }
+        tariff:
+          type: object
+          required: [id, name, kind, price]
+          additionalProperties: false
+          properties:
+            id: { $ref: '#/components/schemas/UUID' }
+            name: { type: string }
+            kind: { $ref: '#/components/schemas/TariffKind' }
+            price: { $ref: '#/components/schemas/Money' }
+        start_date: { $ref: '#/components/schemas/Date' }
+        end_date: { $ref: '#/components/schemas/NullableDate' }
+        lessons_left: { type: [integer, 'null'], description: 'Остаток абонемента (может быть < 0, R10)' }
+        billed_through: { $ref: '#/components/schemas/NullableDate' }
+        active: { type: boolean }
+    Charge:
+      type: object
+      required: [id, amount, list_price, discount, period, due_date]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        amount: { $ref: '#/components/schemas/Money' }
+        list_price: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money' }
+        period: { $ref: '#/components/schemas/NullableDate' }
+        due_date: { $ref: '#/components/schemas/Date' }
+    StudentFields:
+      type: object
+      required: [id, full_name, birth_date, status, discount, created_at, parent, enrollments, balance]
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        full_name: { type: string }
+        birth_date: { $ref: '#/components/schemas/NullableDate' }
+        status: { $ref: '#/components/schemas/StudentStatus' }
+        discount: { $ref: '#/components/schemas/NullableDiscount' }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        parent: { $ref: '#/components/schemas/NullableParent' }
+        enrollments: { type: array, items: { $ref: '#/components/schemas/Enrollment' } }
+        balance:
+          type: integer
+          format: int64
+          description: Тыйыны; < 0 — долг, > 0 — аванс. Сумма неотменённых операций (R13)
+    Student:
+      allOf: [{ $ref: '#/components/schemas/StudentFields' }]
+      unevaluatedProperties: false
+    CreatedStudent:
+      allOf:
+        - { $ref: '#/components/schemas/StudentFields' }
+        - type: object
+          required: [parent_existing]
+          properties:
+            parent_existing: { type: boolean, description: 'Родитель с этим телефоном уже был в центре' }
+      unevaluatedProperties: false
+    StudentListItem:
+      type: object
+      required: [id, full_name, birth_date, status, discount, parent, groups, balance]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        full_name: { type: string }
+        birth_date: { $ref: '#/components/schemas/NullableDate' }
+        status: { $ref: '#/components/schemas/StudentStatus' }
+        discount: { $ref: '#/components/schemas/NullableDiscount' }
+        parent: { $ref: '#/components/schemas/NullableParent' }
+        groups: { type: array, items: { $ref: '#/components/schemas/Ref' }, description: 'Активные записи' }
+        balance: { $ref: '#/components/schemas/Money' }
+    StudentList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/StudentListItem' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    CreateStudentRequest:
+      type: object
+      required: [full_name, parent]
+      additionalProperties: false
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 100 }
+        birth_date: { $ref: '#/components/schemas/NullableDate' }
+        parent:
+          type: object
+          required: [name, phone]
+          additionalProperties: false
+          properties:
+            name: { type: string, minLength: 1, maxLength: 100 }
+            phone: { $ref: '#/components/schemas/Phone' }
+        discount: { $ref: '#/components/schemas/NullableDiscount' }
+    PatchStudentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 100 }
+        birth_date: { $ref: '#/components/schemas/NullableDate' }
+        status: { $ref: '#/components/schemas/StudentStatus' }
+        discount: { $ref: '#/components/schemas/NullableDiscount' }
+        parent:
+          type: object
+          additionalProperties: false
+          properties:
+            name: { type: string, minLength: 1, maxLength: 100 }
+            phone: { $ref: '#/components/schemas/Phone' }
+    EnrollRequest:
+      type: object
+      required: [group_id, start_date]
+      additionalProperties: false
+      properties:
+        group_id: { $ref: '#/components/schemas/UUID' }
+        tariff_id:
+          $ref: '#/components/schemas/NullableUUID'
+          description: 'По умолчанию — тариф группы'
+        start_date:
+          $ref: '#/components/schemas/Date'
+          description: 'Не раньше чем 5 лет назад'
+        first_month:
+          type: string
+          enum: [full, manual, none]
+          default: full
+          description: Только для месячного тарифа (R5)
+        manual_amount:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          description: 'Тыйыны; обязателен при first_month = manual'
+    EndEnrollmentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        end_date: { $ref: '#/components/schemas/NullableDate' }
+    EnrollResult:
+      type: object
+      required: [enrollment, charge]
+      additionalProperties: false
+      properties:
+        enrollment: { $ref: '#/components/schemas/Enrollment' }
+        charge:
+          oneOf:
+            - { $ref: '#/components/schemas/Charge' }
+            - { type: 'null' }
+    ParentInvite:
+      type: object
+      required: [id, bot_url, expires_at, texts, lang, whatsapp_url, tg_status]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        bot_url: { type: string, format: uri, examples: ['https://t.me/okuu_bot?start=<токен>'] }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+        texts:
+          type: object
+          required: [ru, ky]
+          additionalProperties: false
+          properties:
+            ru: { type: string }
+            ky: { type: string }
+        lang: { type: string, enum: [ru, ky] }
+        whatsapp_url: { type: string, format: uri }
+        tg_status: { $ref: '#/components/schemas/TgStatus' }
+
+    # ---------------------------------------------------------------- money
+    Operation:
+      type: object
+      required: [id, student_id, kind, amount, method, comment, enrollment_id, period, due_date, list_price,
+                 discount, created_at, created_by, cancelled, cancelled_at, cancelled_by, cancel_reason]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        student_id: { $ref: '#/components/schemas/UUID' }
+        kind: { type: string, enum: [charge, payment, refund, correction] }
+        amount:
+          type: integer
+          format: int64
+          description: 'Тыйыны со знаком: начисление и возврат < 0, оплата > 0, поправка — любой знак'
+        method: { type: [string, 'null'], enum: [cash, transfer, card, finik, null] }
+        comment: { type: [string, 'null'] }
+        enrollment_id: { $ref: '#/components/schemas/NullableUUID' }
+        period: { $ref: '#/components/schemas/NullableDate' }
+        due_date: { $ref: '#/components/schemas/NullableDate' }
+        list_price: { type: [integer, 'null'], format: int64 }
+        discount: { type: [integer, 'null'], format: int64 }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        created_by:
+          $ref: '#/components/schemas/NullableUUID'
+          description: null — система (billing.monthly, онлайн-оплата)
+        cancelled: { type: boolean }
+        cancelled_at: { $ref: '#/components/schemas/NullableDateTime' }
+        cancelled_by: { $ref: '#/components/schemas/NullableUUID' }
+        cancel_reason: { type: [string, 'null'] }
+    OperationList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Operation' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    OperationRequest:
+      type: object
+      required: [kind, amount]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [payment, refund, correction] }
+        amount:
+          type: integer
+          format: int64
+          description: 'Тыйыны: payment/refund > 0; correction — со знаком, ≠ 0'
+        method:
+          type: [string, 'null']
+          enum: [cash, transfer, card, null]
+          description: Обязателен у payment и refund; у correction — нет
+        comment: { type: [string, 'null'], maxLength: 500, description: 'Обязателен у correction' }
+    CancelRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    Debtor:
+      type: object
+      required: [student_id, full_name, status, groups, parent, debt, days_overdue, oldest_due_date]
+      additionalProperties: false
+      properties:
+        student_id: { $ref: '#/components/schemas/UUID' }
+        full_name: { type: string }
+        status: { $ref: '#/components/schemas/StudentStatus' }
+        groups: { type: array, items: { $ref: '#/components/schemas/Ref' } }
+        parent:
+          oneOf:
+            - type: object
+              required: [name, phone, tg_status]
+              additionalProperties: false
+              properties:
+                name: { type: [string, 'null'] }
+                phone: { type: [string, 'null'] }
+                tg_status: { type: [string, 'null'] }
+            - type: 'null'
+        debt: { type: integer, format: int64, minimum: 1, description: 'Тыйыны, > 0' }
+        days_overdue: { type: integer, minimum: 1 }
+        oldest_due_date: { $ref: '#/components/schemas/Date' }
+    DebtorsResponse:
+      type: object
+      required: [items, next_cursor, summary]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Debtor' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+        summary:
+          type: object
+          required: [period, charged, collected, debt_total, debtors_count, pending_total, pending_count]
+          additionalProperties: false
+          properties:
+            period: { $ref: '#/components/schemas/Date' }
+            charged: { $ref: '#/components/schemas/Money' }
+            collected: { $ref: '#/components/schemas/Money' }
+            debt_total: { $ref: '#/components/schemas/Money' }
+            debtors_count: { type: integer }
+            pending_total:
+              $ref: '#/components/schemas/Money'
+              description: Долг, срок которого ещё не наступил
+            pending_count: { type: integer }
+    RemindersRequest:
+      type: object
+      additionalProperties: false
+      description: 'Либо student_ids, либо all: true'
+      properties:
+        student_ids:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/UUID' }
+        all: { type: boolean }
+    RemindersResponse:
+      type: object
+      required: [sent, messages, skipped]
+      additionalProperties: false
+      properties:
+        sent: { type: integer, description: 'Учеников, о которых напомнили' }
+        messages: { type: integer, description: 'Сообщений родителям' }
+        skipped:
+          type: array
+          items:
+            type: object
+            required: [student_id, reason]
+            additionalProperties: false
+            properties:
+              student_id: { $ref: '#/components/schemas/UUID' }
+              reason:
+                type: string
+                enum: [no_telegram, stopped, blocked, rate_limited, no_debt, send_failed]
+
+    # ---------------------------------------------------------------- attendance
+    AttendanceStatus:
+      type: string
+      enum: [present, absent, excused]
+    Lesson:
+      type: object
+      required: [id, group, date, start_time, end_time, cancelled, students_count, marked_count, students]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        group: { $ref: '#/components/schemas/Ref' }
+        date: { $ref: '#/components/schemas/Date' }
+        start_time: { $ref: '#/components/schemas/TimeOfDay' }
+        end_time:
+          oneOf:
+            - { $ref: '#/components/schemas/TimeOfDay' }
+            - { type: 'null' }
+          description: По расписанию; null — внеплановое
+        cancelled: { type: boolean }
+        students_count: { type: integer }
+        marked_count: { type: integer }
+        students:
+          type: array
+          items:
+            type: object
+            required: [student_id, full_name, status, lessons_left]
+            additionalProperties: false
+            properties:
+              student_id: { $ref: '#/components/schemas/UUID' }
+              full_name: { type: string }
+              status:
+                oneOf:
+                  - { $ref: '#/components/schemas/AttendanceStatus' }
+                  - { type: 'null' }
+                description: null — не отмечен
+              lessons_left: { type: [integer, 'null'], description: 'Только у абонемента' }
+              has_debt: { type: boolean, description: 'Только для owner и admin' }
+    LessonList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Lesson' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    AttendanceHistoryList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [lesson_id, date, start_time, group, status, deducted]
+            additionalProperties: false
+            properties:
+              lesson_id: { $ref: '#/components/schemas/UUID' }
+              date: { $ref: '#/components/schemas/Date' }
+              start_time: { $ref: '#/components/schemas/TimeOfDay' }
+              group: { $ref: '#/components/schemas/Ref' }
+              status: { $ref: '#/components/schemas/AttendanceStatus' }
+              deducted: { type: boolean, description: 'Списало ли занятие с абонемента' }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    CreateLessonRequest:
+      type: object
+      required: [group_id, date, start_time]
+      additionalProperties: false
+      properties:
+        group_id: { $ref: '#/components/schemas/UUID' }
+        date: { $ref: '#/components/schemas/Date' }
+        start_time: { $ref: '#/components/schemas/TimeOfDay' }
+    PatchLessonRequest:
+      type: object
+      required: [cancelled]
+      additionalProperties: false
+      properties:
+        cancelled: { type: boolean }
+    MarkRequest:
+      type: object
+      required: [marks]
+      additionalProperties: false
+      properties:
+        marks:
+          type: array
+          items:
+            type: object
+            required: [student_id, status]
+            additionalProperties: false
+            properties:
+              student_id: { $ref: '#/components/schemas/UUID' }
+              status:
+                oneOf:
+                  - { $ref: '#/components/schemas/AttendanceStatus' }
+                  - { type: 'null' }
+                description: null — снять отметку
+
+    # ---------------------------------------------------------------- import
+    ImportPreview:
+      type: object
+      required: [preview_id, expires_at, summary, rows]
+      additionalProperties: false
+      properties:
+        preview_id: { $ref: '#/components/schemas/UUID' }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+        summary:
+          type: object
+          required: [total, ok, warning, error, skipped, to_import]
+          additionalProperties: false
+          properties:
+            total: { type: integer }
+            ok: { type: integer }
+            warning: { type: integer }
+            error: { type: integer }
+            skipped: { type: integer, description: Дубликаты }
+            to_import: { type: integer }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/ImportRow' }
+    ImportRow:
+      type: object
+      required: [row, status, messages, skip, full_name, parent_name, parent_phone, group, group_id, tariff,
+                 tariff_id, tariff_kind, start_date, debt, lessons_left]
+      additionalProperties: false
+      properties:
+        row: { type: integer, description: 'Номер строки как в Excel' }
+        status: { type: string, enum: [ok, warning, error] }
+        messages: { type: [array, 'null'], items: { type: string } }
+        skip: { type: boolean, description: 'Дубликат — будет пропущен' }
+        full_name: { type: string }
+        parent_name: { type: string }
+        parent_phone: { type: string }
+        group: { type: string }
+        group_id:
+          $ref: '#/components/schemas/NullableUUID'
+          description: null — группа будет создана
+        tariff: { type: string }
+        tariff_id: { $ref: '#/components/schemas/NullableUUID' }
+        tariff_kind: { type: string, description: 'monthly | package | пусто, если тариф не найден' }
+        start_date:
+          $ref: '#/components/schemas/NullableDate'
+          description: null — 1-е число текущего месяца
+        debt: { $ref: '#/components/schemas/Money' }
+        lessons_left: { type: [integer, 'null'] }
+    ImportCommitRequest:
+      type: object
+      required: [preview_id]
+      additionalProperties: false
+      properties:
+        preview_id: { $ref: '#/components/schemas/UUID' }
+        first_month: { type: string, enum: [full, manual, none], default: full }
+    ImportResult:
+      type: object
+      required: [students_created, parents_created, groups_created, enrollments_created, skipped, debt_total]
+      additionalProperties: false
+      properties:
+        students_created: { type: integer }
+        parents_created: { type: integer }
+        groups_created: { type: integer }
+        enrollments_created: { type: integer }
+        skipped: { type: integer }
+        debt_total: { $ref: '#/components/schemas/Money' }
+
+    # ---------------------------------------------------------------- pay
+    PayLink:
+      type: object
+      required: [center_name, student_name, amount, provider, status, expires_at]
+      additionalProperties: false
+      properties:
+        center_name: { type: string }
+        student_name: { type: string, description: 'ФИО ученика, как записано в центре' }
+        amount: { $ref: '#/components/schemas/Money' }
+        provider: { type: string, enum: [manual, finik] }
+        pay_details: { type: string, description: 'Реквизиты центра — только у manual' }
+        status: { type: string, enum: [pending, paid] }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+    PayStart:
+      type: object
+      required: [provider, amount]
+      additionalProperties: false
+      properties:
+        provider: { type: string, enum: [manual, finik] }
+        amount: { $ref: '#/components/schemas/Money' }
+        pay_url: { type: string, format: uri, description: 'Ссылка банка (онлайн-провайдер)' }
+        qr_payload: { type: string, description: 'Данные для QR (онлайн-провайдер)' }
+        pay_details: { type: string, description: 'Реквизиты центра (manual)' }

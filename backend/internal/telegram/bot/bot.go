@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/alerts"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/payments"
 	"okuu/internal/telegram"
@@ -37,6 +39,7 @@ type Options struct {
 	Now       func() time.Time // «сегодня» в поясе центра для /balance; nil — time.Now
 	Logger    *slog.Logger
 	Payments  *payments.Service // кнопка «Оплатить»; nil — «оплата недоступна»
+	Alerts    *alerts.Alerter   // panic при обработке — алерт команде
 	Workers   int               // по умолчанию 4
 	QueueSize int               // на воркер; по умолчанию 256
 }
@@ -49,12 +52,13 @@ type Bot struct {
 	now      func() time.Time
 	logger   *slog.Logger
 	payments *payments.Service
+	alerts   *alerts.Alerter
 	queues   []chan telegram.Update
 }
 
 // New создаёт бота; воркеры запускает Run.
 func New(o Options) *Bot {
-	b := &Bot{pool: o.Pool, q: sqlc.New(o.Pool), tg: o.Sender, now: o.Now, logger: o.Logger, payments: o.Payments}
+	b := &Bot{pool: o.Pool, q: sqlc.New(o.Pool), tg: o.Sender, now: o.Now, logger: o.Logger, payments: o.Payments, alerts: o.Alerts}
 	if b.now == nil {
 		b.now = time.Now
 	}
@@ -75,18 +79,20 @@ func New(o Options) *Bot {
 	return b
 }
 
-// Run обрабатывает очередь до отмены ctx.
-func (b *Bot) Run(ctx context.Context) {
+// Run обрабатывает очередь до отмены stop: новых апдейтов не берёт, текущие доделывает
+// с контекстом work (его отменяют, если остановка затянулась). Возвращается, когда все
+// воркеры закончили.
+func (b *Bot) Run(stop, work context.Context) {
 	done := make(chan struct{})
 	for _, q := range b.queues {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			for {
 				select {
-				case <-ctx.Done():
+				case <-stop.Done():
 					return
 				case u := <-q:
-					b.Handle(ctx, u)
+					b.Handle(work, u)
 				}
 			}
 		}()
@@ -118,7 +124,8 @@ func (b *Bot) Handle(ctx context.Context, u telegram.Update) {
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
-			b.logger.Error("telegram: паника при обработке апдейта", "update_id", u.UpdateID, "panic", r)
+			b.logger.Error("telegram: паника при обработке апдейта", "update_id", u.UpdateID, "panic", r, "stack", string(debug.Stack()))
+			b.alerts.Alert("panic:telegram", fmt.Sprintf("panic в боте при обработке апдейта %d: %v", u.UpdateID, r))
 		}
 	}()
 	if err := b.handle(ctx, u); err != nil && !errors.Is(err, telegram.ErrBlocked) {

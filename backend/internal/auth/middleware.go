@@ -153,6 +153,6 @@ func notFound(w http.ResponseWriter) {
 }
 
 func (s *Service) internalError(w http.ResponseWriter, r *http.Request, err error) {
-	s.logger.Error("auth middleware", "path", r.URL.Path, "err", err)
+	s.logger.Error("auth middleware", "method", r.Method, "err", err) // без пути: в путях бывают токены
 	httpx.Error(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 }

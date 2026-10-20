@@ -540,7 +540,7 @@ func contactKeyboard(tx *notify.Texts) *telegram.ReplyKeyboardMarkup {
 // PayChild — ребёнок с долгом: для него кнопка «Оплатить».
 type PayChild struct {
 	StudentID uuid.UUID
-	Name      string // ФИО; на кнопке — имя
+	Name      string // ФИО — на кнопке целиком
 	Debt      int64
 }
 
@@ -550,7 +550,7 @@ func DebtKeyboard(tx *notify.Texts, kids []PayChild) *telegram.InlineKeyboardMar
 	var rows [][]telegram.InlineKeyboardButton
 	for _, k := range kids {
 		if k.Debt > 0 {
-			rows = append(rows, []telegram.InlineKeyboardButton{{Text: tx.PayButton(notify.FirstName(k.Name), k.Debt), CallbackData: cbPay + k.StudentID.String()}})
+			rows = append(rows, []telegram.InlineKeyboardButton{{Text: tx.PayButton(k.Name, k.Debt), CallbackData: cbPay + k.StudentID.String()}})
 		}
 	}
 	kb.InlineKeyboard = append(rows, kb.InlineKeyboard...)

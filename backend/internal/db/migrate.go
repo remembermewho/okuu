@@ -61,6 +61,11 @@ func (m *Migrator) Version(ctx context.Context) (int64, error) {
 	return m.p.GetDBVersion(ctx)
 }
 
+// HasPending — есть ли неприменённые миграции (для /readyz).
+func (m *Migrator) HasPending(ctx context.Context) (bool, error) {
+	return m.p.HasPending(ctx)
+}
+
 // Close освобождает *sql.DB-обёртку; сам пул остаётся открытым.
 func (m *Migrator) Close() error { return m.p.Close() }
 

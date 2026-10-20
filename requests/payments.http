@@ -8,8 +8,8 @@
 @token = PASTE_TOKEN_FROM_BOT
 
 ### 1. Страница оплаты
-# Ожидаем: 200 OK, {center_name, student_first_name (без фамилии), amount, provider "manual",
-#   pay_details (реквизиты центра), status "pending", expires_at}. Телефонов и фамилий нет.
+# Ожидаем: 200 OK, {center_name, student_name (ФИО целиком), amount, provider "manual",
+#   pay_details (реквизиты центра), status "pending", expires_at}. Телефонов, родителя и id нет.
 # Неизвестная или истёкшая ссылка — одинаково 404 not_found.
 GET {{host}}/api/v1/pay/{{token}}
 

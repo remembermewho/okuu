@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"net"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -67,7 +66,7 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 		Phone:     req.Phone,
 		Password:  req.Password,
 		UserAgent: r.UserAgent(),
-		IP:        clientIP(r),
+		IP:        h.clientIP(r),
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -102,17 +101,4 @@ func (h *handlers) writeMe(w http.ResponseWriter, r *http.Request, status int, u
 		dto.Centers = append(dto.Centers, meCenterDTO{ID: c.CenterID, Name: c.CenterName, Role: c.Role})
 	}
 	httpx.JSON(w, status, dto)
-}
-
-// clientIP — адрес клиента из соединения.
-//
-// TODO(неделя 4, деплой): за Caddy RemoteAddr у всех запросов — адрес прокси, и лимит
-// попыток входа по IP станет общим на всех. Добавить TRUSTED_PROXIES и брать клиента
-// из X-Forwarded-For, только если запрос пришёл от доверенного прокси. См. README.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

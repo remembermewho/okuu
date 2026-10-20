@@ -76,6 +76,23 @@ func TestLoad(t *testing.T) {
 	key32 := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	key16 := base64.StdEncoding.EncodeToString(make([]byte, 16))
 
+	// prod — полный набор для prod; with — он же с заменами ("" — переменную убрать).
+	prod := map[string]string{
+		"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key32, "APP_ORIGIN": "https://app.okuu.kg",
+		"TELEGRAM_BOT_TOKEN": "123456:FAKE-test-token", "TELEGRAM_BOT_USERNAME": "okuu_test_bot",
+		"TELEGRAM_WEBHOOK_SECRET": "fake_webhook_secret_0123456789",
+	}
+	with := func(kv ...string) map[string]string {
+		m := map[string]string{}
+		for k, v := range prod {
+			m[k] = v
+		}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+
 	tests := []struct {
 		name    string
 		env     map[string]string
@@ -83,9 +100,19 @@ func TestLoad(t *testing.T) {
 	}{
 		{"dev без ключей", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x"}, false},
 		{"нет DATABASE_URL", map[string]string{"APP_ENV": "dev"}, true},
-		{"prod без ENCRYPTION_KEY", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "APP_ORIGIN": "https://app.okuu.kg"}, true},
-		{"prod с ключами", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key32, "APP_ORIGIN": "https://app.okuu.kg"}, false},
-		{"prod без APP_ORIGIN", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key32}, true},
+		{"prod полностью", prod, false},
+		{"prod без ENCRYPTION_KEY", with("ENCRYPTION_KEY", ""), true},
+		{"prod с коротким ключом", with("ENCRYPTION_KEY", key16), true},
+		{"prod без APP_ORIGIN", with("APP_ORIGIN", ""), true},
+		{"prod с http APP_ORIGIN", with("APP_ORIGIN", "http://app.okuu.kg"), true},
+		{"prod без DATABASE_URL", with("DATABASE_URL", ""), true},
+		{"prod с polling", with("TELEGRAM_MODE", "polling"), true},
+		{"prod без бота", with("TELEGRAM_BOT_TOKEN", ""), true},
+		{"prod без секрета вебхука", with("TELEGRAM_WEBHOOK_SECRET", ""), true},
+		{"TRUSTED_PROXIES", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "TRUSTED_PROXIES": "172.30.0.0/24, 10.0.0.1"}, false},
+		{"TRUSTED_PROXIES кривой", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "TRUSTED_PROXIES": "172.30.0.0/99"}, true},
+		{"ALERT_TELEGRAM_CHAT_ID", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ALERT_TELEGRAM_CHAT_ID": "-1001234567890"}, false},
+		{"ALERT_TELEGRAM_CHAT_ID кривой", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ALERT_TELEGRAM_CHAT_ID": "@chat"}, true},
 		{"APP_ORIGIN с путём", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "APP_ORIGIN": "http://localhost:5173/app"}, true},
 		{"APP_ORIGIN без схемы", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "APP_ORIGIN": "localhost:5173"}, true},
 		{"короткий ключ", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key16}, true},
@@ -96,7 +123,8 @@ func TestLoad(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY", "FINIK_ENABLED", "FINIK_API_KEY"}, telegramVars...) {
+			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY", "FINIK_ENABLED",
+				"FINIK_API_KEY", "TRUSTED_PROXIES", "ALERT_TELEGRAM_CHAT_ID"}, telegramVars...) {
 				t.Setenv(k, tt.env[k])
 			}
 			cfg, err := Load()
@@ -104,7 +132,19 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil {
+				if strings.Contains(err.Error(), "FAKE-test-token") || strings.Contains(err.Error(), "fake_webhook_secret") {
+					t.Errorf("в ошибке секрет: %v", err)
+				}
 				return
+			}
+			if tt.env["APP_ENV"] == "prod" && cfg.Telegram.Mode != TelegramWebhook {
+				t.Errorf("prod: Telegram.Mode = %q", cfg.Telegram.Mode)
+			}
+			if tt.env["TRUSTED_PROXIES"] != "" && fmt.Sprint(cfg.TrustedProxies) != "[172.30.0.0/24 10.0.0.1/32]" {
+				t.Errorf("TrustedProxies = %v", cfg.TrustedProxies)
+			}
+			if tt.env["ALERT_TELEGRAM_CHAT_ID"] != "" && cfg.AlertChatID != -1001234567890 {
+				t.Errorf("AlertChatID = %d", cfg.AlertChatID)
 			}
 			if cfg.HTTPAddr != ":8080" {
 				t.Errorf("HTTPAddr = %q, want :8080 по умолчанию", cfg.HTTPAddr)
@@ -112,7 +152,7 @@ func TestLoad(t *testing.T) {
 			if cfg.FinikEnabled != (tt.env["FINIK_ENABLED"] == "true") {
 				t.Errorf("FinikEnabled = %v", cfg.FinikEnabled)
 			}
-			if tt.env["APP_ORIGIN"] == "" && cfg.AppOrigin != devOrigin {
+			if tt.env["APP_ENV"] != "prod" && tt.env["APP_ORIGIN"] == "" && cfg.AppOrigin != devOrigin {
 				t.Errorf("AppOrigin = %q, want %q по умолчанию вне prod", cfg.AppOrigin, devOrigin)
 			}
 		})

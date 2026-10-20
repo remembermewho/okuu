@@ -5,12 +5,13 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/alerts"
 	"okuu/internal/attendance"
 	"okuu/internal/auth"
 	"okuu/internal/billing"
@@ -56,6 +57,10 @@ type Deps struct {
 	// Telegram-вебхук: маршрут есть, только если заданы оба (режим webhook).
 	Bot                   UpdateQueue
 	TelegramWebhookSecret string
+
+	TrustedProxies []netip.Prefix                             // от них верим X-Forwarded-For (лимиты входа и /pay)
+	Alerts         *alerts.Alerter                            // panic → алерт; nil — только лог
+	Ready          func(ctx context.Context) map[string]error // /readyz: проверки помимо БД; nil — только БД
 }
 
 type handlers struct {
@@ -79,6 +84,7 @@ type handlers struct {
 
 	bot             UpdateQueue
 	tgWebhookSecret string
+	ips             *httpx.IPResolver
 }
 
 // NewRouter собирает все маршруты приложения.
@@ -93,11 +99,15 @@ func NewRouter(d Deps) http.Handler {
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
 		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents, reminders: d.Reminders, payments: d.Payments, payLimiter: d.PayLimiter,
 		pool: d.Pool, appOrigin: d.AppOrigin, logger: d.Logger, bot: d.Bot, tgWebhookSecret: d.TelegramWebhookSecret,
+		ips: httpx.NewIPResolver(d.TrustedProxies),
 	}
 
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Recoverer)
+	r.Use(requestID)
+	r.Use(accessLog(d.Logger))
+	r.Use(recoverer(d.Logger, d.Alerts))
+	r.Use(securityHeaders)
+	r.Use(bodyLimit)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "not_found", "Не найдено")
@@ -107,6 +117,7 @@ func NewRouter(d Deps) http.Handler {
 	})
 
 	r.Get("/healthz", healthz(d))
+	r.Get("/readyz", readyz(d))
 
 	// Вебхук Telegram — вне /api/v1: без cookie и проверки Origin, доступ по секрету.
 	if d.Bot != nil && d.TelegramWebhookSecret != "" {
@@ -247,13 +258,40 @@ func healthz(d Deps) http.HandlerFunc {
 	}
 }
 
+// readyz — готов ли сервер принимать трафик: БД отвечает, миграции применены, планировщик
+// запущен (проверки — в Deps.Ready). 503 — со списком того, что не готово.
+func readyz(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		checks := map[string]error{"db": d.DB.Ping(ctx)}
+		if d.Ready != nil {
+			for name, err := range d.Ready(ctx) {
+				checks[name] = err
+			}
+		}
+		out := map[string]string{}
+		status, code := "ready", http.StatusOK
+		for name, err := range checks {
+			out[name] = "ok"
+			if err != nil {
+				out[name] = err.Error()
+				status, code = "not_ready", http.StatusServiceUnavailable
+			}
+		}
+		if code != http.StatusOK {
+			d.Logger.Warn("readyz: не готов", "checks", out)
+		}
+		httpx.JSON(w, code, map[string]any{"status": status, "checks": out})
+	}
+}
+
 func (h *handlers) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	// Шаблон маршрута, а не путь: в путях /pay/{token} и /invites/{token} — секретные токены.
-	route := r.Method
-	if rc := chi.RouteContext(r.Context()); rc != nil {
-		route = rc.RoutePattern()
-	}
-	h.logger.Error("ошибка обработки запроса", "method", r.Method, "route", route,
-		"request_id", middleware.GetReqID(r.Context()), "err", err)
+	h.logger.Error("ошибка обработки запроса", "method", r.Method, "route", routeOf(r),
+		"request_id", requestIDFrom(r.Context()), "err", err)
 	httpx.Error(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 }
+
+// clientIP — адрес клиента с учётом доверенных прокси (TRUSTED_PROXIES).
+func (h *handlers) clientIP(r *http.Request) string { return h.ips.ClientIP(r) }

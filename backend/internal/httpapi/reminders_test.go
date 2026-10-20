@@ -165,7 +165,7 @@ func TestRemindersAutoKindsAndTiming(t *testing.T) {
 		if m.Text != wantText {
 			t.Errorf("день %d:\n%s\nwant:\n%s", day, m.Text, wantText)
 		}
-		if b := m.Buttons(); fmt.Sprint(b) != fmt.Sprintf("[💳 Оплатить: Бакыт — 3 000 сом|pay:%s Баланс и посещения|balance]", s.ID) {
+		if b := m.Buttons(); fmt.Sprint(b) != fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s Баланс и посещения|balance]", s.ID) {
 			t.Errorf("кнопки: %v", b)
 		}
 		rows := notificationsOf(t, env.api, s.Parent.ID)
@@ -630,7 +630,7 @@ func TestDispatcherWakesOnNotify(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		jobs.RunDispatcher(ctx, env.api.pool, slog.New(slog.DiscardHandler), env.rem, time.Hour)
+		jobs.RunDispatcher(ctx, ctx, env.api.pool, slog.New(slog.DiscardHandler), nil, env.rem, time.Hour)
 		close(done)
 	}()
 	t.Cleanup(func() { cancel(); <-done })

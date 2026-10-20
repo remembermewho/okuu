@@ -1,5 +1,9 @@
 // Package jobs — фоновые задачи внутри сервера. Каждая идемпотентна и запускается под
 // pg_try_advisory_lock: второй экземпляр сервера в это время просто пропускает запуск.
+//
+// Остановка в два контекста: stop — новых запусков не начинать (отменяется первым), work —
+// контекст текущего запуска (отменяется, только если запуск не успел закончиться за срок
+// остановки сервера). Ошибка запуска — в лог и алерт команде.
 package jobs
 
 import (
@@ -7,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/alerts"
 	"okuu/internal/billing"
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
@@ -29,8 +35,14 @@ const (
 // ReconcileInterval — как часто payments.reconcile.
 const ReconcileInterval = 15 * time.Minute
 
-// RunReconcile — payments.reconcile раз в interval (и сразу при старте) до отмены ctx.
-func RunReconcile(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *payments.Service, interval time.Duration) {
+// failed — ошибка запуска задачи: лог и алерт (одинаковые — не чаще раза в 10 минут).
+func failed(logger *slog.Logger, a *alerts.Alerter, job string, err error) {
+	logger.Error(job+": запуск не удался", "err", err)
+	a.Alert("job:"+job, fmt.Sprintf("фоновая задача %s не выполнилась: %v", job, err))
+}
+
+// RunReconcile — payments.reconcile раз в interval (и сразу при старте) до отмены stop.
+func RunReconcile(stop, work context.Context, pool *pgxpool.Pool, logger *slog.Logger, a *alerts.Alerter, svc *payments.Service, interval time.Duration) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -40,11 +52,11 @@ func RunReconcile(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, 
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		if _, err := ReconcileOnce(ctx, pool, logger, svc); err != nil && ctx.Err() == nil {
-			logger.Error("payments.reconcile: запуск не удался", "err", err)
+		if _, err := ReconcileOnce(work, pool, logger, svc); err != nil && work.Err() == nil {
+			failed(logger, a, "payments.reconcile", err)
 		}
 		select {
-		case <-ctx.Done():
+		case <-stop.Done():
 			return
 		case <-t.C:
 		}
@@ -73,10 +85,16 @@ type Scheduler struct {
 	Now       func() time.Time
 	Interval  time.Duration
 	Reminders *reminders.Service
+	Alerts    *alerts.Alerter
+
+	started atomic.Bool
 }
 
-// Run работает до отмены ctx.
-func (s *Scheduler) Run(ctx context.Context) {
+// Started — планировщик запущен и ещё не остановлен (для /readyz).
+func (s *Scheduler) Started() bool { return s.started.Load() }
+
+// Run работает до отмены stop; текущий запуск выполняется с work.
+func (s *Scheduler) Run(stop, work context.Context) {
 	if s.Now == nil {
 		s.Now = time.Now
 	}
@@ -86,19 +104,21 @@ func (s *Scheduler) Run(ctx context.Context) {
 	if s.Logger == nil {
 		s.Logger = slog.Default()
 	}
+	s.started.Store(true)
+	defer s.started.Store(false)
 	t := time.NewTicker(s.Interval)
 	defer t.Stop()
 	for {
-		if _, err := RunBillingOnce(ctx, s.Pool, s.Logger, s.Now()); err != nil && ctx.Err() == nil {
-			s.Logger.Error("billing.monthly: запуск не удался", "err", err)
+		if _, err := RunBillingOnce(work, s.Pool, s.Logger, s.Now()); err != nil && work.Err() == nil {
+			failed(s.Logger, s.Alerts, "billing.monthly", err)
 		}
-		if s.Reminders != nil {
-			if _, err := RunRemindersOnce(ctx, s.Pool, s.Logger, s.Reminders); err != nil && ctx.Err() == nil {
-				s.Logger.Error("reminders.auto: запуск не удался", "err", err)
+		if s.Reminders != nil && stop.Err() == nil {
+			if _, err := RunRemindersOnce(work, s.Pool, s.Logger, s.Reminders); err != nil && work.Err() == nil {
+				failed(s.Logger, s.Alerts, "reminders.auto", err)
 			}
 		}
 		select {
-		case <-ctx.Done():
+		case <-stop.Done():
 			return
 		case <-t.C:
 		}
@@ -106,7 +126,8 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 // RunBillingOnce — один запуск billing.monthly по всем центрам, у которых наступил billing_day
-// (в их часовом поясе). ran=false — задачу сейчас выполняет другой процесс.
+// (в их часовом поясе). ran=false — задачу сейчас выполняет другой процесс. Ошибка одного
+// центра не останавливает остальные; все они возвращаются вместе.
 func RunBillingOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, now time.Time) (ran bool, err error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -121,10 +142,12 @@ func RunBillingOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	if err != nil {
 		return true, err
 	}
+	var errs []error
 	for _, c := range centers {
 		today, err := civil.Today(now, c.Timezone)
 		if err != nil {
 			logger.Error("billing.monthly: часовой пояс центра", "center_id", c.ID, "err", err)
+			errs = append(errs, fmt.Errorf("центр %s: %w", c.ID, err))
 			continue
 		}
 		if today.Day() < billing.EffectiveBillingDay(c.BillingDay, c.BillingDayNext, c.BillingDayNextFrom, today.FirstOfMonth()) {
@@ -133,14 +156,18 @@ func RunBillingOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		res, err := billing.RunMonthly(ctx, pool, logger, c.ID, today)
 		if err != nil {
 			logger.Error("billing.monthly: центр не обработан", "center_id", c.ID, "err", err)
+			errs = append(errs, fmt.Errorf("центр %s: %w", c.ID, err))
 			continue
+		}
+		if res.Failed > 0 {
+			errs = append(errs, fmt.Errorf("центр %s: не начислено по %d записям (подробности в логе)", c.ID, res.Failed))
 		}
 		if res.Charged > 0 || res.Paused > 0 || res.Failed > 0 {
 			logger.Info("billing.monthly", "center_id", c.ID, "period", res.Period,
 				"charged", res.Charged, "paused", res.Paused, "skipped", res.Skipped, "failed", res.Failed)
 		}
 	}
-	return true, nil
+	return true, errors.Join(errs...)
 }
 
 // RunRemindersOnce — один запуск reminders.auto под advisory lock. ran=false — задачу сейчас
@@ -178,30 +205,30 @@ const notifyChannel = "okuu_notify"
 
 // RunDispatcher отправляет событийные уведомления сразу после события: слушает LISTEN okuu_notify
 // и, кроме того, проверяет очередь раз в interval (ночные события уходят утром, неудачные — повторяются).
-// Работает до отмены ctx; потерянное соединение переподключает.
-func RunDispatcher(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *reminders.Service, interval time.Duration) {
+// Работает до отмены stop; потерянное соединение переподключает.
+func RunDispatcher(stop, work context.Context, pool *pgxpool.Pool, logger *slog.Logger, a *alerts.Alerter, svc *reminders.Service, interval time.Duration) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if interval <= 0 {
 		interval = time.Minute
 	}
-	for ctx.Err() == nil {
-		err := listen(ctx, pool, logger, svc, interval)
-		if ctx.Err() != nil {
+	for stop.Err() == nil {
+		err := listen(stop, work, pool, logger, a, svc, interval)
+		if stop.Err() != nil {
 			return
 		}
 		logger.Warn("уведомления: LISTEN прервался, переподключение", "err", err)
 		select {
-		case <-ctx.Done():
+		case <-stop.Done():
 			return
 		case <-time.After(5 * time.Second):
 		}
 	}
 }
 
-func listen(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *reminders.Service, interval time.Duration) error {
-	conn, err := pool.Acquire(ctx)
+func listen(stop, work context.Context, pool *pgxpool.Pool, logger *slog.Logger, a *alerts.Alerter, svc *reminders.Service, interval time.Duration) error {
+	conn, err := pool.Acquire(stop)
 	if err != nil {
 		return err
 	}
@@ -216,21 +243,21 @@ func listen(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *r
 		_, _ = conn.Exec(uctx, "UNLISTEN *") // в пул — без подписки
 		conn.Release()
 	}()
-	if _, err := conn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
+	if _, err := conn.Exec(stop, "LISTEN "+notifyChannel); err != nil {
 		broken = true
 		return err
 	}
 	for {
-		if _, sent, err := DispatchOnce(ctx, pool, svc); err != nil && ctx.Err() == nil {
-			logger.Error("уведомления: отправка не удалась", "err", err)
+		if _, sent, err := DispatchOnce(work, pool, svc); err != nil && work.Err() == nil {
+			failed(logger, a, "notify.dispatch", err)
 		} else if sent > 0 {
 			logger.Info("уведомления отправлены", "sent", sent)
 		}
-		wctx, cancel := context.WithTimeout(ctx, interval)
+		wctx, cancel := context.WithTimeout(stop, interval)
 		_, err := conn.Conn().WaitForNotification(wctx)
 		cancel()
 		switch {
-		case ctx.Err() != nil:
+		case stop.Err() != nil:
 			return nil
 		case err != nil && !errors.Is(err, context.DeadlineExceeded):
 			broken = true

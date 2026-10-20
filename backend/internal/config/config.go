@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +31,10 @@ type Config struct {
 	// без него оплата идёт по реквизитам центра.
 	FinikEnabled bool
 	FinikAPIKey  Secret
+	// TrustedProxies — прокси (Caddy), от которых верим X-Forwarded-For (TRUSTED_PROXIES, CIDR через запятую).
+	TrustedProxies []netip.Prefix
+	// AlertChatID — служебный Telegram-чат для алертов (ALERT_TELEGRAM_CHAT_ID); 0 — только лог.
+	AlertChatID int64
 }
 
 // Режимы Telegram-бота.
@@ -109,10 +115,63 @@ func Load() (Config, error) {
 	}
 	cfg.FinikAPIKey = Secret(strings.TrimSpace(os.Getenv("FINIK_API_KEY")))
 
+	if cfg.TrustedProxies, err = ParseCIDRs(os.Getenv("TRUSTED_PROXIES")); err != nil {
+		errs = append(errs, fmt.Errorf("TRUSTED_PROXIES: %w", err))
+	}
+	if v := strings.TrimSpace(os.Getenv("ALERT_TELEGRAM_CHAT_ID")); v != "" {
+		if cfg.AlertChatID, err = strconv.ParseInt(v, 10, 64); err != nil || cfg.AlertChatID == 0 {
+			errs = append(errs, fmt.Errorf("ALERT_TELEGRAM_CHAT_ID: ожидается id чата (число, у групп — отрицательное), получено %q", v))
+		}
+	}
+	if cfg.Env == "prod" {
+		errs = append(errs, prodChecks(cfg)...)
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
 	return cfg, nil
+}
+
+// prodChecks — то, без чего prod не запускается: HTTPS-адрес фронтенда (cookie Secure, вебхук
+// Telegram), вебхук вместо polling. ENCRYPTION_KEY и секрет вебхука проверяются выше.
+func prodChecks(cfg Config) []error {
+	var errs []error
+	if cfg.AppOrigin != "" && !strings.HasPrefix(cfg.AppOrigin, "https://") {
+		errs = append(errs, fmt.Errorf("APP_ORIGIN: в prod нужен https://, получено %q", cfg.AppOrigin))
+	}
+	if cfg.Telegram.Mode != TelegramWebhook {
+		errs = append(errs, fmt.Errorf("TELEGRAM_MODE: в prod только webhook, получено %q (задайте TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET)", cfg.Telegram.Mode))
+	}
+	return errs
+}
+
+// ParseCIDRs разбирает список «10.0.0.0/8, 172.30.0.0/24, 127.0.0.1» (адрес без маски — один хост).
+func ParseCIDRs(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if !strings.Contains(part, "/") {
+			a, err := netip.ParseAddr(part)
+			if err != nil {
+				return nil, fmt.Errorf("%q — не адрес и не CIDR", part)
+			}
+			out = append(out, netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()))
+			continue
+		}
+		p, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, fmt.Errorf("%q — не CIDR", part)
+		}
+		if p.Addr().Is4In6() {
+			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
 }
 
 // loadKey декодирует ключ из base64. Пустой ключ допустим только вне prod.
