@@ -116,13 +116,14 @@ func billOne(ctx context.Context, pool *pgxpool.Pool, centerID, enrollmentID uui
 		if err != nil {
 			return 0, err
 		}
-		disc, err := DiscountAmount(tariff.Price, discountOf(e.DiscountKind, e.DiscountValue))
+		// Фиксированная скидка больше цены — начисление на 0 с пометкой discount_capped в журнале.
+		disc, capped, err := DiscountAmount(tariff.Price, discountOf(e.DiscountKind, e.DiscountValue))
 		if err != nil {
-			return 0, err // fixed-скидка больше новой цены: не начисляем молча меньше — разбираться человеку
+			return 0, err
 		}
 		if _, err := CreateCharge(ctx, tx, ChargeInput{
 			CenterID: centerID, StudentID: e.StudentID, EnrollmentID: &enrollmentID,
-			ListPrice: tariff.Price, Discount: disc, Period: &period, DueDate: due,
+			ListPrice: tariff.Price, Discount: disc, Period: &period, DueDate: due, DiscountCapped: capped,
 		}); err != nil {
 			return 0, err
 		}

@@ -10,17 +10,18 @@ import (
 // R6: скидка применяется при создании начисления.
 func TestDiscountAmount(t *testing.T) {
 	tests := []struct {
-		name    string
-		price   int64
-		d       *Discount
-		want    int64
-		want422 bool
-		wantSum int64 // amount = -(price - discount)
+		name       string
+		price      int64
+		d          *Discount
+		want       int64
+		wantCapped bool  // fixed больше цены — урезана до цены, начисление на 0
+		wantSum    int64 // amount = -(price - discount)
 	}{
 		{"без скидки", 300_000, nil, 0, false, -300_000},
 		{"fixed", 300_000, &Discount{DiscountFixed, 50_000}, 50_000, false, -250_000},
-		{"fixed = цене", 300_000, &Discount{DiscountFixed, 300_000}, 300_000, false, 0},
-		{"fixed больше цены", 300_000, &Discount{DiscountFixed, 300_001}, 0, true, 0},
+		{"fixed = цене — не урезана", 300_000, &Discount{DiscountFixed, 300_000}, 300_000, false, 0},
+		{"fixed больше цены — урезана до цены", 300_000, &Discount{DiscountFixed, 300_001}, 300_000, true, 0},
+		{"fixed больше бесплатного тарифа", 0, &Discount{DiscountFixed, 1}, 0, true, 0},
 		{"fixed 0", 300_000, &Discount{DiscountFixed, 0}, 0, false, -300_000},
 		{"percent 10", 300_000, &Discount{DiscountPercent, 10}, 30_000, false, -270_000},
 		{"percent с округлением вниз", 333_333, &Discount{DiscountPercent, 15}, 49_999, false, -283_334}, // 49 999.95
@@ -33,16 +34,9 @@ func TestDiscountAmount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := DiscountAmount(tt.price, tt.d)
-			if tt.want422 {
-				var verr *validate.Error
-				if !errors.As(err, &verr) || verr.Field != "discount" || !verr.Unprocessable {
-					t.Fatalf("err = %v, want 422 discount", err)
-				}
-				return
-			}
-			if err != nil || got != tt.want {
-				t.Fatalf("DiscountAmount = %d, %v; want %d", got, err, tt.want)
+			got, capped, err := DiscountAmount(tt.price, tt.d)
+			if err != nil || got != tt.want || capped != tt.wantCapped {
+				t.Fatalf("DiscountAmount = %d, capped=%v, %v; want %d, capped=%v", got, capped, err, tt.want, tt.wantCapped)
 			}
 			if sum := -(tt.price - got); sum != tt.wantSum {
 				t.Errorf("amount = %d, want %d", sum, tt.wantSum)

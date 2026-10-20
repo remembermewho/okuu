@@ -112,7 +112,7 @@ func (s *Service) Enroll(ctx context.Context, actor, centerID, studentID uuid.UU
 			return ErrAlreadyEnrolled
 		}
 
-		// Параметры начисления считаем до вставки: ошибка скидки (422) не должна оставлять запись.
+		// Параметры начисления считаем до вставки записи.
 		discount := discountOf(student.DiscountKind, student.DiscountValue)
 		var chargeIn *billing.ChargeInput
 		var (
@@ -122,11 +122,11 @@ func (s *Service) Enroll(ctx context.Context, actor, centerID, studentID uuid.UU
 		switch tariff.Kind {
 		case tariffs.KindPackage:
 			lessonsLeft = tariff.LessonsCount
-			disc, err := billing.DiscountAmount(tariff.Price, discount)
+			disc, capped, err := billing.DiscountAmount(tariff.Price, discount)
 			if err != nil {
 				return err
 			}
-			chargeIn = &billing.ChargeInput{ListPrice: tariff.Price, Discount: disc, DueDate: today.AddDays(center.DueDays)}
+			chargeIn = &billing.ChargeInput{ListPrice: tariff.Price, Discount: disc, DueDate: today.AddDays(center.DueDays), DiscountCapped: capped}
 		case tariffs.KindMonthly:
 			period := today.FirstOfMonth()
 			if !in.StartDate.Before(period.AddMonths(1)) {
@@ -142,11 +142,11 @@ func (s *Service) Enroll(ctx context.Context, actor, centerID, studentID uuid.UU
 			case "":
 				return validate.Errorf("first_month", "Ученик учится в текущем месяце — выберите first_month: full, manual или none")
 			case FirstMonthFull:
-				disc, err := billing.DiscountAmount(tariff.Price, discount)
+				disc, capped, err := billing.DiscountAmount(tariff.Price, discount)
 				if err != nil {
 					return err
 				}
-				chargeIn = &billing.ChargeInput{ListPrice: tariff.Price, Discount: disc, Period: &period, DueDate: due}
+				chargeIn = &billing.ChargeInput{ListPrice: tariff.Price, Discount: disc, Period: &period, DueDate: due, DiscountCapped: capped}
 			case FirstMonthManual:
 				comment := "R5: сумма за первый месяц вручную"
 				chargeIn = &billing.ChargeInput{ListPrice: *in.ManualAmount, Period: &period, DueDate: due, Comment: &comment}
@@ -268,7 +268,7 @@ func (s *Service) Renew(ctx context.Context, actor, centerID, studentID, id uuid
 		if tariff.Kind != tariffs.KindPackage || tariff.LessonsCount == nil {
 			return ErrNotPackage
 		}
-		disc, err := billing.DiscountAmount(tariff.Price, discountOf(student.DiscountKind, student.DiscountValue))
+		disc, capped, err := billing.DiscountAmount(tariff.Price, discountOf(student.DiscountKind, student.DiscountValue))
 		if err != nil {
 			return err
 		}
@@ -290,7 +290,7 @@ func (s *Service) Renew(ctx context.Context, actor, centerID, studentID, id uuid
 		comment := "Продление абонемента"
 		charge, err = billing.CreateCharge(ctx, tx, billing.ChargeInput{
 			CenterID: centerID, StudentID: studentID, EnrollmentID: &id, ListPrice: tariff.Price, Discount: disc,
-			DueDate: today.AddDays(center.DueDays), Comment: &comment, CreatedBy: &actor,
+			DueDate: today.AddDays(center.DueDays), Comment: &comment, CreatedBy: &actor, DiscountCapped: capped,
 		})
 		if err != nil {
 			return err

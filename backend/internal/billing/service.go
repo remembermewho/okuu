@@ -325,6 +325,9 @@ type Summary struct {
 	Collected    int64
 	DebtTotal    int64
 	DebtorsCount int
+	// PendingTotal / PendingCount — отрицательный баланс без просрочки: срок ещё не наступил.
+	PendingTotal int64
+	PendingCount int
 }
 
 // Debtors — должники (balance < 0 и срок прошёл), по убыванию долга, и итоги месяца.
@@ -339,12 +342,12 @@ func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 		return nil, Summary{}, err
 	}
 
-	all, err := s.debtors(ctx, centerID, nil, today, c.Timezone)
+	all, pending, err := s.debtors(ctx, centerID, nil, today, c.Timezone)
 	if err != nil {
 		return nil, Summary{}, err
 	}
 	period := today.FirstOfMonth()
-	sum := Summary{Period: period, DebtorsCount: len(all)}
+	sum := Summary{Period: period, DebtorsCount: len(all), PendingTotal: pending.total, PendingCount: pending.count}
 	for _, d := range all {
 		sum.DebtTotal += d.Debt
 	}
@@ -356,17 +359,24 @@ func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 
 	items := all
 	if groupID != nil {
-		if items, err = s.debtors(ctx, centerID, groupID, today, c.Timezone); err != nil {
+		if items, _, err = s.debtors(ctx, centerID, groupID, today, c.Timezone); err != nil {
 			return nil, Summary{}, err
 		}
 	}
 	return items, sum, nil
 }
 
-func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID, today civil.Date, tz string) ([]Debtor, error) {
+// pendingStats — ученики с отрицательным балансом, у которых срок ещё не наступил (не должники по R14).
+type pendingStats struct {
+	total int64
+	count int
+}
+
+func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID, today civil.Date, tz string) ([]Debtor, pendingStats, error) {
+	var pending pendingStats
 	cands, err := s.q.ListDebtCandidates(ctx, sqlc.ListDebtCandidatesParams{CenterID: centerID, GroupID: groupID})
 	if err != nil || len(cands) == 0 {
-		return []Debtor{}, err
+		return []Debtor{}, pending, err
 	}
 	ids := make([]uuid.UUID, 0, len(cands))
 	for _, c := range cands {
@@ -374,13 +384,13 @@ func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 	}
 	rows, err := s.q.ListActiveOperations(ctx, sqlc.ListActiveOperationsParams{CenterID: centerID, StudentIds: ids})
 	if err != nil {
-		return nil, err
+		return nil, pending, err
 	}
 	ops := map[uuid.UUID][]Op{}
 	for _, r := range rows {
 		on, err := civil.DateIn(r.CreatedAt, tz)
 		if err != nil {
-			return nil, err
+			return nil, pending, err
 		}
 		ops[r.StudentID] = append(ops[r.StudentID], Op{ID: r.ID, Kind: r.Kind, Amount: r.Amount, DueDate: r.DueDate, CreatedAt: r.CreatedAt, CreatedOn: on})
 	}
@@ -389,11 +399,15 @@ func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 	for _, c := range cands {
 		d := ComputeDebt(ops[c.ID], today)
 		if !d.IsDebtor {
+			if d.Balance < 0 {
+				pending.total += d.Debt
+				pending.count++
+			}
 			continue
 		}
 		var groups []GroupRef
 		if err := json.Unmarshal(c.Groups, &groups); err != nil {
-			return nil, fmt.Errorf("группы ученика %s: %w", c.ID, err)
+			return nil, pending, fmt.Errorf("группы ученика %s: %w", c.ID, err)
 		}
 		out = append(out, Debtor{
 			StudentID: c.ID, FullName: c.FullName, Status: c.Status, Groups: groups,
@@ -410,7 +424,7 @@ func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 		}
 		return cmp.Compare(a.StudentID.String(), b.StudentID.String())
 	})
-	return out, nil
+	return out, pending, nil
 }
 
 func fromLedger(r sqlc.Ledger) Operation {

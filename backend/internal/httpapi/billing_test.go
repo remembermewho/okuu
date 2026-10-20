@@ -58,6 +58,8 @@ type debtorsResp struct {
 		Collected    int64      `json:"collected"`
 		DebtTotal    int64      `json:"debt_total"`
 		DebtorsCount int        `json:"debtors_count"`
+		PendingTotal int64      `json:"pending_total"`
+		PendingCount int        `json:"pending_count"`
 	} `json:"summary"`
 }
 
@@ -394,6 +396,10 @@ func TestDebtors(t *testing.T) {
 	if s.Period != c.today.FirstOfMonth() || s.Charged != 4*300_000+400_000 || s.Collected != 100_000+300_000-50_000 ||
 		s.DebtTotal != 800_000 || s.DebtorsCount != 3 {
 		t.Errorf("summary = %+v, want charged 1600000, collected 350000, debt 800000, count 3", s)
+	}
+	// Долг без просрочки: Бекова (абонемент 400 000, срок через 5 дней) и Ваня (возврат 50 000 сегодня).
+	if s.PendingTotal != 450_000 || s.PendingCount != 2 {
+		t.Errorf("pending = %d / %d, want 450000 / 2", s.PendingTotal, s.PendingCount)
 	}
 
 	// Фильтр по группе: в «Шахматах» — только Ешенов; итоги — по всему центру.

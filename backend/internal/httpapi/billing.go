@@ -56,6 +56,8 @@ type summaryDTO struct {
 	Collected    int64      `json:"collected"`
 	DebtTotal    int64      `json:"debt_total"`
 	DebtorsCount int        `json:"debtors_count"`
+	PendingTotal int64      `json:"pending_total"` // долг, срок которого ещё не наступил
+	PendingCount int        `json:"pending_count"`
 }
 
 type debtorsDTO struct {
@@ -181,7 +183,8 @@ func (h *handlers) listDebtors(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, debtorsDTO{
 		listDTO: listOf(items),
 		Summary: summaryDTO{Period: sum.Period, Charged: sum.Charged, Collected: sum.Collected,
-			DebtTotal: sum.DebtTotal, DebtorsCount: sum.DebtorsCount},
+			DebtTotal: sum.DebtTotal, DebtorsCount: sum.DebtorsCount,
+			PendingTotal: sum.PendingTotal, PendingCount: sum.PendingCount},
 	})
 }
 

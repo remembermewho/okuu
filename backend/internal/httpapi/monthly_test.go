@@ -84,7 +84,7 @@ func TestBillingMonthly(t *testing.T) {
 	c.owner.do(http.MethodPatch, centerPath(c.center, "/tariffs/"+t2.ID.String()), map[string]any{"price": 250_000})
 	c.owner.do(http.MethodPatch, centerPath(c.center, "/students/"+repriced.ID.String()), map[string]any{"discount": discountJSON{"percent", 10}})
 
-	// Фиксированная скидка больше новой цены — запись не начисляется, остальные идут дальше.
+	// Фиксированная скидка больше новой цены — начисление на 0 (скидка урезана до цены), пометка discount_capped.
 	t3 := createTariff(t, c.owner, c.center, monthly("Дорогой", 150_000))
 	g3 := createGroup(t, c.owner, c.center, map[string]any{"name": "Дорогая группа", "default_tariff_id": t3.ID})
 	broken := c.student(t, "Скидка больше цены", "+996705000109", &discountJSON{"fixed", 100_000})
@@ -97,8 +97,8 @@ func TestBillingMonthly(t *testing.T) {
 	}
 
 	res := runMonthly(t, c, p1)
-	if res.Period != p1 || res.Charged != 3 || res.Paused != 1 || res.Failed != 1 {
-		t.Fatalf("RunMonthly(%s) = %+v, want charged 3 (активный, будущий, новая цена), paused 1, failed 1", p1, res)
+	if res.Period != p1 || res.Charged != 4 || res.Paused != 1 || res.Failed != 0 {
+		t.Fatalf("RunMonthly(%s) = %+v, want charged 4 (активный, будущий, новая цена, скидка больше цены), paused 1, failed 0", p1, res)
 	}
 	due := p1.AddDays(0 + 5) // billing_day 1 → P + 0 + due_days 5 (R4)
 
@@ -124,25 +124,34 @@ func TestBillingMonthly(t *testing.T) {
 	check("ушёл (R7)", left.ID, 0, &p0)
 	check("абонемент", pkg.ID, 0, nil)
 	check("новая цена и скидка (R6)", repriced.ID, -225_000, &p1) // 250 000 − 10 %
-	check("скидка больше цены", broken.ID, 0, &p0)
+	// Скидка больше цены: одно начисление на 0, discount = list_price = новая цена, billed_through = P1.
+	if ch := chargesFor(t, c, broken.ID, p1); len(ch) != 1 || ch[0].Amount != 0 || *ch[0].ListPrice != 80_000 || *ch[0].Discount != 80_000 {
+		t.Errorf("скидка больше цены: начисления = %+v, want одно на 0 (80000 − 80000)", ch)
+	}
+	if b := billedThrough(t, c, broken.ID); b == nil || *b != p1 {
+		t.Errorf("скидка больше цены: billed_through = %v, want %s", b, p1)
+	}
 
 	// Начисления от системы: created_by = NULL, в журнале user_id = NULL.
 	var sys int
 	_ = c.api.pool.QueryRow(context.Background(), `SELECT count(*) FROM ledger WHERE center_id = $1 AND period = $2 AND created_by IS NULL`,
 		c.center, p1).Scan(&sys)
 	charges := filterAudit(auditLog(t, c.api, c.center), "ledger.charge")
-	var system int
+	var system, capped int
 	for _, a := range charges {
 		if a.UserID == nil {
 			system++
+			if a.After["discount_capped"] == true {
+				capped++
+			}
 		}
 	}
-	if sys != 3 || system != 3 {
-		t.Errorf("системных начислений %d, в журнале с user_id NULL %d, want 3 и 3", sys, system)
+	if sys != 4 || system != 4 || capped != 1 {
+		t.Errorf("системных начислений %d, в журнале с user_id NULL %d, с discount_capped %d; want 4, 4, 1", sys, system, capped)
 	}
 
-	// Повторный запуск — ничего нового (кроме повторной ошибки «скидка больше цены»).
-	if res := runMonthly(t, c, p1.AddDays(5)); res.Charged != 0 || res.Paused != 0 || res.Failed != 1 {
+	// Повторный запуск — ничего нового.
+	if res := runMonthly(t, c, p1.AddDays(5)); res.Charged != 0 || res.Paused != 0 || res.Failed != 0 {
 		t.Fatalf("повторный запуск: %+v", res)
 	}
 	// Отменили начисление — billed_through не сбрасывается, повторно не начисляем.

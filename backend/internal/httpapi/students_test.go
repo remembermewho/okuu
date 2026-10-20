@@ -402,22 +402,36 @@ func TestEnrollMonthlyFirstMonthR5(t *testing.T) {
 		}
 	})
 
-	t.Run("fixed-скидка больше цены — 422 и ничего не создано", func(t *testing.T) {
+	t.Run("fixed-скидка больше цены — начисление на 0 с пометкой discount_capped", func(t *testing.T) {
 		s := c.student(t, "Большая скидка", "+996702200401", &discountJSON{"fixed", 300_001})
-		rec := c.owner.do(http.MethodPost, centerPath(c.center, "/students/"+s.ID.String()+"/enrollments"),
-			map[string]any{"group_id": c.group.ID, "start_date": c.today.String(), "first_month": "full"})
-		assertField(t, rec, http.StatusUnprocessableEntity, "discount")
-		if card := c.card(t, s.ID); len(card.Enrollments) != 0 || card.Balance != 0 {
-			t.Errorf("после 422: %+v", card)
+		res := c.enroll(t, s.ID, map[string]any{"group_id": c.group.ID, "start_date": c.today.String(), "first_month": "full"})
+		if ch := res.Charge; ch == nil || ch.Amount != 0 || ch.ListPrice != 300_000 || ch.Discount != 300_000 {
+			t.Fatalf("charge = %+v, want 0 (list 300000, discount 300000)", ch)
+		}
+		if card := c.card(t, s.ID); len(card.Enrollments) != 1 || card.Balance != 0 ||
+			card.Enrollments[0].BilledThrough == nil || *card.Enrollments[0].BilledThrough != period {
+			t.Errorf("card = %+v", card)
+		}
+		capped := 0
+		for _, a := range filterAudit(auditLog(t, c.api, c.center), "ledger.charge") {
+			if a.After["discount_capped"] == true {
+				capped++
+				if *a.EntityID != res.Charge.ID {
+					t.Errorf("discount_capped у чужого начисления: %+v", a)
+				}
+			}
+		}
+		if capped != 1 {
+			t.Errorf("пометок discount_capped: %d, want 1", capped)
 		}
 	})
 
 	log := auditLog(t, c.api, c.center)
-	if n := len(filterAudit(log, "ledger.charge")); n != 5 {
-		t.Errorf("ledger.charge в журнале: %d, want 5", n)
+	if n := len(filterAudit(log, "ledger.charge")); n != 6 {
+		t.Errorf("ledger.charge в журнале: %d, want 6", n)
 	}
-	if n := len(filterAudit(log, "enrollment.create")); n != 8 {
-		t.Errorf("enrollment.create в журнале: %d, want 8", n)
+	if n := len(filterAudit(log, "enrollment.create")); n != 9 {
+		t.Errorf("enrollment.create в журнале: %d, want 9", n)
 	}
 }
 

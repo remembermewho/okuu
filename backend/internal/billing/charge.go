@@ -51,24 +51,24 @@ func ValidateDiscount(d *Discount, maxFixed int64) error {
 	return nil
 }
 
-// DiscountAmount считает скидку от цены (R6): fixed — как есть, но не больше цены;
-// percent — floor(price * percent / 100). Фиксированная скидка больше цены — 422 на поле discount.
-func DiscountAmount(price int64, d *Discount) (int64, error) {
+// DiscountAmount считает скидку от цены (R6): fixed — как есть; percent — floor(price * percent / 100).
+// Фиксированная скидка больше цены урезается до цены (начисление на 0), capped = true —
+// вызывающий передаёт это в ChargeInput.DiscountCapped, и в журнале остаётся пометка.
+func DiscountAmount(price int64, d *Discount) (discount int64, capped bool, err error) {
 	if d == nil {
-		return 0, nil
+		return 0, false, nil
 	}
 	switch d.Kind {
 	case DiscountFixed:
 		if d.Value > price {
-			return 0, validate.Unprocessablef("discount",
-				"Скидка ученика %d тыйын больше цены тарифа %d тыйын", d.Value, price)
+			return price, true, nil
 		}
-		return d.Value, nil
+		return d.Value, false, nil
 	case DiscountPercent:
 		// price ≤ 1e9, percent ≤ 100 — переполнения нет; оба неотрицательны, деление = floor.
-		return price * d.Value / 100, nil
+		return price * d.Value / 100, false, nil
 	}
-	return 0, fmt.Errorf("неизвестный вид скидки %q", d.Kind)
+	return 0, false, fmt.Errorf("неизвестный вид скидки %q", d.Kind)
 }
 
 // ChargeInput — начисление: amount = -(ListPrice - Discount).
@@ -82,6 +82,8 @@ type ChargeInput struct {
 	DueDate      civil.Date
 	Comment      *string
 	CreatedBy    *uuid.UUID // nil — система (billing.monthly)
+	// DiscountCapped — фиксированная скидка ученика была больше цены и урезана до неё (начисление на 0).
+	DiscountCapped bool
 }
 
 // Charge — созданное начисление.
@@ -129,13 +131,17 @@ func CreateCharge(ctx context.Context, tx sqlc.DBTX, in ChargeInput) (Charge, er
 	}
 
 	c := Charge{ID: row.ID, Amount: amount, ListPrice: in.ListPrice, Discount: in.Discount, Period: in.Period, DueDate: in.DueDate}
+	after := map[string]any{
+		"student_id": in.StudentID, "enrollment_id": in.EnrollmentID, "amount": c.Amount,
+		"list_price": c.ListPrice, "discount": c.Discount, "period": c.Period, "due_date": c.DueDate,
+		"comment": in.Comment,
+	}
+	if in.DiscountCapped {
+		after["discount_capped"] = true
+	}
 	if err := audit.Record(ctx, tx, audit.Entry{
 		CenterID: in.CenterID, UserID: in.CreatedBy, Action: audit.LedgerCharge, Entity: "ledger", EntityID: &c.ID,
-		After: map[string]any{
-			"student_id": in.StudentID, "enrollment_id": in.EnrollmentID, "amount": c.Amount,
-			"list_price": c.ListPrice, "discount": c.Discount, "period": c.Period, "due_date": c.DueDate,
-			"comment": in.Comment,
-		},
+		After: after,
 	}); err != nil {
 		return Charge{}, err
 	}
