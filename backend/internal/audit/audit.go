@@ -32,6 +32,7 @@ const (
 	EnrollEnd       = "enrollment.end"
 	EnrollRenew     = "enrollment.renew"
 	LedgerCharge    = "ledger.charge"
+	LedgerCancel    = "ledger.cancel" // также ledger.payment, ledger.refund, ledger.correction
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

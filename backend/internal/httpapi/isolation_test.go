@@ -46,6 +46,12 @@ var isolationCases = map[string]any{
 	},
 	"POST /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/end":   nil,
 	"POST /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/renew": nil,
+
+	// Деньги. Idempotency-Key клиент чужого центра шлёт всегда (см. тест).
+	"POST /api/v1/c/{centerId}/students/{studentId}/payments": map[string]any{"kind": "payment", "amount": 100, "method": "cash"},
+	"GET /api/v1/c/{centerId}/students/{studentId}/ledger":    nil,
+	"POST /api/v1/c/{centerId}/ledger/{ledgerId}/cancel":      map[string]any{"reason": "тест изоляции"},
+	"GET /api/v1/c/{centerId}/debtors":                        nil,
 }
 
 var routeParam = regexp.MustCompile(`\{(\w+)\}`)
@@ -86,11 +92,12 @@ func TestIsolationAllCenterRoutes(t *testing.T) {
 	// Центр Б — владелец Б и есть «чужой пользователь».
 	ownerB := api.client(t, "10.0.0.2")
 	centerB := ownerB.register("+996703900003", "Центр Б").Centers[0].ID
+	ownerB.headers = map[string]string{"Idempotency-Key": "isolation-test"}
 
 	paramsA := map[string]string{
 		"centerId": a.center.String(), "userId": teacherA.String(), "inviteId": inviteA.ID.String(),
 		"tariffId": a.monthly.ID.String(), "groupId": a.group.ID.String(), "studentId": studentA.ID.String(),
-		"enrollmentId": enrA.Enrollment.ID.String(), "today": a.today.String(),
+		"enrollmentId": enrA.Enrollment.ID.String(), "ledgerId": enrA.Charge.ID.String(), "today": a.today.String(),
 	}
 	before := centerFingerprint(t, api, a.center, centerB)
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"okuu/internal/auth"
+	"okuu/internal/billing"
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
@@ -43,6 +44,12 @@ var knownErrors = []struct {
 	{students.ErrEnrollmentEnded, http.StatusConflict, "enrollment_ended", "Запись уже завершена"},
 	{students.ErrNotPackage, http.StatusConflict, "not_package", "Продлить можно только абонемент"},
 	{students.ErrStudentLeft, http.StatusConflict, "student_left", "Ученик ушёл — сначала верните ему статус"},
+
+	{billing.ErrStudentNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{billing.ErrOperationNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{billing.ErrAlreadyCancelled, http.StatusConflict, "already_cancelled", "Операция уже отменена"},
+	{billing.ErrIdempotencyMismatch, http.StatusUnprocessableEntity, "idempotency_mismatch", "Этот Idempotency-Key уже использован для другой операции"},
+	{billing.ErrFinikOwnerOnly, http.StatusForbidden, "forbidden", "Оплату через Finik может отменить только владелец"},
 }
 
 // fail переводит ошибку сервиса в ответ API.

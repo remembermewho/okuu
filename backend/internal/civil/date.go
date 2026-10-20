@@ -62,6 +62,12 @@ func (d Date) AddMonths(n int) Date { return DateOf(d.time().AddDate(0, n, 0)) }
 // SameMonth — тот же календарный месяц.
 func (d Date) SameMonth(o Date) bool { return d.year == o.year && d.month == o.month }
 
+// DaysSince — сколько дней от o до d (d − o); отрицательно, если d раньше o.
+func (d Date) DaysSince(o Date) int { return int(d.time().Sub(o.time()) / (24 * time.Hour)) }
+
+// DateIn — дата момента t в часовом поясе tz.
+func DateIn(t time.Time, tz string) (Date, error) { return Today(t, tz) }
+
 // Compare: -1, если d раньше o; 0, если равны; +1, если позже.
 func (d Date) Compare(o Date) int { return d.time().Compare(o.time()) }
 func (d Date) Before(o Date) bool { return d.Compare(o) < 0 }

@@ -3,11 +3,14 @@
 //	server                  запустить HTTP-сервер (миграции применяются при старте)
 //	server migrate [up]     применить миграции и выйти
 //	server migrate status   показать состояние миграций
+//	server billing run --center=<id> [--date=YYYY-MM-DD]
+//	                        начисления billing.monthly по центру на дату (по умолчанию — сегодня в его поясе)
 package main
 
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,13 +20,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"okuu/internal/auth"
+	"okuu/internal/billing"
+	"okuu/internal/civil"
 	"okuu/internal/config"
 	"okuu/internal/db"
 	"okuu/internal/groups"
 	"okuu/internal/httpapi"
+	"okuu/internal/jobs"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -85,8 +92,13 @@ func run(logger *slog.Logger, args []string) error {
 			return migrateStatus(ctx, pool)
 		}
 		return fmt.Errorf("неизвестная команда migrate %q (up|status)", sub)
+	case "billing":
+		if len(args) < 2 || args[1] != "run" {
+			return errors.New("использование: server billing run --center=<id> [--date=YYYY-MM-DD]")
+		}
+		return billingRun(ctx, logger, pool, args[2:])
 	}
-	return fmt.Errorf("неизвестная команда %q (serve|migrate)", cmd)
+	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing)", cmd)
 }
 
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool) error {
@@ -100,11 +112,15 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 			Tariffs:   tariffs.NewService(pool),
 			Groups:    groups.NewService(pool),
 			Students:  students.NewService(pool, time.Now),
+			Billing:   billing.NewService(pool, time.Now, logger),
 			AppOrigin: cfg.AppOrigin,
 			Logger:    logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	// Фоновые задачи: billing.monthly раз в час (и сразу при старте).
+	go (&jobs.Scheduler{Pool: pool, Logger: logger}).Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -168,5 +184,44 @@ func migrateStatus(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		fmt.Printf("%-4d %-8s %-20s %s\n", s.Source.Version, s.State, applied, filepath.Base(s.Source.Path))
 	}
+	return nil
+}
+
+// billingRun — ручной запуск billing.monthly по одному центру (для проверки и разбора).
+// Начисляет период даты --date; повторный запуск ничего не дублирует.
+func billingRun(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, args []string) error {
+	fs := flag.NewFlagSet("billing run", flag.ContinueOnError)
+	centerFlag := fs.String("center", "", "id центра (обязательно)")
+	dateFlag := fs.String("date", "", "дата YYYY-MM-DD (по умолчанию — сегодня в часовом поясе центра)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	centerID, err := uuid.Parse(*centerFlag)
+	if err != nil {
+		return fmt.Errorf("--center: нужен id центра: %w", err)
+	}
+	if err := migrateUp(ctx, logger, pool); err != nil {
+		return err
+	}
+	var today civil.Date
+	if *dateFlag != "" {
+		if today, err = civil.Parse(*dateFlag); err != nil {
+			return fmt.Errorf("--date: %w", err)
+		}
+	} else {
+		center, err := db.CenterTimezone(ctx, pool, centerID)
+		if err != nil {
+			return err
+		}
+		if today, err = civil.Today(time.Now(), center); err != nil {
+			return err
+		}
+	}
+	res, err := billing.RunMonthly(ctx, pool, logger, centerID, today)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("период %s (дата %s): начислено %d, пауза %d, пропущено %d, ошибок %d\n",
+		res.Period, today, res.Charged, res.Paused, res.Skipped, res.Failed)
 	return nil
 }

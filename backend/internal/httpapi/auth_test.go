@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"okuu/internal/auth"
+	"okuu/internal/billing"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/groups"
 	"okuu/internal/httpapi"
@@ -63,7 +64,8 @@ func newTestAPI(t *testing.T) *testAPI {
 	return &testAPI{
 		h: httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc),
 			Tariffs: tariffs.NewService(pool), Groups: groups.NewService(pool),
-			Students: students.NewService(pool, clk.Now), AppOrigin: testOrigin}),
+			Students: students.NewService(pool, clk.Now),
+			Billing:  billing.NewService(pool, clk.Now, nil), AppOrigin: testOrigin}),
 		auth:  svc,
 		pool:  pool,
 		clock: clk,
@@ -77,6 +79,7 @@ type client struct {
 	ip      string
 	origin  string
 	cookies map[string]*http.Cookie
+	headers map[string]string // добавляются к каждому запросу (например, Idempotency-Key)
 }
 
 func (api *testAPI) client(t *testing.T, ip string) *client {
@@ -95,6 +98,9 @@ func (c *client) do(method, path string, body any) *httptest.ResponseRecorder {
 	req.RemoteAddr = c.ip + ":40000"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "okuu-test")
+	for k, v := range c.headers {
+		req.Header.Set(k, v)
+	}
 	if method != http.MethodGet && c.origin != "" {
 		req.Header.Set("Origin", c.origin)
 	}

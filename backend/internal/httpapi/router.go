@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"okuu/internal/auth"
+	"okuu/internal/billing"
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
@@ -31,6 +32,7 @@ type Deps struct {
 	Tariffs   *tariffs.Service
 	Groups    *groups.Service
 	Students  *students.Service
+	Billing   *billing.Service
 	AppOrigin string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger    *slog.Logger
 }
@@ -41,6 +43,7 @@ type handlers struct {
 	tariffs   *tariffs.Service
 	groups    *groups.Service
 	students  *students.Service
+	billing   *billing.Service
 	appOrigin string
 	logger    *slog.Logger
 }
@@ -51,7 +54,7 @@ func NewRouter(d Deps) http.Handler {
 		d.Logger = slog.Default()
 	}
 	h := &handlers{
-		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students,
+		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
 		appOrigin: d.AppOrigin, logger: d.Logger,
 	}
 
@@ -128,6 +131,12 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/students/{studentId}/enrollments", h.createEnrollment)
 					r.Post("/students/{studentId}/enrollments/{enrollmentId}/end", h.endEnrollment)
 					r.Post("/students/{studentId}/enrollments/{enrollmentId}/renew", h.renewEnrollment)
+
+					// Деньги: оплаты, отмены, история, должники (F6).
+					r.Post("/students/{studentId}/payments", h.createOperation)
+					r.Get("/students/{studentId}/ledger", h.studentLedger)
+					r.Post("/ledger/{ledgerId}/cancel", h.cancelOperation)
+					r.Get("/debtors", h.listDebtors)
 				})
 			})
 		})

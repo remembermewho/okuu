@@ -85,24 +85,25 @@ type Invite struct {
 }
 
 type Ledger struct {
-	ID           uuid.UUID   `json:"id"`
-	CenterID     uuid.UUID   `json:"center_id"`
-	StudentID    uuid.UUID   `json:"student_id"`
-	EnrollmentID *uuid.UUID  `json:"enrollment_id"`
-	Kind         string      `json:"kind"`
-	Amount       int64       `json:"amount"`
-	Period       *civil.Date `json:"period"`
-	DueDate      *civil.Date `json:"due_date"`
-	ListPrice    *int64      `json:"list_price"`
-	Discount     *int64      `json:"discount"`
-	Method       *string     `json:"method"`
-	ExternalID   *string     `json:"external_id"`
-	Comment      *string     `json:"comment"`
-	CreatedBy    *uuid.UUID  `json:"created_by"`
-	CreatedAt    time.Time   `json:"created_at"`
-	CancelledAt  *time.Time  `json:"cancelled_at"`
-	CancelledBy  *uuid.UUID  `json:"cancelled_by"`
-	CancelReason *string     `json:"cancel_reason"`
+	ID             uuid.UUID   `json:"id"`
+	CenterID       uuid.UUID   `json:"center_id"`
+	StudentID      uuid.UUID   `json:"student_id"`
+	EnrollmentID   *uuid.UUID  `json:"enrollment_id"`
+	Kind           string      `json:"kind"`
+	Amount         int64       `json:"amount"`
+	Period         *civil.Date `json:"period"`
+	DueDate        *civil.Date `json:"due_date"`
+	ListPrice      *int64      `json:"list_price"`
+	Discount       *int64      `json:"discount"`
+	Method         *string     `json:"method"`
+	ExternalID     *string     `json:"external_id"`
+	Comment        *string     `json:"comment"`
+	CreatedBy      *uuid.UUID  `json:"created_by"`
+	CreatedAt      time.Time   `json:"created_at"`
+	CancelledAt    *time.Time  `json:"cancelled_at"`
+	CancelledBy    *uuid.UUID  `json:"cancelled_by"`
+	CancelReason   *string     `json:"cancel_reason"`
+	IdempotencyKey *string     `json:"idempotency_key"`
 }
 
 type Lesson struct {

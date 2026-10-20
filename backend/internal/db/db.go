@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,4 +28,13 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping БД: %w", err)
 	}
 	return pool, nil
+}
+
+// CenterTimezone — часовой пояс центра (для команд, которым нужно «сегодня» центра).
+func CenterTimezone(ctx context.Context, pool *pgxpool.Pool, centerID uuid.UUID) (string, error) {
+	var tz string
+	if err := pool.QueryRow(ctx, `SELECT timezone FROM centers WHERE id = $1`, centerID).Scan(&tz); err != nil {
+		return "", fmt.Errorf("центр %s: %w", centerID, err)
+	}
+	return tz, nil
 }

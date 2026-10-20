@@ -7,10 +7,152 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"okuu/internal/civil"
 )
+
+const cancelOperation = `-- name: CancelOperation :one
+UPDATE ledger
+SET cancelled_at = now(), cancelled_by = $1, cancel_reason = $2
+WHERE center_id = $3 AND id = $4 AND cancelled_at IS NULL
+RETURNING id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key
+`
+
+type CancelOperationParams struct {
+	CancelledBy  *uuid.UUID `json:"cancelled_by"`
+	CancelReason *string    `json:"cancel_reason"`
+	CenterID     uuid.UUID  `json:"center_id"`
+	ID           uuid.UUID  `json:"id"`
+}
+
+// R15: операции не удаляются и не редактируются — только отмена с причиной.
+func (q *Queries) CancelOperation(ctx context.Context, arg CancelOperationParams) (Ledger, error) {
+	row := q.db.QueryRow(ctx, cancelOperation,
+		arg.CancelledBy,
+		arg.CancelReason,
+		arg.CenterID,
+		arg.ID,
+	)
+	var i Ledger
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.StudentID,
+		&i.EnrollmentID,
+		&i.Kind,
+		&i.Amount,
+		&i.Period,
+		&i.DueDate,
+		&i.ListPrice,
+		&i.Discount,
+		&i.Method,
+		&i.ExternalID,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+		&i.IdempotencyKey,
+	)
+	return i, err
+}
+
+const getLedgerForUpdate = `-- name: GetLedgerForUpdate :one
+SELECT id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key FROM ledger
+WHERE center_id = $1 AND id = $2
+FOR UPDATE
+`
+
+type GetLedgerForUpdateParams struct {
+	CenterID uuid.UUID `json:"center_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+func (q *Queries) GetLedgerForUpdate(ctx context.Context, arg GetLedgerForUpdateParams) (Ledger, error) {
+	row := q.db.QueryRow(ctx, getLedgerForUpdate, arg.CenterID, arg.ID)
+	var i Ledger
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.StudentID,
+		&i.EnrollmentID,
+		&i.Kind,
+		&i.Amount,
+		&i.Period,
+		&i.DueDate,
+		&i.ListPrice,
+		&i.Discount,
+		&i.Method,
+		&i.ExternalID,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+		&i.IdempotencyKey,
+	)
+	return i, err
+}
+
+const getOperationByKey = `-- name: GetOperationByKey :one
+SELECT id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key FROM ledger
+WHERE center_id = $1 AND idempotency_key = $2
+`
+
+type GetOperationByKeyParams struct {
+	CenterID       uuid.UUID `json:"center_id"`
+	IdempotencyKey *string   `json:"idempotency_key"`
+}
+
+func (q *Queries) GetOperationByKey(ctx context.Context, arg GetOperationByKeyParams) (Ledger, error) {
+	row := q.db.QueryRow(ctx, getOperationByKey, arg.CenterID, arg.IdempotencyKey)
+	var i Ledger
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.StudentID,
+		&i.EnrollmentID,
+		&i.Kind,
+		&i.Amount,
+		&i.Period,
+		&i.DueDate,
+		&i.ListPrice,
+		&i.Discount,
+		&i.Method,
+		&i.ExternalID,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+		&i.IdempotencyKey,
+	)
+	return i, err
+}
+
+const hasChargeForPeriod = `-- name: HasChargeForPeriod :one
+SELECT EXISTS (
+  SELECT 1 FROM ledger
+  WHERE enrollment_id = $1 AND kind = 'charge' AND period = $2::date AND cancelled_at IS NULL
+)
+`
+
+type HasChargeForPeriodParams struct {
+	EnrollmentID *uuid.UUID `json:"enrollment_id"`
+	Period       civil.Date `json:"period"`
+}
+
+func (q *Queries) HasChargeForPeriod(ctx context.Context, arg HasChargeForPeriodParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasChargeForPeriod, arg.EnrollmentID, arg.Period)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
 
 const insertCharge = `-- name: InsertCharge :one
 
@@ -18,7 +160,7 @@ INSERT INTO ledger (center_id, student_id, enrollment_id, kind, amount, period, 
                     list_price, discount, comment, created_by)
 VALUES ($1, $2, $3, 'charge', $4, $5, $6,
         $7, $8, $9, $10)
-RETURNING id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason
+RETURNING id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key
 `
 
 type InsertChargeParams struct {
@@ -68,8 +210,407 @@ func (q *Queries) InsertCharge(ctx context.Context, arg InsertChargeParams) (Led
 		&i.CancelledAt,
 		&i.CancelledBy,
 		&i.CancelReason,
+		&i.IdempotencyKey,
 	)
 	return i, err
+}
+
+const insertOperation = `-- name: InsertOperation :one
+INSERT INTO ledger (center_id, student_id, kind, amount, method, comment, created_by, idempotency_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (center_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+RETURNING id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key
+`
+
+type InsertOperationParams struct {
+	CenterID       uuid.UUID  `json:"center_id"`
+	StudentID      uuid.UUID  `json:"student_id"`
+	Kind           string     `json:"kind"`
+	Amount         int64      `json:"amount"`
+	Method         *string    `json:"method"`
+	Comment        *string    `json:"comment"`
+	CreatedBy      *uuid.UUID `json:"created_by"`
+	IdempotencyKey *string    `json:"idempotency_key"`
+}
+
+// Ручная операция (payment / refund / correction). Тот же Idempotency-Key в центре —
+// строки нет в ответе: возьмите существующую через GetOperationByKey.
+func (q *Queries) InsertOperation(ctx context.Context, arg InsertOperationParams) (Ledger, error) {
+	row := q.db.QueryRow(ctx, insertOperation,
+		arg.CenterID,
+		arg.StudentID,
+		arg.Kind,
+		arg.Amount,
+		arg.Method,
+		arg.Comment,
+		arg.CreatedBy,
+		arg.IdempotencyKey,
+	)
+	var i Ledger
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.StudentID,
+		&i.EnrollmentID,
+		&i.Kind,
+		&i.Amount,
+		&i.Period,
+		&i.DueDate,
+		&i.ListPrice,
+		&i.Discount,
+		&i.Method,
+		&i.ExternalID,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+		&i.IdempotencyKey,
+	)
+	return i, err
+}
+
+const listActiveOperations = `-- name: ListActiveOperations :many
+SELECT student_id, id, kind, amount, due_date, created_at
+FROM ledger
+WHERE center_id = $1 AND student_id = ANY($2::uuid[]) AND cancelled_at IS NULL
+`
+
+type ListActiveOperationsParams struct {
+	CenterID   uuid.UUID   `json:"center_id"`
+	StudentIds []uuid.UUID `json:"student_ids"`
+}
+
+type ListActiveOperationsRow struct {
+	StudentID uuid.UUID   `json:"student_id"`
+	ID        uuid.UUID   `json:"id"`
+	Kind      string      `json:"kind"`
+	Amount    int64       `json:"amount"`
+	DueDate   *civil.Date `json:"due_date"`
+	CreatedAt time.Time   `json:"created_at"`
+}
+
+// Неотменённые операции учеников для расчёта долга по FIFO (R14).
+func (q *Queries) ListActiveOperations(ctx context.Context, arg ListActiveOperationsParams) ([]ListActiveOperationsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveOperations, arg.CenterID, arg.StudentIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveOperationsRow{}
+	for rows.Next() {
+		var i ListActiveOperationsRow
+		if err := rows.Scan(
+			&i.StudentID,
+			&i.ID,
+			&i.Kind,
+			&i.Amount,
+			&i.DueDate,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCentersForBilling = `-- name: ListCentersForBilling :many
+
+SELECT id, timezone, billing_day FROM centers ORDER BY id
+`
+
+type ListCentersForBillingRow struct {
+	ID         uuid.UUID `json:"id"`
+	Timezone   string    `json:"timezone"`
+	BillingDay int16     `json:"billing_day"`
+}
+
+// --- billing.monthly (R3, R4, R6, R7) ---
+func (q *Queries) ListCentersForBilling(ctx context.Context) ([]ListCentersForBillingRow, error) {
+	rows, err := q.db.Query(ctx, listCentersForBilling)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCentersForBillingRow{}
+	for rows.Next() {
+		var i ListCentersForBillingRow
+		if err := rows.Scan(&i.ID, &i.Timezone, &i.BillingDay); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDebtCandidates = `-- name: ListDebtCandidates :many
+SELECT s.id, s.full_name, s.status,
+       p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)
+                 FROM enrollments e JOIN groups g ON g.id = e.group_id
+                 WHERE e.student_id = s.id AND e.end_date IS NULL), '[]'::jsonb)::jsonb AS groups,
+       b.balance
+FROM students s
+LEFT JOIN parents p ON p.id = s.parent_id
+CROSS JOIN LATERAL (
+  SELECT COALESCE(sum(l.amount), 0)::bigint AS balance FROM ledger l
+  WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL
+) b
+WHERE s.center_id = $1 AND b.balance < 0
+  AND ($2::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM enrollments e WHERE e.student_id = s.id AND e.group_id = $2::uuid))
+`
+
+type ListDebtCandidatesParams struct {
+	CenterID uuid.UUID  `json:"center_id"`
+	GroupID  *uuid.UUID `json:"group_id"`
+}
+
+type ListDebtCandidatesRow struct {
+	ID             uuid.UUID `json:"id"`
+	FullName       string    `json:"full_name"`
+	Status         string    `json:"status"`
+	ParentName     *string   `json:"parent_name"`
+	ParentPhone    *string   `json:"parent_phone"`
+	ParentTgStatus *string   `json:"parent_tg_status"`
+	Groups         []byte    `json:"groups"`
+	Balance        int64     `json:"balance"`
+}
+
+// Ученики с отрицательным балансом — кандидаты в должники (R14 решает код по срокам).
+// group_id: была запись в эту группу (в том числе завершённая — долг ушедших тоже виден, R7).
+func (q *Queries) ListDebtCandidates(ctx context.Context, arg ListDebtCandidatesParams) ([]ListDebtCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listDebtCandidates, arg.CenterID, arg.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDebtCandidatesRow{}
+	for rows.Next() {
+		var i ListDebtCandidatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FullName,
+			&i.Status,
+			&i.ParentName,
+			&i.ParentPhone,
+			&i.ParentTgStatus,
+			&i.Groups,
+			&i.Balance,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMonthlyBillingCandidates = `-- name: ListMonthlyBillingCandidates :many
+SELECT e.id
+FROM enrollments e
+JOIN tariffs t ON t.id = e.tariff_id
+JOIN students s ON s.id = e.student_id
+WHERE e.center_id = $1 AND t.kind = 'monthly' AND s.status <> 'left'
+  AND e.start_date <= $2::date
+  AND (e.end_date IS NULL OR e.end_date >= $3::date)
+  AND (e.billed_through IS NULL OR e.billed_through < $3::date)
+ORDER BY e.id
+`
+
+type ListMonthlyBillingCandidatesParams struct {
+	CenterID  uuid.UUID  `json:"center_id"`
+	PeriodEnd civil.Date `json:"period_end"`
+	Period    civil.Date `json:"period"`
+}
+
+// Месячные записи, по которым решение за период P ещё не принято. Ушедшим не начисляем (R7).
+func (q *Queries) ListMonthlyBillingCandidates(ctx context.Context, arg ListMonthlyBillingCandidatesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listMonthlyBillingCandidates, arg.CenterID, arg.PeriodEnd, arg.Period)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStudentLedger = `-- name: ListStudentLedger :many
+SELECT id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key FROM ledger
+WHERE center_id = $1 AND student_id = $2
+  AND ($3::timestamptz IS NULL
+       OR (created_at, id) < ($3::timestamptz, $4::uuid))
+ORDER BY created_at DESC, id DESC
+LIMIT $5
+`
+
+type ListStudentLedgerParams struct {
+	CenterID       uuid.UUID  `json:"center_id"`
+	StudentID      uuid.UUID  `json:"student_id"`
+	AfterCreatedAt *time.Time `json:"after_created_at"`
+	AfterID        *uuid.UUID `json:"after_id"`
+	Lim            int32      `json:"lim"`
+}
+
+// История ученика: новые сверху, с отменёнными. after_* — последняя строка предыдущей страницы.
+func (q *Queries) ListStudentLedger(ctx context.Context, arg ListStudentLedgerParams) ([]Ledger, error) {
+	rows, err := q.db.Query(ctx, listStudentLedger,
+		arg.CenterID,
+		arg.StudentID,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Ledger{}
+	for rows.Next() {
+		var i Ledger
+		if err := rows.Scan(
+			&i.ID,
+			&i.CenterID,
+			&i.StudentID,
+			&i.EnrollmentID,
+			&i.Kind,
+			&i.Amount,
+			&i.Period,
+			&i.DueDate,
+			&i.ListPrice,
+			&i.Discount,
+			&i.Method,
+			&i.ExternalID,
+			&i.Comment,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.CancelledAt,
+			&i.CancelledBy,
+			&i.CancelReason,
+			&i.IdempotencyKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockEnrollmentForBilling = `-- name: LockEnrollmentForBilling :one
+SELECT e.id, e.student_id, e.tariff_id, s.status, s.discount_kind, s.discount_value
+FROM enrollments e
+JOIN students s ON s.id = e.student_id
+WHERE e.center_id = $1 AND e.id = $2
+  AND (e.billed_through IS NULL OR e.billed_through < $3::date)
+FOR UPDATE OF e
+`
+
+type LockEnrollmentForBillingParams struct {
+	CenterID uuid.UUID  `json:"center_id"`
+	ID       uuid.UUID  `json:"id"`
+	Period   civil.Date `json:"period"`
+}
+
+type LockEnrollmentForBillingRow struct {
+	ID            uuid.UUID `json:"id"`
+	StudentID     uuid.UUID `json:"student_id"`
+	TariffID      uuid.UUID `json:"tariff_id"`
+	Status        string    `json:"status"`
+	DiscountKind  *string   `json:"discount_kind"`
+	DiscountValue *int64    `json:"discount_value"`
+}
+
+// Перепроверка под блокировкой: параллельный запуск уже мог принять решение за P.
+func (q *Queries) LockEnrollmentForBilling(ctx context.Context, arg LockEnrollmentForBillingParams) (LockEnrollmentForBillingRow, error) {
+	row := q.db.QueryRow(ctx, lockEnrollmentForBilling, arg.CenterID, arg.ID, arg.Period)
+	var i LockEnrollmentForBillingRow
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.TariffID,
+		&i.Status,
+		&i.DiscountKind,
+		&i.DiscountValue,
+	)
+	return i, err
+}
+
+const monthSummary = `-- name: MonthSummary :one
+SELECT
+  COALESCE(-sum(amount) FILTER (WHERE kind = 'charge' AND (period = $1::date OR (period IS NULL AND
+      created_at >= ($1::date)::timestamp AT TIME ZONE $2::text AND
+      created_at < ($3::date)::timestamp AT TIME ZONE $2::text))), 0)::bigint AS charged,
+  COALESCE(sum(amount) FILTER (WHERE kind IN ('payment', 'refund') AND
+      created_at >= ($1::date)::timestamp AT TIME ZONE $2::text AND
+      created_at < ($3::date)::timestamp AT TIME ZONE $2::text), 0)::bigint AS collected
+FROM ledger
+WHERE center_id = $4 AND cancelled_at IS NULL
+`
+
+type MonthSummaryParams struct {
+	Period     civil.Date `json:"period"`
+	Tz         string     `json:"tz"`
+	NextPeriod civil.Date `json:"next_period"`
+	CenterID   uuid.UUID  `json:"center_id"`
+}
+
+type MonthSummaryRow struct {
+	Charged   int64 `json:"charged"`
+	Collected int64 `json:"collected"`
+}
+
+// Итоги месяца P в часовом поясе центра:
+// charged — начисления за период P и абонементы (period NULL), созданные в этом месяце;
+// collected — оплаты минус возвраты, созданные в этом месяце. Отменённые не считаются.
+func (q *Queries) MonthSummary(ctx context.Context, arg MonthSummaryParams) (MonthSummaryRow, error) {
+	row := q.db.QueryRow(ctx, monthSummary,
+		arg.Period,
+		arg.Tz,
+		arg.NextPeriod,
+		arg.CenterID,
+	)
+	var i MonthSummaryRow
+	err := row.Scan(&i.Charged, &i.Collected)
+	return i, err
+}
+
+const setBilledThrough = `-- name: SetBilledThrough :exec
+UPDATE enrollments SET billed_through = $1::date
+WHERE center_id = $2 AND id = $3
+`
+
+type SetBilledThroughParams struct {
+	Period   civil.Date `json:"period"`
+	CenterID uuid.UUID  `json:"center_id"`
+	ID       uuid.UUID  `json:"id"`
+}
+
+func (q *Queries) SetBilledThrough(ctx context.Context, arg SetBilledThroughParams) error {
+	_, err := q.db.Exec(ctx, setBilledThrough, arg.Period, arg.CenterID, arg.ID)
+	return err
 }
 
 const studentBalance = `-- name: StudentBalance :one
@@ -88,4 +629,20 @@ func (q *Queries) StudentBalance(ctx context.Context, arg StudentBalanceParams) 
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const studentExists = `-- name: StudentExists :one
+SELECT EXISTS (SELECT 1 FROM students WHERE center_id = $1 AND id = $2)
+`
+
+type StudentExistsParams struct {
+	CenterID uuid.UUID `json:"center_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+func (q *Queries) StudentExists(ctx context.Context, arg StudentExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, studentExists, arg.CenterID, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
