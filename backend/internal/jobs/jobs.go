@@ -73,7 +73,7 @@ func RunBillingOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 			logger.Error("billing.monthly: часовой пояс центра", "center_id", c.ID, "err", err)
 			continue
 		}
-		if today.Day() < int(c.BillingDay) {
+		if today.Day() < billing.EffectiveBillingDay(c.BillingDay, c.BillingDayNext, c.BillingDayNextFrom, today.FirstOfMonth()) {
 			continue
 		}
 		res, err := billing.RunMonthly(ctx, pool, logger, c.ID, today)

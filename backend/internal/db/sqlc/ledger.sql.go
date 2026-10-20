@@ -321,13 +321,15 @@ func (q *Queries) ListActiveOperations(ctx context.Context, arg ListActiveOperat
 
 const listCentersForBilling = `-- name: ListCentersForBilling :many
 
-SELECT id, timezone, billing_day FROM centers ORDER BY id
+SELECT id, timezone, billing_day, billing_day_next, billing_day_next_from FROM centers ORDER BY id
 `
 
 type ListCentersForBillingRow struct {
-	ID         uuid.UUID `json:"id"`
-	Timezone   string    `json:"timezone"`
-	BillingDay int16     `json:"billing_day"`
+	ID                 uuid.UUID   `json:"id"`
+	Timezone           string      `json:"timezone"`
+	BillingDay         int16       `json:"billing_day"`
+	BillingDayNext     *int16      `json:"billing_day_next"`
+	BillingDayNextFrom *civil.Date `json:"billing_day_next_from"`
 }
 
 // --- billing.monthly (R3, R4, R6, R7) ---
@@ -340,7 +342,13 @@ func (q *Queries) ListCentersForBilling(ctx context.Context) ([]ListCentersForBi
 	items := []ListCentersForBillingRow{}
 	for rows.Next() {
 		var i ListCentersForBillingRow
-		if err := rows.Scan(&i.ID, &i.Timezone, &i.BillingDay); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Timezone,
+			&i.BillingDay,
+			&i.BillingDayNext,
+			&i.BillingDayNextFrom,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

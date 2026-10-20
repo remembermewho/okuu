@@ -520,7 +520,8 @@ func (s *Service) center(ctx context.Context, q *sqlc.Queries, centerID uuid.UUI
 	if err != nil {
 		return centerInfo{}, err
 	}
-	return centerInfo{Today: today, DueDays: int(c.DueDays), BillingDay: int(c.BillingDay)}, nil
+	return centerInfo{Today: today, DueDays: int(c.DueDays),
+		BillingDay: billing.EffectiveBillingDay(c.BillingDay, c.BillingDayNext, c.BillingDayNextFrom, today.FirstOfMonth())}, nil
 }
 
 func (s *Service) centerToday(ctx context.Context, q *sqlc.Queries, centerID uuid.UUID) (civil.Date, error) {

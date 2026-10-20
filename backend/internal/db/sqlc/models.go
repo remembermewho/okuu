@@ -33,18 +33,20 @@ type AuditLog struct {
 }
 
 type Center struct {
-	ID             uuid.UUID `json:"id"`
-	Name           string    `json:"name"`
-	Phone          *string   `json:"phone"`
-	Timezone       string    `json:"timezone"`
-	BillingDay     int16     `json:"billing_day"`
-	DueDays        int16     `json:"due_days"`
-	ExcusedDeducts bool      `json:"excused_deducts"`
-	RemindersOn    bool      `json:"reminders_on"`
-	PayDetails     *string   `json:"pay_details"`
-	FinikCreds     []byte    `json:"finik_creds"`
-	Plan           string    `json:"plan"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                 uuid.UUID   `json:"id"`
+	Name               string      `json:"name"`
+	Phone              *string     `json:"phone"`
+	Timezone           string      `json:"timezone"`
+	BillingDay         int16       `json:"billing_day"`
+	DueDays            int16       `json:"due_days"`
+	ExcusedDeducts     bool        `json:"excused_deducts"`
+	RemindersOn        bool        `json:"reminders_on"`
+	PayDetails         *string     `json:"pay_details"`
+	FinikCreds         []byte      `json:"finik_creds"`
+	Plan               string      `json:"plan"`
+	CreatedAt          time.Time   `json:"created_at"`
+	BillingDayNext     *int16      `json:"billing_day_next"`
+	BillingDayNextFrom *civil.Date `json:"billing_day_next_from"`
 }
 
 type Enrollment struct {
@@ -183,6 +185,7 @@ type Student struct {
 	DiscountKind  *string     `json:"discount_kind"`
 	DiscountValue *int64      `json:"discount_value"`
 	CreatedAt     time.Time   `json:"created_at"`
+	LeftAt        *time.Time  `json:"left_at"`
 }
 
 type Tariff struct {

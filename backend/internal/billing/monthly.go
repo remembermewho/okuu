@@ -14,6 +14,15 @@ import (
 	"okuu/internal/db/sqlc"
 )
 
+// EffectiveBillingDay — день начисления, действующий для периода period. Смена billing_day в настройках
+// действует со следующего периода: до next_from работает старый день, с next_from — новый.
+func EffectiveBillingDay(day int16, next *int16, nextFrom *civil.Date, period civil.Date) int {
+	if next != nil && nextFrom != nil && !period.Before(*nextFrom) {
+		return int(*next)
+	}
+	return int(day)
+}
+
 // MonthlyResult — итог billing.monthly по центру за период.
 type MonthlyResult struct {
 	Period  civil.Date
@@ -41,10 +50,11 @@ func RunMonthly(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, ce
 	}
 	period := today.FirstOfMonth()
 	res := MonthlyResult{Period: period}
-	if today.Day() < int(center.BillingDay) {
+	billingDay := EffectiveBillingDay(center.BillingDay, center.BillingDayNext, center.BillingDayNextFrom, period)
+	if today.Day() < billingDay {
 		return res, nil
 	}
-	due := period.AddDays(int(center.BillingDay) - 1 + int(center.DueDays))
+	due := period.AddDays(billingDay - 1 + int(center.DueDays))
 
 	ids, err := q.ListMonthlyBillingCandidates(ctx, sqlc.ListMonthlyBillingCandidatesParams{
 		CenterID: centerID, Period: period, PeriodEnd: period.AddMonths(1).AddDays(-1),

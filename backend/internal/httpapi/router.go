@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"okuu/internal/attendance"
 	"okuu/internal/auth"
@@ -16,6 +17,8 @@ import (
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
+	"okuu/internal/reports"
+	"okuu/internal/settings"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -37,7 +40,10 @@ type Deps struct {
 	Billing    *billing.Service
 	Attendance *attendance.Service
 	Importer   *importer.Service
-	AppOrigin  string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
+	Settings   *settings.Service
+	Reports    *reports.Service
+	Pool       *pgxpool.Pool // чтение журнала действий
+	AppOrigin  string        // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger     *slog.Logger
 }
 
@@ -50,6 +56,9 @@ type handlers struct {
 	billing    *billing.Service
 	attendance *attendance.Service
 	importer   *importer.Service
+	settings   *settings.Service
+	reports    *reports.Service
+	pool       *pgxpool.Pool
 	appOrigin  string
 	logger     *slog.Logger
 }
@@ -61,7 +70,8 @@ func NewRouter(d Deps) http.Handler {
 	}
 	h := &handlers{
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
-		attendance: d.Attendance, importer: d.Importer, appOrigin: d.AppOrigin, logger: d.Logger,
+		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, pool: d.Pool,
+		appOrigin: d.AppOrigin, logger: d.Logger,
 	}
 
 	r := chi.NewRouter()
@@ -98,6 +108,18 @@ func NewRouter(d Deps) http.Handler {
 				ownerOnly := d.Auth.RequireCenter(auth.RoleOwner)
 
 				anyStaff := d.Auth.RequireCenter(auth.RoleOwner, auth.RoleAdmin, auth.RoleTeacher)
+
+				// Настройки центра (S8): читают owner и admin, меняет только owner.
+				r.With(ownerOrAdmin).Get("/settings", h.getSettings)
+				r.With(ownerOnly).Patch("/settings", h.patchSettings)
+
+				// Отчёт (S7) и журнал действий (S9) — только owner.
+				r.Group(func(r chi.Router) {
+					r.Use(ownerOnly)
+					r.Get("/reports/month", h.monthReport)
+					r.Get("/reports/month/export.xlsx", h.monthReportXLSX)
+					r.Get("/audit", h.listAudit)
+				})
 
 				r.With(ownerOrAdmin).Get("/staff", h.listStaff)
 				r.Group(func(r chi.Router) {

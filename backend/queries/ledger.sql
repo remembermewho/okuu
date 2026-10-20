@@ -90,7 +90,7 @@ SELECT EXISTS (SELECT 1 FROM students WHERE center_id = @center_id AND id = @id)
 -- --- billing.monthly (R3, R4, R6, R7) ---
 
 -- name: ListCentersForBilling :many
-SELECT id, timezone, billing_day FROM centers ORDER BY id;
+SELECT id, timezone, billing_day, billing_day_next, billing_day_next_from FROM centers ORDER BY id;
 
 -- name: ListMonthlyBillingCandidates :many
 -- Месячные записи, по которым решение за период P ещё не принято. Ушедшим не начисляем (R7).

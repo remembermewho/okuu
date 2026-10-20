@@ -38,6 +38,7 @@ const (
 	LessonRestore   = "lesson.restore"
 	AttendanceMark  = "attendance.mark"
 	ImportCommit    = "import.commit"
+	CenterUpdate    = "center.update"
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

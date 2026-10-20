@@ -33,6 +33,8 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/importer"
 	"okuu/internal/jobs"
+	"okuu/internal/reports"
+	"okuu/internal/settings"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -119,6 +121,9 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 			Billing:    billing.NewService(pool, time.Now, logger),
 			Attendance: attendance.NewService(pool, time.Now),
 			Importer:   importer.NewService(pool, studentsSvc, groupsSvc, time.Now),
+			Settings:   settings.NewService(pool, time.Now),
+			Reports:    reports.NewService(pool, time.Now),
+			Pool:       pool,
 			AppOrigin:  cfg.AppOrigin,
 			Logger:     logger,
 		}),

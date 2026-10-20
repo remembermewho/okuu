@@ -14,7 +14,7 @@ import (
 const createCenter = `-- name: CreateCenter :one
 INSERT INTO centers (name, phone)
 VALUES ($1, $2)
-RETURNING id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at
+RETURNING id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from
 `
 
 type CreateCenterParams struct {
@@ -39,12 +39,14 @@ func (q *Queries) CreateCenter(ctx context.Context, arg CreateCenterParams) (Cen
 		&i.FinikCreds,
 		&i.Plan,
 		&i.CreatedAt,
+		&i.BillingDayNext,
+		&i.BillingDayNextFrom,
 	)
 	return i, err
 }
 
 const getCenter = `-- name: GetCenter :one
-SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at FROM centers
+SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from FROM centers
 WHERE id = $1
 `
 
@@ -64,6 +66,8 @@ func (q *Queries) GetCenter(ctx context.Context, id uuid.UUID) (Center, error) {
 		&i.FinikCreds,
 		&i.Plan,
 		&i.CreatedAt,
+		&i.BillingDayNext,
+		&i.BillingDayNextFrom,
 	)
 	return i, err
 }

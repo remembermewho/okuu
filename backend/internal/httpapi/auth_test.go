@@ -25,6 +25,8 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
+	"okuu/internal/reports"
+	"okuu/internal/settings"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -68,7 +70,8 @@ func newTestAPI(t *testing.T) *testAPI {
 		h: httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc),
 			Tariffs: tariffs.NewService(pool), Groups: gr, Students: st,
 			Billing: billing.NewService(pool, clk.Now, nil), Attendance: attendance.NewService(pool, clk.Now),
-			Importer:  importer.NewService(pool, st, gr, clk.Now),
+			Importer: importer.NewService(pool, st, gr, clk.Now),
+			Settings: settings.NewService(pool, clk.Now), Reports: reports.NewService(pool, clk.Now), Pool: pool,
 			AppOrigin: testOrigin}),
 		auth:  svc,
 		pool:  pool,

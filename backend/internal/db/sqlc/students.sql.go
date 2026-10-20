@@ -17,7 +17,7 @@ const createStudent = `-- name: CreateStudent :one
 
 INSERT INTO students (center_id, parent_id, full_name, birth_date, discount_kind, discount_value)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at
+RETURNING id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at, left_at
 `
 
 type CreateStudentParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) CreateStudent(ctx context.Context, arg CreateStudentParams) (S
 		&i.DiscountKind,
 		&i.DiscountValue,
 		&i.CreatedAt,
+		&i.LeftAt,
 	)
 	return i, err
 }
@@ -105,7 +106,7 @@ func (q *Queries) GetStudent(ctx context.Context, arg GetStudentParams) (GetStud
 }
 
 const getStudentForUpdate = `-- name: GetStudentForUpdate :one
-SELECT id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at FROM students
+SELECT id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at, left_at FROM students
 WHERE center_id = $1 AND id = $2
 FOR UPDATE
 `
@@ -128,6 +129,7 @@ func (q *Queries) GetStudentForUpdate(ctx context.Context, arg GetStudentForUpda
 		&i.DiscountKind,
 		&i.DiscountValue,
 		&i.CreatedAt,
+		&i.LeftAt,
 	)
 	return i, err
 }
@@ -232,9 +234,14 @@ func (q *Queries) ListStudents(ctx context.Context, arg ListStudentsParams) ([]L
 const updateStudent = `-- name: UpdateStudent :one
 UPDATE students
 SET full_name = $1, birth_date = $2, status = $3,
-    discount_kind = $4, discount_value = $5, parent_id = $6
+    discount_kind = $4, discount_value = $5, parent_id = $6,
+    left_at = CASE
+      WHEN $3::text = 'left' AND status <> 'left' THEN now()
+      WHEN $3::text <> 'left' THEN NULL
+      ELSE left_at
+    END
 WHERE center_id = $7 AND id = $8
-RETURNING id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at
+RETURNING id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at, left_at
 `
 
 type UpdateStudentParams struct {
@@ -248,6 +255,7 @@ type UpdateStudentParams struct {
 	ID            uuid.UUID   `json:"id"`
 }
 
+// left_at: ставится при переходе в left, снимается при выходе из left (в SET status — ещё старое значение).
 func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error) {
 	row := q.db.QueryRow(ctx, updateStudent,
 		arg.FullName,
@@ -270,6 +278,7 @@ func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (S
 		&i.DiscountKind,
 		&i.DiscountValue,
 		&i.CreatedAt,
+		&i.LeftAt,
 	)
 	return i, err
 }

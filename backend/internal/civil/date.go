@@ -65,6 +65,24 @@ func (d Date) SameMonth(o Date) bool { return d.year == o.year && d.month == o.m
 // DaysSince — сколько дней от o до d (d − o); отрицательно, если d раньше o.
 func (d Date) DaysSince(o Date) int { return int(d.time().Sub(o.time()) / (24 * time.Hour)) }
 
+// StartOfDay — момент 00:00 даты d в часовом поясе tz (границы месяцев и дней отчёта).
+func StartOfDay(d Date, tz string) (time.Time, error) {
+	loc, err := location(tz)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Date(d.year, d.month, d.day, 0, 0, 0, 0, loc), nil
+}
+
+// ValidTimezone — tz есть в базе часовых поясов IANA (Asia/Bishkek, UTC …); «Local» не годится.
+func ValidTimezone(tz string) bool {
+	if tz == "" || tz == "Local" {
+		return false
+	}
+	_, err := location(tz)
+	return err == nil
+}
+
 // DateIn — дата момента t в часовом поясе tz.
 func DateIn(t time.Time, tz string) (Date, error) { return Today(t, tz) }
 

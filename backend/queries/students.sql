@@ -20,9 +20,15 @@ WHERE center_id = @center_id AND id = @id
 FOR UPDATE;
 
 -- name: UpdateStudent :one
+-- left_at: ставится при переходе в left, снимается при выходе из left (в SET status — ещё старое значение).
 UPDATE students
 SET full_name = @full_name, birth_date = @birth_date, status = @status,
-    discount_kind = @discount_kind, discount_value = @discount_value, parent_id = @parent_id
+    discount_kind = @discount_kind, discount_value = @discount_value, parent_id = @parent_id,
+    left_at = CASE
+      WHEN @status::text = 'left' AND status <> 'left' THEN now()
+      WHEN @status::text <> 'left' THEN NULL
+      ELSE left_at
+    END
 WHERE center_id = @center_id AND id = @id
 RETURNING *;
 
