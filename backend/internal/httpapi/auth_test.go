@@ -25,6 +25,7 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
+	"okuu/internal/parents"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
 	"okuu/internal/staff"
@@ -60,23 +61,35 @@ type testAPI struct {
 	clock *clock
 }
 
+// testBotUsername — имя бота в ссылках-приглашениях тестов.
+const testBotUsername = "okuu_test_bot"
+
 func newTestAPI(t *testing.T) *testAPI {
+	t.Helper()
+	return newTestAPIWith(t, nil)
+}
+
+// newTestAPIWith — тестовый API; setup может поменять зависимости до сборки роутера
+// (пул и часы в api уже есть).
+func newTestAPIWith(t *testing.T, setup func(api *testAPI, d *httpapi.Deps)) *testAPI {
 	t.Helper()
 	pool := testdb.New(t)
 	clk := &clock{t: time.Now()}
 	svc := auth.NewService(pool, auth.Options{Now: clk.Now})
 	st, gr := students.NewService(pool, clk.Now), groups.NewService(pool)
-	return &testAPI{
-		h: httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc),
-			Tariffs: tariffs.NewService(pool), Groups: gr, Students: st,
-			Billing: billing.NewService(pool, clk.Now, nil), Attendance: attendance.NewService(pool, clk.Now),
-			Importer: importer.NewService(pool, st, gr, clk.Now),
-			Settings: settings.NewService(pool, clk.Now), Reports: reports.NewService(pool, clk.Now), Pool: pool,
-			AppOrigin: testOrigin}),
-		auth:  svc,
-		pool:  pool,
-		clock: clk,
+	api := &testAPI{auth: svc, pool: pool, clock: clk}
+	d := httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc),
+		Tariffs: tariffs.NewService(pool), Groups: gr, Students: st,
+		Billing: billing.NewService(pool, clk.Now, nil), Attendance: attendance.NewService(pool, clk.Now),
+		Importer: importer.NewService(pool, st, gr, clk.Now),
+		Settings: settings.NewService(pool, clk.Now), Reports: reports.NewService(pool, clk.Now),
+		Parents: parents.NewService(pool, testBotUsername), Pool: pool,
+		AppOrigin: testOrigin}
+	if setup != nil {
+		setup(api, &d)
 	}
+	api.h = httpapi.NewRouter(d)
+	return api
 }
 
 // client — браузер: хранит cookie, шлёт Origin на изменяющих запросах, имеет свой IP.

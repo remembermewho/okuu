@@ -72,10 +72,11 @@ func NewService(pool *pgxpool.Pool, now func() time.Time) *Service {
 
 // Parent — родитель ученика.
 type Parent struct {
-	ID       uuid.UUID
-	Name     string
-	Phone    string
-	TgStatus string
+	ID             uuid.UUID
+	Name           string
+	Phone          string
+	TgStatus       string
+	LastReminderAt *time.Time // последнее напоминание в Telegram
 }
 
 // Enrollment — запись ученика в группу с данными для карточки.
@@ -217,7 +218,7 @@ func (s *Service) Get(ctx context.Context, centerID, id uuid.UUID) (Student, err
 	return Student{
 		ID: row.ID, FullName: row.FullName, BirthDate: row.BirthDate, Status: row.Status,
 		Discount: discountOf(row.DiscountKind, row.DiscountValue), CreatedAt: row.CreatedAt,
-		Parent:      parentOf(row.ParentID, row.ParentName, row.ParentPhone, row.ParentTgStatus),
+		Parent:      parentOf(row.ParentID, row.ParentName, row.ParentPhone, row.ParentTgStatus, row.ParentLastReminderAt),
 		Enrollments: enr, Balance: row.Balance,
 	}, nil
 }
@@ -287,7 +288,7 @@ func (s *Service) List(ctx context.Context, centerID uuid.UUID, f ListFilter) (i
 		it := ListItem{
 			ID: r.ID, FullName: r.FullName, BirthDate: r.BirthDate, Status: r.Status,
 			Discount: discountOf(r.DiscountKind, r.DiscountValue),
-			Parent:   parentOf(r.ParentID, r.ParentName, r.ParentPhone, r.ParentTgStatus),
+			Parent:   parentOf(r.ParentID, r.ParentName, r.ParentPhone, r.ParentTgStatus, r.ParentLastReminderAt),
 			Balance:  r.Balance,
 		}
 		if err := json.Unmarshal(r.Groups, &it.Groups); err != nil {
@@ -559,11 +560,11 @@ func discountColumns(d *billing.Discount) (*string, *int64) {
 	return &d.Kind, &d.Value
 }
 
-func parentOf(id *uuid.UUID, name, phone, tg *string) *Parent {
+func parentOf(id *uuid.UUID, name, phone, tg *string, lastReminder *time.Time) *Parent {
 	if id == nil {
 		return nil
 	}
-	return &Parent{ID: *id, Name: deref(name), Phone: deref(phone), TgStatus: deref(tg)}
+	return &Parent{ID: *id, Name: deref(name), Phone: deref(phone), TgStatus: deref(tg), LastReminderAt: lastReminder}
 }
 
 func studentSnapshot(s sqlc.Student) map[string]any {

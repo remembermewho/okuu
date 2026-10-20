@@ -28,17 +28,21 @@ const (
 	StudentCreate   = "student.create"
 	StudentUpdate   = "student.update"
 	ParentUpdate    = "parent.update"
-	EnrollCreate    = "enrollment.create"
-	EnrollEnd       = "enrollment.end"
-	EnrollRenew     = "enrollment.renew"
-	LedgerCharge    = "ledger.charge"
-	LedgerCancel    = "ledger.cancel" // также ledger.payment, ledger.refund, ledger.correction
-	LessonCreate    = "lesson.create"
-	LessonCancel    = "lesson.cancel"
-	LessonRestore   = "lesson.restore"
-	AttendanceMark  = "attendance.mark"
-	ImportCommit    = "import.commit"
-	CenterUpdate    = "center.update"
+	// Telegram (пишет бот, user_id пустой): привязка с согласием, /stop, повторное включение.
+	ParentTelegramLink   = "parent.telegram_link"
+	ParentTelegramStop   = "parent.telegram_stop"
+	ParentTelegramResume = "parent.telegram_resume"
+	EnrollCreate         = "enrollment.create"
+	EnrollEnd            = "enrollment.end"
+	EnrollRenew          = "enrollment.renew"
+	LedgerCharge         = "ledger.charge"
+	LedgerCancel         = "ledger.cancel" // также ledger.payment, ledger.refund, ledger.correction
+	LessonCreate         = "lesson.create"
+	LessonCancel         = "lesson.cancel"
+	LessonRestore        = "lesson.restore"
+	AttendanceMark       = "attendance.mark"
+	ImportCommit         = "import.commit"
+	CenterUpdate         = "center.update"
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

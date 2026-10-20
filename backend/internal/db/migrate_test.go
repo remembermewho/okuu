@@ -18,7 +18,7 @@ import (
 var wantTables = []string{
 	"attendance", "audit_log", "centers", "enrollments", "groups", "import_sessions", "invites", "ledger",
 	"lessons", "memberships", "notifications", "parents", "payment_links", "sessions",
-	"students", "tariffs", "users",
+	"students", "tariffs", "telegram_link_states", "users",
 }
 
 // migrationCount — число файлов миграций; последняя версия равна ему (нумерация 0001, 0002, ...).

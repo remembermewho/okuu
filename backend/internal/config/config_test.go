@@ -2,6 +2,9 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,7 +94,7 @@ func TestLoad(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, k := range []string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY"} {
+			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY"}, telegramVars...) {
 				t.Setenv(k, tt.env[k])
 			}
 			cfg, err := Load()
@@ -108,5 +111,81 @@ func TestLoad(t *testing.T) {
 				t.Errorf("AppOrigin = %q, want %q по умолчанию вне prod", cfg.AppOrigin, devOrigin)
 			}
 		})
+	}
+}
+
+var telegramVars = []string{"TELEGRAM_MODE", "TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME", "TELEGRAM_WEBHOOK_SECRET"}
+
+func TestLoadTelegram(t *testing.T) {
+	const (
+		fakeToken  = "123456:FAKE-test-token"
+		fakeSecret = "fake_webhook_secret_0123456789"
+	)
+	tests := []struct {
+		name     string
+		env      map[string]string
+		wantMode string
+		wantErr  bool
+	}{
+		{"без токена — выключен", map[string]string{"APP_ENV": "dev"}, TelegramOff, false},
+		{"dev с токеном — polling", map[string]string{"APP_ENV": "dev", "TELEGRAM_BOT_TOKEN": fakeToken, "TELEGRAM_BOT_USERNAME": "@okuu_test_bot"}, TelegramPolling, false},
+		{"prod с токеном — webhook", map[string]string{"APP_ENV": "prod", "TELEGRAM_BOT_TOKEN": fakeToken, "TELEGRAM_BOT_USERNAME": "okuu_test_bot", "TELEGRAM_WEBHOOK_SECRET": fakeSecret}, TelegramWebhook, false},
+		{"webhook без секрета", map[string]string{"APP_ENV": "dev", "TELEGRAM_MODE": "webhook", "TELEGRAM_BOT_TOKEN": fakeToken, "TELEGRAM_BOT_USERNAME": "okuu_test_bot"}, "", true},
+		{"короткий секрет", map[string]string{"APP_ENV": "dev", "TELEGRAM_MODE": "webhook", "TELEGRAM_BOT_TOKEN": fakeToken, "TELEGRAM_BOT_USERNAME": "okuu_test_bot", "TELEGRAM_WEBHOOK_SECRET": "short"}, "", true},
+		{"секрет с недопустимым символом", map[string]string{"APP_ENV": "dev", "TELEGRAM_MODE": "webhook", "TELEGRAM_BOT_TOKEN": fakeToken, "TELEGRAM_BOT_USERNAME": "okuu_test_bot", "TELEGRAM_WEBHOOK_SECRET": "fake/webhook/secret/0123"}, "", true},
+		{"polling без токена", map[string]string{"APP_ENV": "dev", "TELEGRAM_MODE": "polling", "TELEGRAM_BOT_USERNAME": "okuu_test_bot"}, "", true},
+		{"токен без имени бота", map[string]string{"APP_ENV": "dev", "TELEGRAM_BOT_TOKEN": fakeToken}, "", true},
+		{"кривое имя бота", map[string]string{"APP_ENV": "dev", "TELEGRAM_BOT_TOKEN": fakeToken, "TELEGRAM_BOT_USERNAME": "okuu bot"}, "", true},
+		{"неизвестный режим", map[string]string{"APP_ENV": "dev", "TELEGRAM_MODE": "push"}, "", true},
+		{"явно выключен с токеном", map[string]string{"APP_ENV": "dev", "TELEGRAM_MODE": "off", "TELEGRAM_BOT_TOKEN": fakeToken}, TelegramOff, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, k := range telegramVars {
+				t.Setenv(k, tt.env[k])
+			}
+			tg, err := loadTelegram(tt.env["APP_ENV"])
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				if strings.Contains(err.Error(), fakeToken) || strings.Contains(err.Error(), "fake/webhook") {
+					t.Errorf("ошибка содержит секрет: %v", err)
+				}
+				return
+			}
+			if tg.Mode != tt.wantMode {
+				t.Errorf("Mode = %q, want %q", tg.Mode, tt.wantMode)
+			}
+			if tt.env["TELEGRAM_BOT_USERNAME"] != "" && tg.Username != "okuu_test_bot" {
+				t.Errorf("Username = %q, want без @", tg.Username)
+			}
+		})
+	}
+}
+
+// Секрет не печатается ни через fmt, ни через slog, ни в JSON.
+func TestSecretIsMasked(t *testing.T) {
+	const raw = "123456:FAKE-test-token"
+	tg := Telegram{Mode: TelegramPolling, Token: Secret(raw), Username: "okuu_test_bot"}
+	var logged strings.Builder
+	slog.New(slog.NewTextHandler(&logged, nil)).Info("cfg", "token", tg.Token, "tg", tg)
+	js, err := json.Marshal(tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range map[string]string{
+		"%v": fmt.Sprintf("%v", tg), "%+v": fmt.Sprintf("%+v", tg), "%#v": fmt.Sprintf("%#v", tg),
+		"%s": fmt.Sprintf("%s", tg.Token), "slog": logged.String(), "json": string(js),
+	} {
+		if strings.Contains(s, raw) || strings.Contains(s, "FAKE") {
+			t.Errorf("%s: секрет виден: %s", name, s)
+		}
+	}
+	if tg.Token.Reveal() != raw {
+		t.Error("Reveal должен вернуть значение")
+	}
+	if Secret("").String() != "" {
+		t.Error("пустой секрет печатается пустым")
 	}
 }

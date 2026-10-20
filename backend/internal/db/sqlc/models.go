@@ -154,6 +154,7 @@ type Parent struct {
 	TgStatus       string     `json:"tg_status"`
 	Lang           string     `json:"lang"`
 	ConsentAt      *time.Time `json:"consent_at"`
+	LastReminderAt *time.Time `json:"last_reminder_at"`
 }
 
 type PaymentLink struct {
@@ -196,6 +197,14 @@ type Tariff struct {
 	Price        int64     `json:"price"`
 	LessonsCount *int32    `json:"lessons_count"`
 	Archived     bool      `json:"archived"`
+}
+
+type TelegramLinkState struct {
+	ChatID    int64      `json:"chat_id"`
+	UserID    int64      `json:"user_id"`
+	InviteID  uuid.UUID  `json:"invite_id"`
+	ConsentAt *time.Time `json:"consent_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 type User struct {

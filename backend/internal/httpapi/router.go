@@ -17,6 +17,7 @@ import (
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
+	"okuu/internal/parents"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
 	"okuu/internal/staff"
@@ -42,9 +43,14 @@ type Deps struct {
 	Importer   *importer.Service
 	Settings   *settings.Service
 	Reports    *reports.Service
+	Parents    *parents.Service
 	Pool       *pgxpool.Pool // чтение журнала действий
 	AppOrigin  string        // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger     *slog.Logger
+
+	// Telegram-вебхук: маршрут есть, только если заданы оба (режим webhook).
+	Bot                   UpdateQueue
+	TelegramWebhookSecret string
 }
 
 type handlers struct {
@@ -58,9 +64,13 @@ type handlers struct {
 	importer   *importer.Service
 	settings   *settings.Service
 	reports    *reports.Service
+	parents    *parents.Service
 	pool       *pgxpool.Pool
 	appOrigin  string
 	logger     *slog.Logger
+
+	bot             UpdateQueue
+	tgWebhookSecret string
 }
 
 // NewRouter собирает все маршруты приложения.
@@ -70,8 +80,8 @@ func NewRouter(d Deps) http.Handler {
 	}
 	h := &handlers{
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
-		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, pool: d.Pool,
-		appOrigin: d.AppOrigin, logger: d.Logger,
+		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents,
+		pool: d.Pool, appOrigin: d.AppOrigin, logger: d.Logger, bot: d.Bot, tgWebhookSecret: d.TelegramWebhookSecret,
 	}
 
 	r := chi.NewRouter()
@@ -86,6 +96,11 @@ func NewRouter(d Deps) http.Handler {
 	})
 
 	r.Get("/healthz", healthz(d))
+
+	// Вебхук Telegram — вне /api/v1: без cookie и проверки Origin, доступ по секрету.
+	if d.Bot != nil && d.TelegramWebhookSecret != "" {
+		r.Post("/webhooks/telegram/{secret}", h.telegramWebhook)
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(auth.RequireOrigin(d.AppOrigin))
@@ -159,6 +174,9 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/students/{studentId}/enrollments", h.createEnrollment)
 					r.Post("/students/{studentId}/enrollments/{enrollmentId}/end", h.endEnrollment)
 					r.Post("/students/{studentId}/enrollments/{enrollmentId}/renew", h.renewEnrollment)
+
+					// Приглашение родителя в Telegram-бот: ссылка + текст для WhatsApp.
+					r.Post("/parents/{parentId}/invite", h.createParentInvite)
 
 					// Деньги: оплаты, отмены, история, должники (F6).
 					r.Post("/students/{studentId}/payments", h.createOperation)

@@ -7,12 +7,87 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
+const createParentInvite = `-- name: CreateParentInvite :one
+INSERT INTO invites (token, center_id, kind, parent_id, created_by, expires_at)
+VALUES ($1, $2, 'parent', $3, $4, now() + interval '30 days')
+RETURNING id, expires_at
+`
+
+type CreateParentInviteParams struct {
+	Token     string     `json:"token"`
+	CenterID  uuid.UUID  `json:"center_id"`
+	ParentID  *uuid.UUID `json:"parent_id"`
+	CreatedBy *uuid.UUID `json:"created_by"`
+}
+
+type CreateParentInviteRow struct {
+	ID        uuid.UUID `json:"id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// token = hex(sha256) от токена из ссылки t.me/<bot>?start=<токен>. Срок — 30 дней.
+func (q *Queries) CreateParentInvite(ctx context.Context, arg CreateParentInviteParams) (CreateParentInviteRow, error) {
+	row := q.db.QueryRow(ctx, createParentInvite,
+		arg.Token,
+		arg.CenterID,
+		arg.ParentID,
+		arg.CreatedBy,
+	)
+	var i CreateParentInviteRow
+	err := row.Scan(&i.ID, &i.ExpiresAt)
+	return i, err
+}
+
+const getParent = `-- name: GetParent :one
+SELECT p.id, p.center_id, p.name, p.phone, p.telegram_chat_id, p.tg_status, p.lang, p.consent_at, p.last_reminder_at, c.name AS center_name
+FROM parents p
+JOIN centers c ON c.id = p.center_id
+WHERE p.center_id = $1 AND p.id = $2
+`
+
+type GetParentParams struct {
+	CenterID uuid.UUID `json:"center_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+type GetParentRow struct {
+	ID             uuid.UUID  `json:"id"`
+	CenterID       uuid.UUID  `json:"center_id"`
+	Name           string     `json:"name"`
+	Phone          string     `json:"phone"`
+	TelegramChatID *int64     `json:"telegram_chat_id"`
+	TgStatus       string     `json:"tg_status"`
+	Lang           string     `json:"lang"`
+	ConsentAt      *time.Time `json:"consent_at"`
+	LastReminderAt *time.Time `json:"last_reminder_at"`
+	CenterName     string     `json:"center_name"`
+}
+
+func (q *Queries) GetParent(ctx context.Context, arg GetParentParams) (GetParentRow, error) {
+	row := q.db.QueryRow(ctx, getParent, arg.CenterID, arg.ID)
+	var i GetParentRow
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.Name,
+		&i.Phone,
+		&i.TelegramChatID,
+		&i.TgStatus,
+		&i.Lang,
+		&i.ConsentAt,
+		&i.LastReminderAt,
+		&i.CenterName,
+	)
+	return i, err
+}
+
 const getParentByPhone = `-- name: GetParentByPhone :one
-SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at FROM parents
+SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at FROM parents
 WHERE center_id = $1 AND phone = $2
 `
 
@@ -33,12 +108,13 @@ func (q *Queries) GetParentByPhone(ctx context.Context, arg GetParentByPhonePara
 		&i.TgStatus,
 		&i.Lang,
 		&i.ConsentAt,
+		&i.LastReminderAt,
 	)
 	return i, err
 }
 
 const getParentForUpdate = `-- name: GetParentForUpdate :one
-SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at FROM parents
+SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at FROM parents
 WHERE center_id = $1 AND id = $2
 FOR UPDATE
 `
@@ -60,6 +136,7 @@ func (q *Queries) GetParentForUpdate(ctx context.Context, arg GetParentForUpdate
 		&i.TgStatus,
 		&i.Lang,
 		&i.ConsentAt,
+		&i.LastReminderAt,
 	)
 	return i, err
 }
@@ -68,7 +145,7 @@ const insertParentIfAbsent = `-- name: InsertParentIfAbsent :one
 INSERT INTO parents (center_id, name, phone)
 VALUES ($1, $2, $3)
 ON CONFLICT (center_id, phone) DO NOTHING
-RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at
+RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at
 `
 
 type InsertParentIfAbsentParams struct {
@@ -90,15 +167,19 @@ func (q *Queries) InsertParentIfAbsent(ctx context.Context, arg InsertParentIfAb
 		&i.TgStatus,
 		&i.Lang,
 		&i.ConsentAt,
+		&i.LastReminderAt,
 	)
 	return i, err
 }
 
 const updateParent = `-- name: UpdateParent :one
 UPDATE parents
-SET name = $1, phone = $2
+SET name = $1, phone = $2,
+    telegram_chat_id = CASE WHEN phone = $2 THEN telegram_chat_id END,
+    tg_status = CASE WHEN phone = $2 THEN tg_status ELSE 'none' END,
+    consent_at = CASE WHEN phone = $2 THEN consent_at END
 WHERE center_id = $3 AND id = $4
-RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at
+RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at
 `
 
 type UpdateParentParams struct {
@@ -108,6 +189,8 @@ type UpdateParentParams struct {
 	ID       uuid.UUID `json:"id"`
 }
 
+// Смена телефона отвязывает Telegram: привязку подтверждали старым номером
+// (в SET phone — ещё старое значение). Родителю нужно новое приглашение.
 func (q *Queries) UpdateParent(ctx context.Context, arg UpdateParentParams) (Parent, error) {
 	row := q.db.QueryRow(ctx, updateParent,
 		arg.Name,
@@ -125,6 +208,7 @@ func (q *Queries) UpdateParent(ctx context.Context, arg UpdateParentParams) (Par
 		&i.TgStatus,
 		&i.Lang,
 		&i.ConsentAt,
+		&i.LastReminderAt,
 	)
 	return i, err
 }

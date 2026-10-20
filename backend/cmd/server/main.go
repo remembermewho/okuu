@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,11 +34,14 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/importer"
 	"okuu/internal/jobs"
+	"okuu/internal/parents"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
+	"okuu/internal/telegram"
+	"okuu/internal/telegram/bot"
 )
 
 func main() {
@@ -109,29 +113,66 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	authSvc := auth.NewService(pool, auth.Options{CookieSecure: cfg.Env == "prod", Logger: logger})
 	studentsSvc := students.NewService(pool, time.Now)
 	groupsSvc := groups.NewService(pool)
+	deps := httpapi.Deps{
+		DB:         pool,
+		Auth:       authSvc,
+		Staff:      staff.NewService(pool, authSvc),
+		Tariffs:    tariffs.NewService(pool),
+		Groups:     groupsSvc,
+		Students:   studentsSvc,
+		Billing:    billing.NewService(pool, time.Now, logger),
+		Attendance: attendance.NewService(pool, time.Now),
+		Importer:   importer.NewService(pool, studentsSvc, groupsSvc, time.Now),
+		Settings:   settings.NewService(pool, time.Now),
+		Reports:    reports.NewService(pool, time.Now),
+		Parents:    parents.NewService(pool, cfg.Telegram.Username),
+		Pool:       pool,
+		AppOrigin:  cfg.AppOrigin,
+		Logger:     logger,
+	}
+
+	// Telegram-бот: токен уходит только в клиент; в логах — никогда.
+	var (
+		tgAPI *telegram.Client
+		tgBot *bot.Bot
+	)
+	if cfg.Telegram.Mode != config.TelegramOff {
+		tgAPI = telegram.NewClient(cfg.Telegram.Token.Reveal(), telegram.ClientOptions{})
+		sender := telegram.NewSender(tgAPI, telegram.SenderOptions{OnBlocked: bot.MarkBlocked(pool, logger), Logger: logger})
+		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger})
+		if cfg.Telegram.Mode == config.TelegramWebhook {
+			deps.Bot = tgBot
+			deps.TelegramWebhookSecret = cfg.Telegram.WebhookSecret.Reveal()
+		}
+	}
+
 	srv := &http.Server{
-		Addr: cfg.HTTPAddr,
-		Handler: httpapi.NewRouter(httpapi.Deps{
-			DB:         pool,
-			Auth:       authSvc,
-			Staff:      staff.NewService(pool, authSvc),
-			Tariffs:    tariffs.NewService(pool),
-			Groups:     groupsSvc,
-			Students:   studentsSvc,
-			Billing:    billing.NewService(pool, time.Now, logger),
-			Attendance: attendance.NewService(pool, time.Now),
-			Importer:   importer.NewService(pool, studentsSvc, groupsSvc, time.Now),
-			Settings:   settings.NewService(pool, time.Now),
-			Reports:    reports.NewService(pool, time.Now),
-			Pool:       pool,
-			AppOrigin:  cfg.AppOrigin,
-			Logger:     logger,
-		}),
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpapi.NewRouter(deps),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	// Фоновые задачи: billing.monthly раз в час (и сразу при старте).
 	go (&jobs.Scheduler{Pool: pool, Logger: logger}).Run(ctx)
+
+	if tgBot != nil {
+		go tgBot.Run(ctx)
+		switch cfg.Telegram.Mode {
+		case config.TelegramPolling:
+			go bot.Poll(ctx, tgAPI, tgBot, logger)
+		case config.TelegramWebhook:
+			// В адресе вебхука секрет — сам адрес не логируем.
+			secret := cfg.Telegram.WebhookSecret.Reveal()
+			hook := strings.TrimSuffix(cfg.AppOrigin, "/") + "/webhooks/telegram/" + secret
+			if err := bot.SetupWebhook(ctx, tgAPI, hook, secret); err != nil {
+				logger.Error("telegram: не удалось установить вебхук", "err", err)
+			} else {
+				logger.Info("telegram: бот запущен (webhook)", "origin", cfg.AppOrigin)
+			}
+		}
+	} else {
+		logger.Info("telegram: бот выключен (нет TELEGRAM_BOT_TOKEN или TELEGRAM_MODE=off)")
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

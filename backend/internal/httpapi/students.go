@@ -18,10 +18,11 @@ import (
 )
 
 type parentDTO struct {
-	ID       uuid.UUID `json:"id"`
-	Name     string    `json:"name"`
-	Phone    string    `json:"phone"`
-	TgStatus string    `json:"tg_status"`
+	ID             uuid.UUID  `json:"id"`
+	Name           string     `json:"name"`
+	Phone          string     `json:"phone"`
+	TgStatus       string     `json:"tg_status"`
+	LastReminderAt *time.Time `json:"last_reminder_at"`
 }
 
 type refDTO struct {
@@ -292,7 +293,7 @@ func toParentDTO(p *students.Parent) *parentDTO {
 	if p == nil {
 		return nil
 	}
-	return &parentDTO{ID: p.ID, Name: p.Name, Phone: p.Phone, TgStatus: p.TgStatus}
+	return &parentDTO{ID: p.ID, Name: p.Name, Phone: p.Phone, TgStatus: p.TgStatus, LastReminderAt: p.LastReminderAt}
 }
 
 func toEnrollmentDTO(e students.Enrollment) enrollmentDTO {

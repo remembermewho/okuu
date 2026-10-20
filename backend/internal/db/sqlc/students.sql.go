@@ -58,6 +58,7 @@ func (q *Queries) CreateStudent(ctx context.Context, arg CreateStudentParams) (S
 const getStudent = `-- name: GetStudent :one
 SELECT s.id, s.full_name, s.birth_date, s.status, s.discount_kind, s.discount_value, s.created_at,
        p.id AS parent_id, p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
+       p.last_reminder_at AS parent_last_reminder_at,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l
         WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL)::bigint AS balance
 FROM students s
@@ -71,18 +72,19 @@ type GetStudentParams struct {
 }
 
 type GetStudentRow struct {
-	ID             uuid.UUID   `json:"id"`
-	FullName       string      `json:"full_name"`
-	BirthDate      *civil.Date `json:"birth_date"`
-	Status         string      `json:"status"`
-	DiscountKind   *string     `json:"discount_kind"`
-	DiscountValue  *int64      `json:"discount_value"`
-	CreatedAt      time.Time   `json:"created_at"`
-	ParentID       *uuid.UUID  `json:"parent_id"`
-	ParentName     *string     `json:"parent_name"`
-	ParentPhone    *string     `json:"parent_phone"`
-	ParentTgStatus *string     `json:"parent_tg_status"`
-	Balance        int64       `json:"balance"`
+	ID                   uuid.UUID   `json:"id"`
+	FullName             string      `json:"full_name"`
+	BirthDate            *civil.Date `json:"birth_date"`
+	Status               string      `json:"status"`
+	DiscountKind         *string     `json:"discount_kind"`
+	DiscountValue        *int64      `json:"discount_value"`
+	CreatedAt            time.Time   `json:"created_at"`
+	ParentID             *uuid.UUID  `json:"parent_id"`
+	ParentName           *string     `json:"parent_name"`
+	ParentPhone          *string     `json:"parent_phone"`
+	ParentTgStatus       *string     `json:"parent_tg_status"`
+	ParentLastReminderAt *time.Time  `json:"parent_last_reminder_at"`
+	Balance              int64       `json:"balance"`
 }
 
 func (q *Queries) GetStudent(ctx context.Context, arg GetStudentParams) (GetStudentRow, error) {
@@ -100,6 +102,7 @@ func (q *Queries) GetStudent(ctx context.Context, arg GetStudentParams) (GetStud
 		&i.ParentName,
 		&i.ParentPhone,
 		&i.ParentTgStatus,
+		&i.ParentLastReminderAt,
 		&i.Balance,
 	)
 	return i, err
@@ -137,6 +140,7 @@ func (q *Queries) GetStudentForUpdate(ctx context.Context, arg GetStudentForUpda
 const listStudents = `-- name: ListStudents :many
 SELECT s.id, s.full_name, s.birth_date, s.status, s.discount_kind, s.discount_value,
        p.id AS parent_id, p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
+       p.last_reminder_at AS parent_last_reminder_at,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l
         WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL)::bigint AS balance,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)
@@ -172,18 +176,19 @@ type ListStudentsParams struct {
 }
 
 type ListStudentsRow struct {
-	ID             uuid.UUID   `json:"id"`
-	FullName       string      `json:"full_name"`
-	BirthDate      *civil.Date `json:"birth_date"`
-	Status         string      `json:"status"`
-	DiscountKind   *string     `json:"discount_kind"`
-	DiscountValue  *int64      `json:"discount_value"`
-	ParentID       *uuid.UUID  `json:"parent_id"`
-	ParentName     *string     `json:"parent_name"`
-	ParentPhone    *string     `json:"parent_phone"`
-	ParentTgStatus *string     `json:"parent_tg_status"`
-	Balance        int64       `json:"balance"`
-	Groups         []byte      `json:"groups"`
+	ID                   uuid.UUID   `json:"id"`
+	FullName             string      `json:"full_name"`
+	BirthDate            *civil.Date `json:"birth_date"`
+	Status               string      `json:"status"`
+	DiscountKind         *string     `json:"discount_kind"`
+	DiscountValue        *int64      `json:"discount_value"`
+	ParentID             *uuid.UUID  `json:"parent_id"`
+	ParentName           *string     `json:"parent_name"`
+	ParentPhone          *string     `json:"parent_phone"`
+	ParentTgStatus       *string     `json:"parent_tg_status"`
+	ParentLastReminderAt *time.Time  `json:"parent_last_reminder_at"`
+	Balance              int64       `json:"balance"`
+	Groups               []byte      `json:"groups"`
 }
 
 // Фильтры: NULL — не фильтровать. name_q/phone_q — готовые шаблоны LIKE (экранированы в коде).
@@ -218,6 +223,7 @@ func (q *Queries) ListStudents(ctx context.Context, arg ListStudentsParams) ([]L
 			&i.ParentName,
 			&i.ParentPhone,
 			&i.ParentTgStatus,
+			&i.ParentLastReminderAt,
 			&i.Balance,
 			&i.Groups,
 		); err != nil {

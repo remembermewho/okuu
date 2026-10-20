@@ -12,6 +12,7 @@ import (
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
+	"okuu/internal/parents"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -58,6 +59,9 @@ var knownErrors = []struct {
 	{attendance.ErrLessonCancelled, http.StatusConflict, "lesson_cancelled", "Занятие отменено — отметки не ставятся"},
 	{attendance.ErrLessonExists, http.StatusConflict, "lesson_exists", "У группы уже есть занятие в это время"},
 	{attendance.ErrMarkWindow, http.StatusForbidden, "forbidden", "Преподаватель меняет отметки только за последние 7 дней"},
+
+	{parents.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{parents.ErrBotNotConfigured, http.StatusConflict, "telegram_not_configured", "Telegram-бот не настроен (TELEGRAM_BOT_USERNAME)"},
 
 	{importer.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{importer.ErrAlreadyCommitted, http.StatusConflict, "import_already_committed", "Этот импорт уже подтверждён"},

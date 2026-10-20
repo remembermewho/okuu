@@ -47,6 +47,7 @@ var isolationCases = map[string]any{
 	},
 	"POST /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/end":   nil,
 	"POST /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/renew": nil,
+	"POST /api/v1/c/{centerId}/parents/{parentId}/invite":                             nil,
 
 	// Деньги. Idempotency-Key клиент чужого центра шлёт всегда (см. тест).
 	"POST /api/v1/c/{centerId}/students/{studentId}/payments": map[string]any{"kind": "payment", "amount": 100, "method": "cash"},
@@ -123,7 +124,7 @@ func TestIsolationAllCenterRoutes(t *testing.T) {
 		"centerId": a.center.String(), "userId": teacherA.String(), "inviteId": inviteA.ID.String(),
 		"tariffId": a.monthly.ID.String(), "groupId": a.group.ID.String(), "studentId": studentA.ID.String(),
 		"enrollmentId": enrA.Enrollment.ID.String(), "ledgerId": enrA.Charge.ID.String(), "today": a.today.String(),
-		"lessonId": lessonA.ID.String(), "importId": importA.PreviewID.String(),
+		"lessonId": lessonA.ID.String(), "importId": importA.PreviewID.String(), "parentId": studentA.Parent.ID.String(),
 	}
 	before := centerFingerprint(t, api, a.center, centerB)
 
