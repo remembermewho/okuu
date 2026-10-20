@@ -39,6 +39,7 @@ type Settings struct {
 	DueDays            int
 	ExcusedDeducts     bool
 	RemindersOn        bool
+	NotifyAbsent       bool // сообщать родителю «ребёнок не пришёл»
 	PayDetails         *string
 	Plan               string
 	FinikConnected     bool
@@ -53,6 +54,7 @@ type Patch struct {
 	DueDays        optional.Field[int]
 	ExcusedDeducts optional.Field[bool]
 	RemindersOn    optional.Field[bool]
+	NotifyAbsent   optional.Field[bool]
 	PayDetails     optional.Field[string]
 }
 
@@ -152,6 +154,12 @@ func (s *Service) Update(ctx context.Context, actor, centerID uuid.UUID, p Patch
 			}
 			next.RemindersOn = *p.RemindersOn.Value
 		}
+		if p.NotifyAbsent.Set {
+			if p.NotifyAbsent.Value == nil {
+				return validate.Errorf("notify_absent", "notify_absent — true или false")
+			}
+			next.NotifyAbsent = *p.NotifyAbsent.Value
+		}
 		if p.PayDetails.Set {
 			next.PayDetails = nil
 			if p.PayDetails.Value != nil {
@@ -169,6 +177,7 @@ func (s *Service) Update(ctx context.Context, actor, centerID uuid.UUID, p Patch
 			ID: centerID, Name: next.Name, Phone: next.Phone, Timezone: next.Timezone,
 			BillingDay: int16(next.BillingDay), BillingDayNext: int16Ptr(next.BillingDayNext), BillingDayNextFrom: next.BillingDayNextFrom,
 			DueDays: int16(next.DueDays), ExcusedDeducts: next.ExcusedDeducts, RemindersOn: next.RemindersOn, PayDetails: next.PayDetails,
+			NotifyAbsent: next.NotifyAbsent,
 		}); err != nil {
 			return err
 		}
@@ -194,7 +203,7 @@ func (s *Service) view(c sqlc.Center) (Settings, error) {
 		Name: c.Name, Phone: c.Phone, Timezone: c.Timezone,
 		BillingDay: billing.EffectiveBillingDay(c.BillingDay, c.BillingDayNext, c.BillingDayNextFrom, today.FirstOfMonth()),
 		DueDays:    int(c.DueDays), ExcusedDeducts: c.ExcusedDeducts, RemindersOn: c.RemindersOn,
-		PayDetails: c.PayDetails, Plan: c.Plan, FinikConnected: len(c.FinikCreds) > 0,
+		NotifyAbsent: c.NotifyAbsent, PayDetails: c.PayDetails, Plan: c.Plan, FinikConnected: len(c.FinikCreds) > 0,
 	}
 	if c.BillingDayNext != nil && c.BillingDayNextFrom != nil && today.FirstOfMonth().Before(*c.BillingDayNextFrom) {
 		d := int(*c.BillingDayNext)
@@ -207,7 +216,8 @@ func snapshot(s Settings) map[string]any {
 	return map[string]any{
 		"name": s.Name, "phone": s.Phone, "timezone": s.Timezone, "billing_day": s.BillingDay,
 		"billing_day_next": s.BillingDayNext, "billing_day_next_from": s.BillingDayNextFrom, "due_days": s.DueDays,
-		"excused_deducts": s.ExcusedDeducts, "reminders_on": s.RemindersOn, "pay_details": s.PayDetails,
+		"excused_deducts": s.ExcusedDeducts, "reminders_on": s.RemindersOn, "notify_absent": s.NotifyAbsent,
+		"pay_details": s.PayDetails,
 	}
 }
 

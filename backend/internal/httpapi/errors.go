@@ -13,6 +13,7 @@ import (
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
 	"okuu/internal/parents"
+	"okuu/internal/reminders"
 	"okuu/internal/staff"
 	"okuu/internal/students"
 	"okuu/internal/tariffs"
@@ -62,6 +63,9 @@ var knownErrors = []struct {
 
 	{parents.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{parents.ErrBotNotConfigured, http.StatusConflict, "telegram_not_configured", "Telegram-бот не настроен (TELEGRAM_BOT_USERNAME)"},
+
+	{reminders.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{reminders.ErrTelegramOff, http.StatusConflict, "telegram_not_configured", "Telegram-бот не запущен (TELEGRAM_BOT_TOKEN)"},
 
 	{importer.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{importer.ErrAlreadyCommitted, http.StatusConflict, "import_already_committed", "Этот импорт уже подтверждён"},

@@ -35,6 +35,7 @@ import (
 	"okuu/internal/importer"
 	"okuu/internal/jobs"
 	"okuu/internal/parents"
+	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
 	"okuu/internal/staff"
@@ -132,19 +133,23 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	}
 
 	// Telegram-бот: токен уходит только в клиент; в логах — никогда.
+	// Одна очередь отправки на бота и напоминания: лимиты Telegram — общие на бота.
 	var (
-		tgAPI *telegram.Client
-		tgBot *bot.Bot
+		tgAPI  *telegram.Client
+		tgBot  *bot.Bot
+		sender *telegram.Sender // nil — Telegram выключен: напоминания не отправляются
 	)
 	if cfg.Telegram.Mode != config.TelegramOff {
 		tgAPI = telegram.NewClient(cfg.Telegram.Token.Reveal(), telegram.ClientOptions{})
-		sender := telegram.NewSender(tgAPI, telegram.SenderOptions{OnBlocked: bot.MarkBlocked(pool, logger), Logger: logger})
+		sender = telegram.NewSender(tgAPI, telegram.SenderOptions{OnBlocked: bot.MarkBlocked(pool, logger), Logger: logger})
 		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger})
 		if cfg.Telegram.Mode == config.TelegramWebhook {
 			deps.Bot = tgBot
 			deps.TelegramWebhookSecret = cfg.Telegram.WebhookSecret.Reveal()
 		}
 	}
+	remindersSvc := reminders.NewService(pool, sender, time.Now, logger)
+	deps.Reminders = remindersSvc
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -152,11 +157,13 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// Фоновые задачи: billing.monthly раз в час (и сразу при старте).
-	go (&jobs.Scheduler{Pool: pool, Logger: logger}).Run(ctx)
+	// Фоновые задачи: billing.monthly и reminders.auto раз в час (и сразу при старте).
+	go (&jobs.Scheduler{Pool: pool, Logger: logger, Reminders: remindersSvc}).Run(ctx)
 
 	if tgBot != nil {
 		go tgBot.Run(ctx)
+		// Событийные уведомления (paid, package_low, absent) — сразу после события.
+		go jobs.RunDispatcher(ctx, pool, logger, remindersSvc, time.Minute)
 		switch cfg.Telegram.Mode {
 		case config.TelegramPolling:
 			go bot.Poll(ctx, tgAPI, tgBot, logger)

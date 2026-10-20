@@ -38,6 +38,57 @@ type Debt struct {
 	IsDebtor    bool        // Balance < 0 и срок прошёл
 }
 
+// Unpaid — непогашенный (полностью или частично) остаток списания после FIFO.
+type Unpaid struct {
+	Kind   string // charge | refund | correction
+	Due    civil.Date
+	Amount int64 // сколько ещё не погашено, > 0
+}
+
+// UnpaidDebits — непогашенные списания по сроку, по тем же правилам FIFO, что ComputeDebt.
+// По ним напоминания знают, у какого начисления какой срок (R17).
+func UnpaidDebits(ops []Op) []Unpaid {
+	type debit struct {
+		Unpaid
+		created time.Time
+		id      uuid.UUID
+	}
+	var debits []debit
+	var credits int64
+	for _, op := range ops {
+		switch {
+		case op.Amount > 0:
+			credits += op.Amount
+		case op.Amount < 0:
+			due := op.CreatedOn
+			if op.Kind == KindCharge && op.DueDate != nil {
+				due = *op.DueDate
+			}
+			debits = append(debits, debit{Unpaid: Unpaid{Kind: op.Kind, Due: due, Amount: -op.Amount}, created: op.CreatedAt, id: op.ID})
+		}
+	}
+	slices.SortFunc(debits, func(a, b debit) int {
+		if c := a.Due.Compare(b.Due); c != 0 {
+			return c
+		}
+		if c := a.created.Compare(b.created); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.id.String(), b.id.String())
+	})
+	var out []Unpaid
+	for _, d := range debits {
+		if credits >= d.Amount {
+			credits -= d.Amount
+			continue
+		}
+		d.Amount -= credits
+		credits = 0
+		out = append(out, d.Unpaid)
+	}
+	return out
+}
+
 // ComputeDebt считает долг по FIFO (R14):
 //   - списания (debits): начисления, возвраты и отрицательные поправки; срок у начисления — due_date,
 //     у возврата и поправки — дата создания;

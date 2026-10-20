@@ -54,6 +54,7 @@ var isolationCases = map[string]any{
 	"GET /api/v1/c/{centerId}/students/{studentId}/ledger":    nil,
 	"POST /api/v1/c/{centerId}/ledger/{ledgerId}/cancel":      map[string]any{"reason": "тест изоляции"},
 	"GET /api/v1/c/{centerId}/debtors":                        nil,
+	"POST /api/v1/c/{centerId}/reminders":                     map[string]any{"all": true},
 
 	// Посещаемость.
 	"GET /api/v1/c/{centerId}/lessons":                       nil, // 404 приходит раньше разбора ?date
@@ -219,6 +220,8 @@ func centerFingerprint(t *testing.T, api *testAPI, centers ...uuid.UUID) string 
 		  UNION ALL SELECT 'lessons:' || count(*) || '/' || count(*) FILTER (WHERE cancelled) FROM lessons WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'attendance:' || count(*) FROM attendance a JOIN lessons l ON l.id = a.lesson_id WHERE l.center_id = ANY($1)
 		  UNION ALL SELECT 'imports:' || count(*) || '/' || count(committed_at) FROM import_sessions WHERE center_id = ANY($1)
+		  UNION ALL SELECT 'notifications:' || count(*) FROM notifications WHERE center_id = ANY($1)
+		  UNION ALL SELECT 'outbox:' || count(*) FROM notification_outbox WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'centers:' || string_agg(name || '/' || billing_day || '/' || coalesce(billing_day_next, 0), ',' ORDER BY id) FROM centers WHERE id = ANY($1)
 		) s`, centers).Scan(&fp)
 	if err != nil {

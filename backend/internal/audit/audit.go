@@ -43,6 +43,7 @@ const (
 	AttendanceMark       = "attendance.mark"
 	ImportCommit         = "import.commit"
 	CenterUpdate         = "center.update"
+	ReminderManual       = "reminder.manual" // «Напомнить»: кому ушло, сколько пропущено
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

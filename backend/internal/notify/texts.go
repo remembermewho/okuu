@@ -4,8 +4,11 @@
 package notify
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
+
+	"okuu/internal/civil"
 )
 
 // Языки родителя (parents.lang).
@@ -50,7 +53,49 @@ type Texts struct {
 	Package       func(group string, lessonsLeft int32) string
 	Attendance    func(month int, present, absent, excused int32) string
 	NoChildren    string
+
+	// Напоминания о долге (R17–R18): заголовок по виду, строка на ребёнка, итог, реквизиты.
+	ReminderHeader func(kind, center string, due civil.Date) string
+	ReminderChild  func(c ChildDebt) string
+	ReminderTotal  func(total int64) string
+	PayDetails     func(details string) string
+	ReminderFooter string
+
+	// Событийные.
+	Paid       func(center, child string, amount, balance int64) string
+	PackageLow func(center, child, group string) string
+	Absent     func(center, child, group string, date civil.Date, start string) string
 }
+
+// ChildDebt — ребёнок в напоминании о долге.
+type ChildDebt struct {
+	Name        string
+	Debt        int64       // тыйыны, > 0
+	Due         *civil.Date // срок самого старого непогашенного начисления
+	DaysOverdue int
+}
+
+// DebtReminder — одно сообщение родителю по центру: все дети с долгом и суммы (R18);
+// реквизиты — если центр не подключил Finik.
+func DebtReminder(tx *Texts, kind, center string, due civil.Date, children []ChildDebt, payDetails string) string {
+	lines := []string{tx.ReminderHeader(kind, center, due), ""}
+	var total int64
+	for _, c := range children {
+		lines = append(lines, tx.ReminderChild(c))
+		total += c.Debt
+	}
+	if len(children) > 1 {
+		lines = append(lines, tx.ReminderTotal(total))
+	}
+	if strings.TrimSpace(payDetails) != "" {
+		lines = append(lines, "", tx.PayDetails(strings.TrimSpace(payDetails)))
+	}
+	lines = append(lines, "", tx.ReminderFooter)
+	return strings.Join(lines, "\n")
+}
+
+// ddmm — «06.10».
+func ddmm(d civil.Date) string { return fmt.Sprintf("%02d.%02d", d.Day(), int(d.Month())) }
 
 // LangPrompt — выбор языка: на обоих языках, пока язык не выбран.
 const LangPrompt = "Выберите язык / Тилди тандаңыз:"

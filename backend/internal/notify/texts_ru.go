@@ -3,11 +3,23 @@ package notify
 import (
 	"fmt"
 	"strings"
+
+	"okuu/internal/civil"
 )
 
 // monthsRU — «в октябре».
 var monthsRU = [...]string{"январе", "феврале", "марте", "апреле", "мае", "июне",
 	"июле", "августе", "сентябре", "октябре", "ноябре", "декабре"}
+
+func balanceRU(t int64) string {
+	switch {
+	case t < 0:
+		return "Баланс: долг " + Som(-t) + " сом"
+	case t > 0:
+		return "Баланс: аванс " + Som(t) + " сом"
+	}
+	return "Баланс: 0 сом, долгов нет"
+}
 
 var ru = &Texts{
 	Invite: func(parent, center, botURL string) string {
@@ -58,15 +70,7 @@ var ru = &Texts{
 	BalanceButton: "Баланс и посещения",
 
 	BalanceCenter: func(center string) string { return "🏫 Центр «" + center + "»" },
-	Balance: func(t int64) string {
-		switch {
-		case t < 0:
-			return "Баланс: долг " + Som(-t) + " сом"
-		case t > 0:
-			return "Баланс: аванс " + Som(t) + " сом"
-		}
-		return "Баланс: 0 сом, долгов нет"
-	},
+	Balance:       balanceRU,
 	Package: func(group string, left int32) string {
 		if left <= 0 {
 			return fmt.Sprintf("Абонемент (%s): занятия закончились — пора продлить", group)
@@ -77,4 +81,39 @@ var ru = &Texts{
 		return fmt.Sprintf("Посещения в %s: был %d, не был %d, по уважительной %d", monthsRU[month-1], present, absent, excused)
 	},
 	NoChildren: "Учеников в центре нет.",
+
+	ReminderHeader: func(kind, center string, due civil.Date) string {
+		switch kind {
+		case KindDueSoon:
+			return fmt.Sprintf("🏫 Центр «%s»: %s — срок оплаты (через 3 дня).", center, ddmm(due))
+		case KindDueToday:
+			return fmt.Sprintf("🏫 Центр «%s»: сегодня срок оплаты.", center)
+		case KindOverdue3, KindOverdue7:
+			return fmt.Sprintf("🏫 Центр «%s»: оплата просрочена.", center)
+		}
+		return fmt.Sprintf("🏫 Центр «%s»: напоминание об оплате.", center)
+	},
+	ReminderChild: func(c ChildDebt) string {
+		s := "• " + c.Name + " — " + Som(c.Debt) + " сом"
+		switch {
+		case c.DaysOverdue > 0:
+			s += fmt.Sprintf(", просрочено на %d %s", c.DaysOverdue, pluralRU(int64(c.DaysOverdue), "день", "дня", "дней"))
+		case c.Due != nil:
+			s += ", оплатить до " + ddmm(*c.Due)
+		}
+		return s
+	},
+	ReminderTotal:  func(total int64) string { return "Итого: " + Som(total) + " сом" },
+	PayDetails:     func(details string) string { return "Реквизиты для оплаты:\n" + details },
+	ReminderFooter: "Если вы уже оплатили, не обращайте внимания: администратор отметит оплату, и бот пришлёт подтверждение.",
+
+	Paid: func(center, child string, amount, balance int64) string {
+		return fmt.Sprintf("🏫 Центр «%s»: спасибо, оплата получена — %s сом (%s).\n%s", center, Som(amount), child, balanceRU(balance))
+	},
+	PackageLow: func(center, child, group string) string {
+		return fmt.Sprintf("🏫 Центр «%s»: у ученика %s в абонементе (%s) осталось 1 занятие. Пора продлить абонемент.", center, child, group)
+	},
+	Absent: func(center, child, group string, date civil.Date, start string) string {
+		return fmt.Sprintf("🏫 Центр «%s»: %s не был(а) на занятии «%s» %s в %s.", center, child, group, ddmm(date), start)
+	},
 }

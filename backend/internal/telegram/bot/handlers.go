@@ -73,7 +73,7 @@ func (b *Bot) onText(ctx context.Context, chatID int64, m *telegram.Message) err
 		if err != nil {
 			return err
 		}
-		return b.send(ctx, chatID, tx.Help, balanceKeyboard(tx))
+		return b.send(ctx, chatID, tx.Help, BalanceKeyboard(tx))
 	}
 	tx, err := b.texts(ctx, chatID, m.From)
 	if err != nil {
@@ -302,9 +302,9 @@ func (b *Bot) start(ctx context.Context, chatID int64, from *telegram.User) erro
 		return b.send(ctx, chatID, tx.StartHint, nil)
 	}
 	if len(resumed) > 0 {
-		return b.send(ctx, chatID, tx.Resumed(centerNames(parents, resumed)), balanceKeyboard(tx))
+		return b.send(ctx, chatID, tx.Resumed(centerNames(parents, resumed)), BalanceKeyboard(tx))
 	}
-	return b.send(ctx, chatID, tx.Welcome(centerNames(parents, nil)), balanceKeyboard(tx))
+	return b.send(ctx, chatID, tx.Welcome(centerNames(parents, nil)), BalanceKeyboard(tx))
 }
 
 // stop — /stop (R18): напоминания больше не шлём, администратор видит «отключил уведомления».
@@ -427,7 +427,7 @@ func (b *Bot) balance(ctx context.Context, chatID int64, from *telegram.User) er
 	for i, m := range msgs {
 		var kb telegram.ReplyMarkup
 		if i == len(msgs)-1 {
-			kb = balanceKeyboard(tx)
+			kb = BalanceKeyboard(tx)
 		}
 		if err := b.send(ctx, chatID, m, kb); err != nil {
 			return err
@@ -491,7 +491,8 @@ func contactKeyboard(tx *notify.Texts) *telegram.ReplyKeyboardMarkup {
 	}
 }
 
-func balanceKeyboard(tx *notify.Texts) *telegram.InlineKeyboardMarkup {
+// BalanceKeyboard — кнопка «Баланс и посещения» (нажатие обрабатывает бот); её же ставят напоминания.
+func BalanceKeyboard(tx *notify.Texts) *telegram.InlineKeyboardMarkup {
 	return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
 		{{Text: tx.BalanceButton, CallbackData: cbBalance}},
 	}}

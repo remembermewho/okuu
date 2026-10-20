@@ -4,6 +4,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -13,17 +14,24 @@ import (
 	"okuu/internal/billing"
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
+	"okuu/internal/reminders"
 )
 
-// BillingLockKey — ключ advisory lock задачи billing.monthly ("okuu" + номер задачи).
-const BillingLockKey int64 = 0x6f6b7575_00000001
+// Ключи advisory lock задач ("okuu" + номер задачи).
+const (
+	BillingLockKey   int64 = 0x6f6b7575_00000001 // billing.monthly
+	RemindersLockKey int64 = 0x6f6b7575_00000002 // reminders.auto
+	DispatchLockKey  int64 = 0x6f6b7575_00000003 // отправка событийных уведомлений
+)
 
 // Scheduler — тикер раз в Interval; первый запуск — сразу при старте (рестарт в день начисления не пропустит его).
+// После billing.monthly — reminders.auto (если задан Reminders): свежие начисления сразу видны напоминаниям.
 type Scheduler struct {
-	Pool     *pgxpool.Pool
-	Logger   *slog.Logger
-	Now      func() time.Time
-	Interval time.Duration
+	Pool      *pgxpool.Pool
+	Logger    *slog.Logger
+	Now       func() time.Time
+	Interval  time.Duration
+	Reminders *reminders.Service
 }
 
 // Run работает до отмены ctx.
@@ -42,6 +50,11 @@ func (s *Scheduler) Run(ctx context.Context) {
 	for {
 		if _, err := RunBillingOnce(ctx, s.Pool, s.Logger, s.Now()); err != nil && ctx.Err() == nil {
 			s.Logger.Error("billing.monthly: запуск не удался", "err", err)
+		}
+		if s.Reminders != nil {
+			if _, err := RunRemindersOnce(ctx, s.Pool, s.Logger, s.Reminders); err != nil && ctx.Err() == nil {
+				s.Logger.Error("reminders.auto: запуск не удался", "err", err)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -87,6 +100,102 @@ func RunBillingOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		}
 	}
 	return true, nil
+}
+
+// RunRemindersOnce — один запуск reminders.auto под advisory lock. ran=false — задачу сейчас
+// выполняет другой процесс.
+func RunRemindersOnce(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *reminders.Service) (ran bool, err error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	unlock, ok, err := tryLock(ctx, pool, RemindersLockKey)
+	if err != nil || !ok {
+		return false, err
+	}
+	defer unlock()
+	res, err := svc.RunAuto(ctx)
+	if res.Sent > 0 || res.Blocked > 0 || res.Failed > 0 {
+		logger.Info("reminders.auto", "sent", res.Sent, "blocked", res.Blocked, "failed", res.Failed,
+			"limited", res.Limited, "duplicate", res.Duplicate)
+	}
+	return true, err
+}
+
+// DispatchOnce — отправка событийных уведомлений под advisory lock.
+func DispatchOnce(ctx context.Context, pool *pgxpool.Pool, svc *reminders.Service) (ran bool, sent int, err error) {
+	unlock, ok, err := tryLock(ctx, pool, DispatchLockKey)
+	if err != nil || !ok {
+		return false, 0, err
+	}
+	defer unlock()
+	sent, err = svc.Dispatch(ctx)
+	return true, sent, err
+}
+
+// notifyChannel — канал pg_notify, в который пишет notify.Enqueue.
+const notifyChannel = "okuu_notify"
+
+// RunDispatcher отправляет событийные уведомления сразу после события: слушает LISTEN okuu_notify
+// и, кроме того, проверяет очередь раз в interval (ночные события уходят утром, неудачные — повторяются).
+// Работает до отмены ctx; потерянное соединение переподключает.
+func RunDispatcher(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *reminders.Service, interval time.Duration) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	for ctx.Err() == nil {
+		err := listen(ctx, pool, logger, svc, interval)
+		if ctx.Err() != nil {
+			return
+		}
+		logger.Warn("уведомления: LISTEN прервался, переподключение", "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func listen(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, svc *reminders.Service, interval time.Duration) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	broken := false
+	defer func() {
+		if broken {
+			conn.Hijack().Close(context.Background()) // соединение в неизвестном состоянии — в пул не возвращаем
+			return
+		}
+		uctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = conn.Exec(uctx, "UNLISTEN *") // в пул — без подписки
+		conn.Release()
+	}()
+	if _, err := conn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
+		broken = true
+		return err
+	}
+	for {
+		if _, sent, err := DispatchOnce(ctx, pool, svc); err != nil && ctx.Err() == nil {
+			logger.Error("уведомления: отправка не удалась", "err", err)
+		} else if sent > 0 {
+			logger.Info("уведомления отправлены", "sent", sent)
+		}
+		wctx, cancel := context.WithTimeout(ctx, interval)
+		_, err := conn.Conn().WaitForNotification(wctx)
+		cancel()
+		switch {
+		case ctx.Err() != nil:
+			return nil
+		case err != nil && !errors.Is(err, context.DeadlineExceeded):
+			broken = true
+			return err
+		}
+	}
 }
 
 // tryLock берёт сессионный advisory lock на отдельном соединении пула. Соединение держится

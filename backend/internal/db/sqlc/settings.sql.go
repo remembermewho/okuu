@@ -14,7 +14,7 @@ import (
 
 const getCenterForUpdate = `-- name: GetCenterForUpdate :one
 
-SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from FROM centers WHERE id = $1 FOR UPDATE
+SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent FROM centers WHERE id = $1 FOR UPDATE
 `
 
 // Настройки центра (S8). finik_creds здесь не читаются и не пишутся.
@@ -36,6 +36,7 @@ func (q *Queries) GetCenterForUpdate(ctx context.Context, id uuid.UUID) (Center,
 		&i.CreatedAt,
 		&i.BillingDayNext,
 		&i.BillingDayNextFrom,
+		&i.NotifyAbsent,
 	)
 	return i, err
 }
@@ -45,8 +46,8 @@ UPDATE centers
 SET name = $1, phone = $2, timezone = $3, billing_day = $4,
     billing_day_next = $5, billing_day_next_from = $6,
     due_days = $7, excused_deducts = $8, reminders_on = $9,
-    pay_details = $10
-WHERE id = $11
+    pay_details = $10, notify_absent = $11
+WHERE id = $12
 `
 
 type UpdateCenterSettingsParams struct {
@@ -60,6 +61,7 @@ type UpdateCenterSettingsParams struct {
 	ExcusedDeducts     bool        `json:"excused_deducts"`
 	RemindersOn        bool        `json:"reminders_on"`
 	PayDetails         *string     `json:"pay_details"`
+	NotifyAbsent       bool        `json:"notify_absent"`
 	ID                 uuid.UUID   `json:"id"`
 }
 
@@ -75,6 +77,7 @@ func (q *Queries) UpdateCenterSettings(ctx context.Context, arg UpdateCenterSett
 		arg.ExcusedDeducts,
 		arg.RemindersOn,
 		arg.PayDetails,
+		arg.NotifyAbsent,
 		arg.ID,
 	)
 	return err

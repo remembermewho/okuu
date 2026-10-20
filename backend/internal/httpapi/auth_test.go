@@ -26,6 +26,7 @@ import (
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
 	"okuu/internal/parents"
+	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
 	"okuu/internal/staff"
@@ -52,6 +53,12 @@ func (c *clock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.t = c.t.Add(d)
+}
+
+func (c *clock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = t
 }
 
 type testAPI struct {
@@ -84,6 +91,7 @@ func newTestAPIWith(t *testing.T, setup func(api *testAPI, d *httpapi.Deps)) *te
 		Importer: importer.NewService(pool, st, gr, clk.Now),
 		Settings: settings.NewService(pool, clk.Now), Reports: reports.NewService(pool, clk.Now),
 		Parents: parents.NewService(pool, testBotUsername), Pool: pool,
+		Reminders: reminders.NewService(pool, nil, clk.Now, nil), // без Telegram; бот — в newBotEnv
 		AppOrigin: testOrigin}
 	if setup != nil {
 		setup(api, &d)

@@ -29,6 +29,7 @@ type settingsDTO struct {
 	DueDays            int         `json:"due_days"`
 	ExcusedDeducts     bool        `json:"excused_deducts"`
 	RemindersOn        bool        `json:"reminders_on"`
+	NotifyAbsent       bool        `json:"notify_absent"` // сообщать родителю «ребёнок не пришёл»
 	PayDetails         *string     `json:"pay_details"`
 	Plan               string      `json:"plan"`
 	FinikConnected     bool        `json:"finik_connected"` // сами ключи Finik наружу не отдаются
@@ -42,6 +43,7 @@ type patchSettingsRequest struct {
 	DueDays        optional.Field[int]    `json:"due_days"`
 	ExcusedDeducts optional.Field[bool]   `json:"excused_deducts"`
 	RemindersOn    optional.Field[bool]   `json:"reminders_on"`
+	NotifyAbsent   optional.Field[bool]   `json:"notify_absent"`
 	PayDetails     optional.Field[string] `json:"pay_details"`
 }
 
@@ -74,7 +76,7 @@ func toSettingsDTO(s settings.Settings) settingsDTO {
 	return settingsDTO{
 		Name: s.Name, Phone: s.Phone, Timezone: s.Timezone, BillingDay: s.BillingDay, BillingDayNext: s.BillingDayNext,
 		BillingDayNextFrom: s.BillingDayNextFrom, DueDays: s.DueDays, ExcusedDeducts: s.ExcusedDeducts,
-		RemindersOn: s.RemindersOn, PayDetails: s.PayDetails, Plan: s.Plan, FinikConnected: s.FinikConnected,
+		RemindersOn: s.RemindersOn, NotifyAbsent: s.NotifyAbsent, PayDetails: s.PayDetails, Plan: s.Plan, FinikConnected: s.FinikConnected,
 	}
 }
 

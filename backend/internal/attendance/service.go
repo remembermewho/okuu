@@ -21,6 +21,7 @@ import (
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/groups"
+	"okuu/internal/notify"
 	"okuu/internal/validate"
 )
 
@@ -343,6 +344,19 @@ func (s *Service) Mark(ctx context.Context, centerID uuid.UUID, v Viewer, lesson
 				if err := q.AdjustLessonsLeft(ctx, sqlc.AdjustLessonsLeftParams{CenterID: centerID, ID: enr.ID, Delta: int32(delta)}); err != nil {
 					return err
 				}
+				// R10: после списания осталось 1 занятие — напомнить родителю продлить.
+				if delta < 0 && enr.LessonsLeft != nil && *enr.LessonsLeft+int32(delta) == 1 {
+					if err := notify.Enqueue(ctx, tx, notify.PackageLowEvent(centerID, m.StudentID, enr.ID, c.today)); err != nil {
+						return err
+					}
+				}
+			}
+			// «Не был» — родителю, если центр это включил; только по свежим занятиям (вчера и сегодня),
+			// чтобы поздняя отметка за прошлую неделю не приходила как новость.
+			if c.notifyAbsent && m.Status != nil && *m.Status == StatusAbsent && !locked.Date.Before(c.today.AddDays(-1)) {
+				if err := notify.Enqueue(ctx, tx, notify.AbsentEvent(centerID, m.StudentID, lessonID)); err != nil {
+					return err
+				}
 			}
 			if m.Status == nil {
 				err = q.DeleteAttendance(ctx, sqlc.DeleteAttendanceParams{LessonID: lessonID, StudentID: m.StudentID})
@@ -458,6 +472,7 @@ func (s *Service) withStudents(ctx context.Context, q *sqlc.Queries, centerID uu
 type centerInfo struct {
 	today          civil.Date
 	excusedDeducts bool
+	notifyAbsent   bool
 }
 
 func (s *Service) center(ctx context.Context, centerID uuid.UUID) (centerInfo, error) {
@@ -469,7 +484,7 @@ func (s *Service) center(ctx context.Context, centerID uuid.UUID) (centerInfo, e
 	if err != nil {
 		return centerInfo{}, err
 	}
-	return centerInfo{today: today, excusedDeducts: c.ExcusedDeducts}, nil
+	return centerInfo{today: today, excusedDeducts: c.ExcusedDeducts, notifyAbsent: c.NotifyAbsent}, nil
 }
 
 func checkViewWindow(v Viewer, date, today civil.Date) error {

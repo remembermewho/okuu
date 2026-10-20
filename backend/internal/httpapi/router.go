@@ -18,6 +18,7 @@ import (
 	"okuu/internal/httpx"
 	"okuu/internal/importer"
 	"okuu/internal/parents"
+	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
 	"okuu/internal/staff"
@@ -44,6 +45,7 @@ type Deps struct {
 	Settings   *settings.Service
 	Reports    *reports.Service
 	Parents    *parents.Service
+	Reminders  *reminders.Service
 	Pool       *pgxpool.Pool // чтение журнала действий
 	AppOrigin  string        // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger     *slog.Logger
@@ -65,6 +67,7 @@ type handlers struct {
 	settings   *settings.Service
 	reports    *reports.Service
 	parents    *parents.Service
+	reminders  *reminders.Service
 	pool       *pgxpool.Pool
 	appOrigin  string
 	logger     *slog.Logger
@@ -80,7 +83,7 @@ func NewRouter(d Deps) http.Handler {
 	}
 	h := &handlers{
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
-		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents,
+		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents, reminders: d.Reminders,
 		pool: d.Pool, appOrigin: d.AppOrigin, logger: d.Logger, bot: d.Bot, tgWebhookSecret: d.TelegramWebhookSecret,
 	}
 
@@ -183,6 +186,9 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/students/{studentId}/ledger", h.studentLedger)
 					r.Post("/ledger/{ledgerId}/cancel", h.cancelOperation)
 					r.Get("/debtors", h.listDebtors)
+
+					// «Напомнить» в Telegram (R17–R18).
+					r.Post("/reminders", h.sendReminders)
 
 					// История посещений ученика — для карточки (S5).
 					r.Get("/students/{studentId}/attendance", h.studentAttendance)

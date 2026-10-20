@@ -18,6 +18,7 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/notify"
 	"okuu/internal/parents"
+	"okuu/internal/reminders"
 	"okuu/internal/telegram"
 	"okuu/internal/telegram/bot"
 	"okuu/internal/telegram/telegramtest"
@@ -33,6 +34,7 @@ type botEnv struct {
 	api *testAPI
 	tg  *telegramtest.Server
 	bot *bot.Bot
+	rem *reminders.Service // напоминания через ту же очередь отправки
 
 	mu         sync.Mutex
 	nextUpdate int64
@@ -60,6 +62,8 @@ func newBotEnv(t *testing.T) *botEnv {
 			Logger:    logger,
 		})
 		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger})
+		env.rem = reminders.NewService(api.pool, sender, api.clock.Now, logger)
+		d.Reminders = env.rem
 		d.Bot = env.bot
 		d.TelegramWebhookSecret = testWebhookSecret
 	})

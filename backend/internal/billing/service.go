@@ -20,6 +20,7 @@ import (
 	"okuu/internal/audit"
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
+	"okuu/internal/notify"
 	"okuu/internal/validate"
 )
 
@@ -133,6 +134,12 @@ func (s *Service) AddOperation(ctx context.Context, actor, centerID, studentID u
 		}
 		if err != nil {
 			return err
+		}
+		// «Спасибо, оплата получена» — родителю, вместе с операцией (не сохранилась — не уйдёт).
+		if in.Kind == KindPayment {
+			if err := notify.Enqueue(ctx, tx, notify.PaidEvent(centerID, studentID, row.ID)); err != nil {
+				return err
+			}
 		}
 		return audit.Record(ctx, tx, audit.Entry{
 			CenterID: centerID, UserID: &actor, Action: "ledger." + in.Kind, Entity: "ledger", EntityID: &row.ID,

@@ -73,6 +73,15 @@ func TestComputeDebt(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// UnpaidDebits согласован с ComputeDebt: первое непогашенное — OldestDue, сумма остатков — долг.
+			unpaid := UnpaidDebits(tt.ops)
+			var rest int64
+			for _, u := range unpaid {
+				rest += u.Amount
+			}
+			if tt.want.Balance < 0 && (len(unpaid) == 0 || unpaid[0].Due != *tt.want.OldestDue || rest != tt.want.Debt) {
+				t.Errorf("UnpaidDebits = %+v, want первое со сроком %v и сумму %d", unpaid, tt.want.OldestDue, tt.want.Debt)
+			}
 			got := ComputeDebt(tt.ops, today)
 			sameDue := (got.OldestDue == nil) == (tt.want.OldestDue == nil) &&
 				(got.OldestDue == nil || *got.OldestDue == *tt.want.OldestDue)
@@ -81,5 +90,28 @@ func TestComputeDebt(t *testing.T) {
 				t.Fatalf("ComputeDebt =\n %+v (oldest %v)\nwant\n %+v (oldest %v)", got, got.OldestDue, tt.want, tt.want.OldestDue)
 			}
 		})
+	}
+}
+
+// Частичная оплата гасит самое старое начисление; остаток у следующих — полностью.
+func TestUnpaidDebits(t *testing.T) {
+	d := func(day int) civil.Date { return civil.New(2026, 10, day) }
+	at := func(day int) time.Time { return time.Date(2026, 10, day, 12, 0, 0, 0, time.UTC) }
+	charge := func(amount int64, due, created int) Op {
+		dd := d(due)
+		return Op{ID: uuid.New(), Kind: KindCharge, Amount: -amount, DueDate: &dd, CreatedAt: at(created), CreatedOn: d(created)}
+	}
+	ops := []Op{
+		charge(300, 15, 10), charge(200, 6, 1), // старое — со сроком 6-го, хоть и вторым в списке
+		{ID: uuid.New(), Kind: KindPayment, Amount: 250, CreatedAt: at(12), CreatedOn: d(12)},
+		{ID: uuid.New(), Kind: KindCorrection, Amount: -100, CreatedAt: at(9), CreatedOn: d(9)},
+	}
+	got := UnpaidDebits(ops)
+	want := []Unpaid{{KindCorrection, d(9), 50}, {KindCharge, d(15), 300}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("UnpaidDebits = %+v, want %+v", got, want)
+	}
+	if len(UnpaidDebits([]Op{charge(100, 5, 1), {ID: uuid.New(), Kind: KindPayment, Amount: 150, CreatedAt: at(2), CreatedOn: d(2)}})) != 0 {
+		t.Error("переплата: непогашенных быть не должно")
 	}
 }

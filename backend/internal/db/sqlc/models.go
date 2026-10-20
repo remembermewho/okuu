@@ -47,6 +47,7 @@ type Center struct {
 	CreatedAt          time.Time   `json:"created_at"`
 	BillingDayNext     *int16      `json:"billing_day_next"`
 	BillingDayNextFrom *civil.Date `json:"billing_day_next_from"`
+	NotifyAbsent       bool        `json:"notify_absent"`
 }
 
 type Enrollment struct {
@@ -136,13 +137,27 @@ type Membership struct {
 }
 
 type Notification struct {
-	ID       uuid.UUID `json:"id"`
-	CenterID uuid.UUID `json:"center_id"`
-	ParentID uuid.UUID `json:"parent_id"`
-	Kind     string    `json:"kind"`
-	Status   string    `json:"status"`
-	Error    *string   `json:"error"`
-	SentAt   time.Time `json:"sent_at"`
+	ID         uuid.UUID   `json:"id"`
+	CenterID   uuid.UUID   `json:"center_id"`
+	ParentID   uuid.UUID   `json:"parent_id"`
+	Kind       string      `json:"kind"`
+	Status     string      `json:"status"`
+	Error      *string     `json:"error"`
+	SentAt     time.Time   `json:"sent_at"`
+	DedupKey   *string     `json:"dedup_key"`
+	StudentIds []uuid.UUID `json:"student_ids"`
+	CreatedBy  *uuid.UUID  `json:"created_by"`
+}
+
+type NotificationOutbox struct {
+	ID        int64     `json:"id"`
+	CenterID  uuid.UUID `json:"center_id"`
+	Kind      string    `json:"kind"`
+	DedupKey  string    `json:"dedup_key"`
+	StudentID uuid.UUID `json:"student_id"`
+	RefID     uuid.UUID `json:"ref_id"`
+	Attempts  int32     `json:"attempts"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Parent struct {
