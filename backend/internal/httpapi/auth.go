@@ -130,8 +130,11 @@ func badJSON(w http.ResponseWriter) {
 	httpx.Error(w, http.StatusBadRequest, "bad_request", "Некорректное тело запроса")
 }
 
-// clientIP — адрес клиента из соединения. За обратным прокси (Caddy) нужно будет
-// брать X-Forwarded-For от доверенного прокси — см. отчёт шага 4.
+// clientIP — адрес клиента из соединения.
+//
+// TODO(неделя 4, деплой): за Caddy RemoteAddr у всех запросов — адрес прокси, и лимит
+// попыток входа по IP станет общим на всех. Добавить TRUSTED_PROXIES и брать клиента
+// из X-Forwarded-For, только если запрос пришёл от доверенного прокси. См. README.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

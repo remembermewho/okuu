@@ -21,7 +21,6 @@ type Config struct {
 	DatabaseURL   string
 	HTTPAddr      string
 	AppOrigin     string // разрешённый Origin для изменяющих запросов (CSRF)
-	SessionKey    []byte
 	EncryptionKey []byte
 }
 
@@ -55,9 +54,6 @@ func Load() (Config, error) {
 	}
 
 	var err error
-	if cfg.SessionKey, err = loadKey("SESSION_KEY", cfg.Env == "prod"); err != nil {
-		errs = append(errs, err)
-	}
 	if cfg.EncryptionKey, err = loadKey("ENCRYPTION_KEY", cfg.Env == "prod"); err != nil {
 		errs = append(errs, err)
 	}

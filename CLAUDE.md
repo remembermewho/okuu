@@ -12,7 +12,7 @@
 ## Структура
 См. раздел «Фоновые задачи и структура проекта» в ТЗ. Backend живёт в `backend/`.
 - `backend/cmd/server/main.go` — запуск: config → db pool → migrations → router → scheduler.
-- `backend/internal/config` — чтение env (`DATABASE_URL`, `HTTP_ADDR`, `SESSION_KEY`, `ENCRYPTION_KEY`, ...).
+- `backend/internal/config` — чтение env (`DATABASE_URL`, `HTTP_ADDR`, `ENCRYPTION_KEY`, ...).
 - `backend/internal/db` — создание pgxpool + сгенерированный sqlc-код.
 - `backend/migrations` — SQL-миграции goose. `backend/queries` — SQL для sqlc.
 

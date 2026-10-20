@@ -80,18 +80,18 @@ func TestLoad(t *testing.T) {
 	}{
 		{"dev без ключей", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x"}, false},
 		{"нет DATABASE_URL", map[string]string{"APP_ENV": "dev"}, true},
-		{"prod без ключей", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x"}, true},
-		{"prod с ключами", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "SESSION_KEY": key32, "ENCRYPTION_KEY": key32, "APP_ORIGIN": "https://app.okuu.kg"}, false},
-		{"prod без APP_ORIGIN", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "SESSION_KEY": key32, "ENCRYPTION_KEY": key32}, true},
+		{"prod без ENCRYPTION_KEY", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "APP_ORIGIN": "https://app.okuu.kg"}, true},
+		{"prod с ключами", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key32, "APP_ORIGIN": "https://app.okuu.kg"}, false},
+		{"prod без APP_ORIGIN", map[string]string{"APP_ENV": "prod", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key32}, true},
 		{"APP_ORIGIN с путём", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "APP_ORIGIN": "http://localhost:5173/app"}, true},
 		{"APP_ORIGIN без схемы", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "APP_ORIGIN": "localhost:5173"}, true},
-		{"короткий ключ", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "SESSION_KEY": key16}, true},
-		{"ключ не base64", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "SESSION_KEY": "!!!"}, true},
+		{"короткий ключ", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key16}, true},
+		{"ключ не base64", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": "!!!"}, true},
 		{"неизвестный APP_ENV", map[string]string{"APP_ENV": "staging", "DATABASE_URL": "postgres://x"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, k := range []string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "SESSION_KEY", "ENCRYPTION_KEY"} {
+			for _, k := range []string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY"} {
 				t.Setenv(k, tt.env[k])
 			}
 			cfg, err := Load()
