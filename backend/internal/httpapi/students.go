@@ -225,7 +225,9 @@ func (h *handlers) createEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m, _ := auth.MembershipFrom(r.Context())
-	enr, charge, err := h.students.Enroll(r.Context(), m.UserID, m.CenterID, studentID, students.EnrollInput(req))
+	enr, charge, err := h.students.Enroll(r.Context(), m.UserID, m.CenterID, studentID, students.EnrollInput{
+		GroupID: req.GroupID, TariffID: req.TariffID, StartDate: req.StartDate, FirstMonth: req.FirstMonth, ManualAmount: req.ManualAmount,
+	})
 	if err != nil {
 		h.fail(w, r, err)
 		return

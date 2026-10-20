@@ -43,16 +43,19 @@ const (
 	colTariff
 	colStartDate
 	colDebt
+	colLessonsLeft
 )
 
 // TemplateHeaders — заголовки шаблона (* — обязательные).
 var TemplateHeaders = []string{
 	"ФИО ученика*", "Имя родителя*", "Телефон родителя*", "Группа*", "Тариф*", "Дата начала", "Текущий долг (сом)",
+	"Осталось занятий (для абонемента)",
 }
 
 var columnLabels = map[column]string{
 	colFullName: "ФИО ученика", colParentName: "Имя родителя", colParentPhone: "Телефон родителя",
 	colGroup: "Группа", colTariff: "Тариф", colStartDate: "Дата начала", colDebt: "Текущий долг",
+	colLessonsLeft: "Осталось занятий",
 }
 
 var requiredColumns = []column{colFullName, colParentName, colParentPhone, colGroup, colTariff}
@@ -77,6 +80,9 @@ var headerSynonyms = map[string]column{
 	"начало обучения": colStartDate,
 
 	"текущий долг": colDebt, "долг": colDebt, "задолженность": colDebt, "остаток долга": colDebt,
+
+	"осталось занятий": colLessonsLeft, "остаток": colLessonsLeft, "занятий осталось": colLessonsLeft,
+	"остаток занятий": colLessonsLeft, "осталось уроков": colLessonsLeft,
 }
 
 // tableRow — строка таблицы; Num — номер строки как в Excel (с 1).
@@ -309,6 +315,28 @@ func parseDebt(s string) (int64, error) {
 		tyiyn++
 	}
 	return som*100 + tyiyn, nil
+}
+
+// MaxLessonsLeft — предел остатка занятий абонемента в файле (как lessons_count тарифа).
+const MaxLessonsLeft = 200
+
+var wholeNumber = regexp.MustCompile(`^\d+(\.0+)?$`)
+
+// parseLessons — остаток занятий: целое 0–MaxLessonsLeft («5» или «5.0» из Excel). Пусто — nil.
+func parseLessons(s string) (*int32, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	if !wholeNumber.MatchString(s) {
+		return nil, fmt.Errorf("«%s» — нужно целое число от 0 до %d", s, MaxLessonsLeft)
+	}
+	n, err := strconv.Atoi(strings.SplitN(s, ".", 2)[0])
+	if err != nil || n > MaxLessonsLeft {
+		return nil, fmt.Errorf("«%s» — нужно целое число от 0 до %d", s, MaxLessonsLeft)
+	}
+	v := int32(n)
+	return &v, nil
 }
 
 // parsePhone — та же нормализация, что у сотрудников. Excel теряет ведущий ноль у номера,

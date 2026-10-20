@@ -30,6 +30,9 @@ type EnrollInput struct {
 	StartDate    civil.Date
 	FirstMonth   string
 	ManualAmount *int64
+	// PackageLessonsLeft — только для импорта: абонемент уже куплен раньше, начисление не создаётся,
+	// остаток занятий — из файла. Для месячного тарифа — ошибка. Из API не приходит.
+	PackageLessonsLeft *int32
 }
 
 // MaxPastYears — дата начала записи не раньше чем столько лет назад (защита от опечаток).
@@ -133,8 +136,15 @@ func (s *Service) EnrollTx(ctx context.Context, tx pgx.Tx, actor, centerID, stud
 			lessonsLeft   *int32
 			billedThrough *civil.Date
 		)
+		if in.PackageLessonsLeft != nil && tariff.Kind != tariffs.KindPackage {
+			return validate.Unprocessablef("tariff_id", "Тариф «%s» — не абонемент: остаток занятий для него не указывается", tariff.Name)
+		}
 		switch tariff.Kind {
 		case tariffs.KindPackage:
+			if in.PackageLessonsLeft != nil {
+				lessonsLeft = in.PackageLessonsLeft // импорт: абонемент куплен раньше — без начисления
+				break
+			}
 			lessonsLeft = tariff.LessonsCount
 			disc, capped, err := billing.DiscountAmount(tariff.Price, discount)
 			if err != nil {
@@ -184,7 +194,7 @@ func (s *Service) EnrollTx(ctx context.Context, tx pgx.Tx, actor, centerID, stud
 			After: map[string]any{
 				"student_id": studentID, "group_id": group.ID, "tariff_id": tariff.ID, "start_date": in.StartDate,
 				"lessons_left": lessonsLeft, "first_month": in.FirstMonth, "manual_amount": in.ManualAmount,
-				"billed_through": billedThrough,
+				"billed_through": billedThrough, "package_imported": in.PackageLessonsLeft != nil,
 			},
 		}); err != nil {
 			return err

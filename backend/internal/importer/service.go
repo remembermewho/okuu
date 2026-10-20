@@ -52,8 +52,11 @@ type Row struct {
 	GroupID     *uuid.UUID  `json:"group_id"` // nil — группа будет создана
 	Tariff      string      `json:"tariff"`
 	TariffID    *uuid.UUID  `json:"tariff_id"`
-	StartDate   *civil.Date `json:"start_date"` // nil — 1-е число текущего месяца
-	Debt        int64       `json:"debt"`       // тыйыны
+	TariffKind  string      `json:"tariff_kind"` // monthly | package
+	StartDate   *civil.Date `json:"start_date"`  // nil — 1-е число текущего месяца
+	Debt        int64       `json:"debt"`        // тыйыны
+	// LessonsLeft — остаток абонемента из файла: начисление за абонемент не создаётся (он куплен раньше).
+	LessonsLeft *int32 `json:"lessons_left"`
 }
 
 func (r *Row) importable() bool { return r.Status != StatusError && !r.Skip }
@@ -125,9 +128,16 @@ func (s *Service) Template(ctx context.Context, centerID uuid.UUID) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	exampleTariff, exampleGroup := "Английский, месяц", "Английский A1"
-	if len(tariffs) > 0 {
-		exampleTariff = tariffs[0].Name
+	// Пример — по месячному тарифу центра; если есть только абонементы — с остатком занятий.
+	exampleTariff, exampleGroup, exampleLessons := "Английский, месяц", "Английский A1", any(nil)
+	for _, t := range tariffs {
+		if t.Kind == "monthly" {
+			exampleTariff, exampleLessons = t.Name, nil
+			break
+		}
+		if exampleLessons == nil && t.LessonsCount != nil {
+			exampleTariff, exampleLessons = t.Name, *t.LessonsCount
+		}
 	}
 	if len(gs) > 0 {
 		exampleGroup = gs[0].Name
@@ -147,12 +157,15 @@ func (s *Service) Template(ctx context.Context, centerID uuid.UUID) ([]byte, err
 	}
 	_ = f.SetRowStyle(sheet, 1, 1, bold)
 	_ = f.SetColStyle(sheet, "C", text)
-	example := []any{"Асанов Бакыт", "Асанова Гульнара", "0700 123 456", exampleGroup, exampleTariff, "01.09.2024", 1500}
+	example := []any{"Асанов Бакыт", "Асанова Гульнара", "0700 123 456", exampleGroup, exampleTariff, "01.09.2024", 1500, exampleLessons}
 	for i, v := range example {
+		if v == nil {
+			continue
+		}
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
 		_ = f.SetCellValue(sheet, cell, v)
 	}
-	for col, w := range map[string]float64{"A": 28, "B": 26, "C": 20, "D": 22, "E": 24, "F": 14, "G": 20} {
+	for col, w := range map[string]float64{"A": 28, "B": 26, "C": 20, "D": 22, "E": 24, "F": 14, "G": 20, "H": 30} {
 		_ = f.SetColWidth(sheet, col, col, w)
 	}
 
@@ -161,9 +174,16 @@ func (s *Service) Template(ctx context.Context, centerID uuid.UUID) ([]byte, err
 		return nil, err
 	}
 	_ = f.SetCellStr(help, "A1", "Тарифы центра (колонка «Тариф» — точное название)")
+	_ = f.SetCellStr(help, "B1", "Вид")
 	_ = f.SetCellStr(help, "C1", "Группы центра (новые будут созданы без расписания)")
+	_ = f.SetCellStr(help, "E1", "Абонемент: заполните «Осталось занятий» (0–200) — абонемент не начисляется заново, долг — только из «Текущий долг».")
 	for i, t := range tariffs {
 		_ = f.SetCellStr(help, fmt.Sprintf("A%d", i+2), t.Name)
+		kind := "в месяц"
+		if t.Kind == "package" {
+			kind = "абонемент — нужен «Осталось занятий»"
+		}
+		_ = f.SetCellStr(help, fmt.Sprintf("B%d", i+2), kind)
 	}
 	for i, g := range gs {
 		_ = f.SetCellStr(help, fmt.Sprintf("C%d", i+2), g.Name)
@@ -324,7 +344,7 @@ func checkRow(raw rawRow, lk lookups) Row {
 	case len(ts) > 1:
 		r.fail("Несколько тарифов называются «%s» — переименуйте их, чтобы различались", r.Tariff)
 	default:
-		r.TariffID, r.Tariff = &ts[0].ID, ts[0].Name
+		r.TariffID, r.Tariff, r.TariffKind = &ts[0].ID, ts[0].Name, ts[0].Kind
 	}
 
 	if r.Group == "" {
@@ -351,6 +371,19 @@ func checkRow(raw rawRow, lk lookups) Row {
 		r.fail("Текущий долг: %s", err)
 	} else {
 		r.Debt = debt
+	}
+
+	// Абонемент из Excel уже куплен: не начисляем его заново, остаток — из файла. Долг — только «Текущий долг».
+	lessons, err := parseLessons(v[colLessonsLeft])
+	switch {
+	case err != nil:
+		r.fail("Осталось занятий: %s", err)
+	case r.TariffKind == "package" && lessons == nil:
+		r.fail("Осталось занятий — обязательно для абонемента «%s» (0–%d)", r.Tariff, MaxLessonsLeft)
+	case r.TariffKind == "package":
+		r.LessonsLeft = lessons
+	case lessons != nil && r.TariffKind != "":
+		r.warn("«Осталось занятий» для месячного тарифа «%s» не учитывается", r.Tariff)
 	}
 	return r
 }
@@ -429,6 +462,7 @@ func (s *Service) Commit(ctx context.Context, actor, centerID, id uuid.UUID, fir
 			}
 			if _, _, err := s.students.EnrollTx(ctx, tx, actor, centerID, sid, students.EnrollInput{
 				GroupID: groupID, TariffID: r.TariffID, StartDate: start, FirstMonth: firstMonth,
+				PackageLessonsLeft: r.LessonsLeft, // абонемент: без начисления, first_month не влияет
 			}); err != nil {
 				return rowError(r.Num, err)
 			}

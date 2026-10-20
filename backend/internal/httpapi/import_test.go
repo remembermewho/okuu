@@ -30,8 +30,10 @@ type importRowResp struct {
 	Group       string      `json:"group"`
 	GroupID     *uuid.UUID  `json:"group_id"`
 	Tariff      string      `json:"tariff"`
+	TariffKind  string      `json:"tariff_kind"`
 	StartDate   *civil.Date `json:"start_date"`
 	Debt        int64       `json:"debt"`
+	LessonsLeft *int32      `json:"lessons_left"`
 }
 
 type previewResp struct {
@@ -126,7 +128,7 @@ func TestImportXLSX(t *testing.T) {
 	createTariff(t, c.owner, c.center, monthly("Английский, месяц", 300_000))
 
 	p := c.preview(t, "Ученики центра.xlsx", fixture(t, "students.xlsx"))
-	if s := p.Summary; s.Total != 5 || s.OK != 1 || s.Warning != 3 || s.Error != 1 || s.Skipped != 1 || s.ToImport != 3 {
+	if s := p.Summary; s.Total != 7 || s.OK != 1 || s.Warning != 3 || s.Error != 3 || s.Skipped != 1 || s.ToImport != 3 {
 		t.Fatalf("summary = %+v", s)
 	}
 	if !p.ExpiresAt.After(time.Now().Add(50 * time.Minute)) {
@@ -138,8 +140,16 @@ func TestImportXLSX(t *testing.T) {
 	}
 	r3 := rowByNum(t, p, 3)
 	if r3.Status != "warning" || r3.ParentPhone != "+996700222333" || !messagesContain(r3, "без 0") ||
-		!messagesContain(r3, "«Шахматы» не найдена — будет создана") || r3.Tariff != "Абонемент 8" || r3.GroupID != nil {
+		!messagesContain(r3, "«Шахматы» не найдена — будет создана") || r3.Tariff != "Абонемент 8" || r3.GroupID != nil ||
+		r3.TariffKind != "package" || r3.LessonsLeft == nil || *r3.LessonsLeft != 5 {
 		t.Errorf("строка 3 = %+v", r3)
+	}
+	// Абонемент: остаток обязателен (строка 8) и не больше 200 (строка 9).
+	if r8 := rowByNum(t, p, 8); r8.Status != "error" || !messagesContain(r8, "обязательно для абонемента") {
+		t.Errorf("строка 8 = %+v", r8)
+	}
+	if r9 := rowByNum(t, p, 9); r9.Status != "error" || !messagesContain(r9, "Осталось занятий") {
+		t.Errorf("строка 9 = %+v", r9)
 	}
 	r4 := rowByNum(t, p, 4)
 	for _, want := range []string{"Имя родителя", "Телефон родителя", "«Несуществующий тариф» не найден", "Дата начала", "Текущий долг"} {
@@ -153,7 +163,8 @@ func TestImportXLSX(t *testing.T) {
 	if r5 := rowByNum(t, p, 5); r5.Status != "warning" || !r5.Skip || !messagesContain(r5, "Повторяет строку 2") {
 		t.Errorf("строка 5 = %+v", r5)
 	}
-	if r7 := rowByNum(t, p, 7); r7.Debt != 250_075 || *r7.StartDate != civil.New(2025, 3, 1) || r7.ParentPhone != "+996555444333" {
+	if r7 := rowByNum(t, p, 7); r7.Debt != 250_075 || *r7.StartDate != civil.New(2025, 3, 1) || r7.ParentPhone != "+996555444333" ||
+		r7.LessonsLeft != nil || !messagesContain(r7, "для месячного тарифа") {
 		t.Errorf("строка 7 = %+v", r7)
 	}
 
@@ -166,15 +177,19 @@ func TestImportXLSX(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 
-	// Балансы: первый месяц none — начислений нет, только начальный долг; абонемент — начислен сразу (R8).
+	// Балансы: первый месяц none — начислений нет, только начальный долг; абонемент из Excel уже куплен —
+	// не начисляется, остаток занятий — из файла.
 	asanov := studentByName(t, c, "Асанов Бакыт")
 	if asanov.Balance != -150_000 || len(asanov.Enrollments) != 1 || asanov.Enrollments[0].StartDate != civil.New(2024, 9, 1) ||
 		asanov.Parent.Name != "Асанова Гульнара" {
 		t.Errorf("Асанов = %+v", asanov)
 	}
 	bekova := studentByName(t, c, "Бекова Айпери")
-	if e := bekova.Enrollments[0]; bekova.Balance != -400_000 || e.Tariff.Kind != "package" || *e.LessonsLeft != 8 || e.Group.Name != "Шахматы" {
+	if e := bekova.Enrollments[0]; bekova.Balance != 0 || e.Tariff.Kind != "package" || *e.LessonsLeft != 5 || e.Group.Name != "Шахматы" {
 		t.Errorf("Бекова = %+v", bekova)
+	}
+	if ops := ledgerOf(t, c.api, bekova.ID); len(ops) != 0 {
+		t.Errorf("у импортированного абонемента есть операции: %+v", ops)
 	}
 	davletov := studentByName(t, c, "Давлетов Эрлан")
 	if davletov.Balance != -250_075 || davletov.Enrollments[0].Group.ID != bekova.Enrollments[0].Group.ID {
@@ -186,7 +201,7 @@ func TestImportXLSX(t *testing.T) {
 
 	// Начальный долг — в должниках: сегодня срок наступает (pending), завтра — просрочка (R14).
 	d := decode[debtorsResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors"), nil))
-	if len(d.Items) != 0 || d.Summary.PendingCount != 3 || d.Summary.PendingTotal != 150_000+400_000+250_075 {
+	if len(d.Items) != 0 || d.Summary.PendingCount != 2 || d.Summary.PendingTotal != 150_000+250_075 {
 		t.Errorf("сегодня: items=%d pending=%d/%d", len(d.Items), d.Summary.PendingCount, d.Summary.PendingTotal)
 	}
 	c.api.clock.Advance(24 * time.Hour)
@@ -258,6 +273,10 @@ func TestImportCSV(t *testing.T) {
 			if s := studentByName(t, c, "Касымов Тимур"); s.Balance != -450_050 {
 				t.Errorf("Касымов: balance = %d, want -450050", s.Balance)
 			}
+			// Абонемент: first_month=full на него не влияет — без начисления, остаток из файла.
+			if s := studentByName(t, c, "Ёлкина Алёна"); s.Balance != 0 || *s.Enrollments[0].LessonsLeft != 3 {
+				t.Errorf("Ёлкина: balance=%d lessons_left=%v, want 0 и 3", s.Balance, *s.Enrollments[0].LessonsLeft)
+			}
 		})
 	}
 }
@@ -314,6 +333,29 @@ func TestImportCommitErrorsAndLimits(t *testing.T) {
 	assertError(t, teacher.do(http.MethodGet, centerPath(c.center, "/import/template.xlsx"), nil), http.StatusForbidden, "forbidden")
 	assertError(t, teacher.do(http.MethodPost, centerPath(c.center, "/import/commit"), map[string]any{"preview_id": p2.PreviewID, "first_month": "none"}),
 		http.StatusForbidden, "forbidden")
+}
+
+// Тариф абонемента между превью и подтверждением стал месячным — остаток занятий к нему не применяется:
+// подтверждение откатывается целиком с номером строки.
+func TestImportPackageTariffChangedBeforeCommit(t *testing.T) {
+	c := newCatalog(t, "+996707400001")
+	createTariff(t, c.owner, c.center, monthly("Английский, месяц", 300_000))
+	p := c.preview(t, "a.csv", fixture(t, "utf8_semicolon.csv"))
+	if r := rowByNum(t, p, 3); r.TariffKind != "package" || r.LessonsLeft == nil {
+		t.Fatalf("строка 3 = %+v", r)
+	}
+	if rec := c.owner.do(http.MethodPatch, centerPath(c.center, "/tariffs/"+c.pkg.ID.String()),
+		map[string]any{"kind": "monthly", "lessons_count": nil}); rec.Code != http.StatusOK {
+		t.Fatalf("смена вида тарифа: %d %s", rec.Code, rec.Body)
+	}
+	rec := c.commit(p.PreviewID, "none")
+	assertField(t, rec, http.StatusUnprocessableEntity, "rows")
+	if !strings.Contains(rec.Body.String(), "Строка 3") {
+		t.Errorf("в ошибке нет номера строки: %s", rec.Body)
+	}
+	if list := decode[studentListResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/students"), nil)); len(list.Items) != 0 {
+		t.Errorf("после отката создано учеников: %d", len(list.Items))
+	}
 }
 
 // Шаблон открывается в Excel, содержит заголовки и пример, а скачанный шаблон сразу проходит превью.

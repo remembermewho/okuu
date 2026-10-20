@@ -36,10 +36,13 @@ func TestReadXLSX(t *testing.T) {
 	for _, r := range rows {
 		nums = append(nums, r.Num)
 	}
-	if fmt.Sprint(nums) != "[2 3 4 5 7]" {
-		t.Fatalf("номера строк = %v, want [2 3 4 5 7]", nums)
+	if fmt.Sprint(nums) != "[2 3 4 5 7 8 9]" {
+		t.Fatalf("номера строк = %v, want [2 3 4 5 7 8 9]", nums)
 	}
 	r2, r3, r7 := rows[0].Values, rows[1].Values, rows[4].Values
+	if r3[colLessonsLeft] != "5" || r2[colLessonsLeft] != "" || rows[6].Values[colLessonsLeft] != "201" {
+		t.Errorf("остаток занятий: строка 3 %q, строка 2 %q, строка 9 %q", r3[colLessonsLeft], r2[colLessonsLeft], rows[6].Values[colLessonsLeft])
+	}
 	if r2[colFullName] != "Асанов Бакыт" || r2[colParentPhone] != "0700 123 456" || r2[colStartDate] != "45536" || r2[colDebt] != "1500" {
 		t.Errorf("строка 2 = %v", r2)
 	}
@@ -63,7 +66,7 @@ func TestReadCSVEncodingsAndDelimiters(t *testing.T) {
 			if v := rows[0].Values; v[colFullName] != "Касымов Тимур" || v[colDebt] != "1 500,50" || v[colStartDate] != "01.09.2025" {
 				t.Errorf("строка 2 = %v", v)
 			}
-			if v := rows[1].Values; v[colFullName] != "Ёлкина Алёна" || v[colParentName] != "Ёлкин Пётр" {
+			if v := rows[1].Values; v[colFullName] != "Ёлкина Алёна" || v[colParentName] != "Ёлкин Пётр" || v[colLessonsLeft] != "3" {
 				t.Errorf("кириллица с ё: %v", v)
 			}
 			if first == nil {
@@ -97,6 +100,9 @@ func TestHeaders(t *testing.T) {
 		{"Долг, сом", colDebt, false}, // запятая — не синоним
 		{"ГРУППА*", colGroup, true},
 		{"Дата начала:", colStartDate, true},
+		{"Осталось занятий (для абонемента)", colLessonsLeft, true},
+		{"Остаток", colLessonsLeft, true},
+		{"Занятий осталось", colLessonsLeft, true},
 		{"Примечание", 0, false},
 	}
 	for _, tt := range tests {
@@ -168,6 +174,33 @@ func TestParseDebt(t *testing.T) {
 		}
 		if err != nil || got != tt.want {
 			t.Errorf("parseDebt(%q) = %d, %v; want %d", tt.in, got, err, tt.want)
+		}
+	}
+}
+
+func TestParseLessons(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int32 // -1 — пусто (nil), -2 — ошибка
+	}{
+		{"", -1}, {" ", -1}, {"0", 0}, {"5", 5}, {"5.0", 5}, {"200", 200},
+		{"201", -2}, {"-1", -2}, {"5.5", -2}, {"пять", -2}, {"1e2", -2},
+	}
+	for _, tt := range tests {
+		got, err := parseLessons(tt.in)
+		switch {
+		case tt.want == -2:
+			if err == nil {
+				t.Errorf("parseLessons(%q) = %v, want ошибку", tt.in, *got)
+			}
+		case tt.want == -1:
+			if err != nil || got != nil {
+				t.Errorf("parseLessons(%q) = %v, %v; want nil", tt.in, got, err)
+			}
+		default:
+			if err != nil || got == nil || *got != tt.want {
+				t.Errorf("parseLessons(%q) = %v, %v; want %d", tt.in, got, err, tt.want)
+			}
 		}
 	}
 }
