@@ -21,6 +21,7 @@ import (
 	"okuu/internal/db/sqlc"
 	"okuu/internal/httpapi"
 	"okuu/internal/httpx"
+	"okuu/internal/staff"
 	"okuu/internal/testdb"
 )
 
@@ -57,7 +58,7 @@ func newTestAPI(t *testing.T) *testAPI {
 	clk := &clock{t: time.Now()}
 	svc := auth.NewService(pool, auth.Options{Now: clk.Now})
 	return &testAPI{
-		h:     httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, AllowedOrigin: testOrigin}),
+		h:     httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc), AppOrigin: testOrigin}),
 		auth:  svc,
 		pool:  pool,
 		clock: clk,

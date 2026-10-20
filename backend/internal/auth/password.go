@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
+
+	"okuu/internal/validate"
 )
 
 // Параметры argon2id по рекомендации OWASP: m=19 MiB, t=2, p=1.
@@ -32,10 +34,10 @@ var errBadHash = errors.New("неверный формат хэша пароля
 func ValidatePassword(pw string) error {
 	n := utf8.RuneCountInString(pw)
 	if n < MinPasswordLen {
-		return &ValidationError{Field: "password", Message: fmt.Sprintf("Пароль — минимум %d символов", MinPasswordLen)}
+		return validate.Errorf("password", "Пароль — минимум %d символов", MinPasswordLen)
 	}
 	if n > MaxPasswordLen {
-		return &ValidationError{Field: "password", Message: fmt.Sprintf("Пароль — максимум %d символов", MaxPasswordLen)}
+		return validate.Errorf("password", "Пароль — максимум %d символов", MaxPasswordLen)
 	}
 	return nil
 }

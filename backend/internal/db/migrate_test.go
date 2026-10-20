@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"io/fs"
 	"slices"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"okuu/internal/db"
 	"okuu/internal/testdb"
+	"okuu/migrations"
 )
 
 var wantTables = []string{
@@ -19,7 +21,18 @@ var wantTables = []string{
 	"students", "tariffs", "users",
 }
 
+// migrationCount — число файлов миграций; последняя версия равна ему (нумерация 0001, 0002, ...).
+func migrationCount(t *testing.T) int {
+	t.Helper()
+	files, err := fs.Glob(migrations.FS, "*.sql")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("миграции не найдены: %v", err)
+	}
+	return len(files)
+}
+
 func TestMigrateCleanDBAndRerun(t *testing.T) {
+	want := migrationCount(t)
 	ctx := context.Background()
 	pool := testdb.Connect(t, testdb.Empty(t))
 
@@ -33,10 +46,10 @@ func TestMigrateCleanDBAndRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("первый запуск: %v", err)
 	}
-	if len(res) != 1 {
-		t.Fatalf("применено %d миграций, want 1", len(res))
+	if len(res) != want {
+		t.Fatalf("применено %d миграций, want %d", len(res), want)
 	}
-	assertVersion(t, m, 1)
+	assertVersion(t, m, int64(want))
 	assertTables(t, pool, wantTables)
 
 	// Повторный запуск (как рестарт сервера) — ничего не применяет и не падает.
@@ -47,7 +60,7 @@ func TestMigrateCleanDBAndRerun(t *testing.T) {
 	if len(res) != 0 {
 		t.Fatalf("повторный запуск применил %d миграций, want 0", len(res))
 	}
-	assertVersion(t, m, 1)
+	assertVersion(t, m, int64(want))
 	assertTables(t, pool, wantTables)
 }
 
@@ -77,7 +90,7 @@ func TestMigrateDownAndUpAgain(t *testing.T) {
 }
 
 // Два экземпляра сервера стартуют одновременно: advisory lock goose
-// должен пропустить миграцию ровно один раз и без ошибок.
+// должен пропустить каждую миграцию ровно один раз и без ошибок.
 func TestMigrateConcurrentStart(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Connect(t, testdb.Empty(t))
@@ -103,8 +116,8 @@ func TestMigrateConcurrentStart(t *testing.T) {
 		}
 		total += applied[i]
 	}
-	if total != 1 {
-		t.Errorf("миграция применена %d раз, want 1", total)
+	if want := migrationCount(t); total != want {
+		t.Errorf("применено миграций всего %d, want %d: каждая ровно один раз", total, want)
 	}
 	assertTables(t, pool, wantTables)
 }

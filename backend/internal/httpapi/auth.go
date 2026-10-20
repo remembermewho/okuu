@@ -11,6 +11,7 @@ import (
 
 	"okuu/internal/auth"
 	"okuu/internal/httpx"
+	"okuu/internal/validate"
 )
 
 // meDTO — ответ GET /me, register и login.
@@ -109,7 +110,7 @@ func (h *handlers) writeMe(w http.ResponseWriter, r *http.Request, status int, u
 
 // authError переводит ошибки auth в ответы API.
 func (h *handlers) authError(w http.ResponseWriter, r *http.Request, err error) {
-	var verr *auth.ValidationError
+	var verr *validate.Error
 	var tooMany *auth.TooManyAttemptsError
 	switch {
 	case errors.As(err, &verr):

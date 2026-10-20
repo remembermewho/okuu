@@ -75,6 +75,11 @@ type Invite struct {
 	ParentID  *uuid.UUID `json:"parent_id"`
 	ExpiresAt time.Time  `json:"expires_at"`
 	UsedAt    *time.Time `json:"used_at"`
+	ID        uuid.UUID  `json:"id"`
+	Name      *string    `json:"name"`
+	CreatedBy *uuid.UUID `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	RevokedAt *time.Time `json:"revoked_at"`
 }
 
 type Ledger struct {

@@ -12,6 +12,7 @@ import (
 
 	"okuu/internal/auth"
 	"okuu/internal/httpx"
+	"okuu/internal/staff"
 )
 
 // Pinger — то, что нужно /healthz от базы (реализует *pgxpool.Pool).
@@ -21,15 +22,18 @@ type Pinger interface {
 
 // Deps — зависимости роутера.
 type Deps struct {
-	DB            Pinger
-	Auth          *auth.Service
-	AllowedOrigin string // APP_ORIGIN
-	Logger        *slog.Logger
+	DB        Pinger
+	Auth      *auth.Service
+	Staff     *staff.Service
+	AppOrigin string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
+	Logger    *slog.Logger
 }
 
 type handlers struct {
-	auth   *auth.Service
-	logger *slog.Logger
+	auth      *auth.Service
+	staff     *staff.Service
+	appOrigin string
+	logger    *slog.Logger
 }
 
 // NewRouter собирает все маршруты приложения.
@@ -37,7 +41,7 @@ func NewRouter(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
-	h := &handlers{auth: d.Auth, logger: d.Logger}
+	h := &handlers{auth: d.Auth, staff: d.Staff, appOrigin: d.AppOrigin, logger: d.Logger}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -53,16 +57,35 @@ func NewRouter(d Deps) http.Handler {
 	r.Get("/healthz", healthz(d))
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(auth.RequireOrigin(d.AllowedOrigin))
+		r.Use(auth.RequireOrigin(d.AppOrigin))
 
 		r.Post("/auth/register", h.register)
 		r.Post("/auth/login", h.login)
 		r.Post("/auth/logout", h.logout)
 
+		// Публичные: страница приглашения и его принятие (вход необязателен).
+		r.Get("/invites/{token}", h.getInvite)
+		r.Post("/invites/{token}/accept", h.acceptInvite)
+
 		r.Group(func(r chi.Router) {
 			r.Use(d.Auth.RequireAuth)
 			r.Get("/me", h.me)
-			// /c/{centerId}/... — шаги 5–7, через d.Auth.RequireCenter(roles...).
+
+			// Данные центра: членство и роль проверяет RequireCenter, center_id берётся из него.
+			r.Route("/c/{centerId}", func(r chi.Router) {
+				ownerOrAdmin := d.Auth.RequireCenter(auth.RoleOwner, auth.RoleAdmin)
+				ownerOnly := d.Auth.RequireCenter(auth.RoleOwner)
+
+				r.With(ownerOrAdmin).Get("/staff", h.listStaff)
+				r.Group(func(r chi.Router) {
+					r.Use(ownerOnly)
+					r.Post("/staff/invites", h.createInvite)
+					r.Get("/staff/invites", h.listInvites)
+					r.Delete("/staff/invites/{inviteId}", h.revokeInvite)
+					r.Patch("/staff/{userId}", h.changeStaffRole)
+					r.Delete("/staff/{userId}", h.removeStaff)
+				})
+			})
 		})
 	})
 

@@ -1,11 +1,15 @@
 package auth
 
-import "strings"
+import (
+	"strings"
+
+	"okuu/internal/validate"
+)
 
 // NormalizePhone приводит номер к формату +996XXXXXXXXX.
 // Принимает 0700123456, 996700123456, +996 700 123 456 (пробелы, дефисы и скобки игнорируются).
 func NormalizePhone(s string) (string, error) {
-	invalid := &ValidationError{Field: "phone", Message: "Телефон в формате +996XXXXXXXXX или 0XXXXXXXXX"}
+	invalid := validate.Errorf("phone", "Телефон в формате +996XXXXXXXXX или 0XXXXXXXXX")
 
 	var b strings.Builder
 	for i, r := range strings.TrimSpace(s) {

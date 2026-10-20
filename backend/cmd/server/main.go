@@ -23,6 +23,7 @@ import (
 	"okuu/internal/config"
 	"okuu/internal/db"
 	"okuu/internal/httpapi"
+	"okuu/internal/staff"
 )
 
 func main() {
@@ -90,10 +91,11 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(httpapi.Deps{
-			DB:            pool,
-			Auth:          authSvc,
-			AllowedOrigin: cfg.AppOrigin,
-			Logger:        logger,
+			DB:        pool,
+			Auth:      authSvc,
+			Staff:     staff.NewService(pool, authSvc),
+			AppOrigin: cfg.AppOrigin,
+			Logger:    logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

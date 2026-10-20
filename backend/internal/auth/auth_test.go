@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"okuu/internal/validate"
 )
 
 func TestNormalizePhone(t *testing.T) {
@@ -36,9 +38,9 @@ func TestNormalizePhone(t *testing.T) {
 		t.Run(tt.in, func(t *testing.T) {
 			got, err := NormalizePhone(tt.in)
 			if tt.want == "" {
-				var verr *ValidationError
+				var verr *validate.Error
 				if !errors.As(err, &verr) || verr.Field != "phone" {
-					t.Fatalf("NormalizePhone(%q) = %q, %v; want ValidationError(phone)", tt.in, got, err)
+					t.Fatalf("NormalizePhone(%q) = %q, %v; want validate.Error(phone)", tt.in, got, err)
 				}
 				return
 			}
