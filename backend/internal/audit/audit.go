@@ -25,6 +25,13 @@ const (
 	GroupCreate     = "group.create"
 	GroupUpdate     = "group.update"
 	GroupArchive    = "group.archive"
+	StudentCreate   = "student.create"
+	StudentUpdate   = "student.update"
+	ParentUpdate    = "parent.update"
+	EnrollCreate    = "enrollment.create"
+	EnrollEnd       = "enrollment.end"
+	EnrollRenew     = "enrollment.renew"
+	LedgerCharge    = "ledger.charge"
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

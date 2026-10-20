@@ -10,6 +10,7 @@ import (
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
+	"okuu/internal/students"
 	"okuu/internal/tariffs"
 	"okuu/internal/validate"
 )
@@ -35,6 +36,13 @@ var knownErrors = []struct {
 	{tariffs.ErrInUse, http.StatusConflict, "tariff_in_use", "На тариф уже записаны ученики — тип тарифа менять нельзя"},
 
 	{groups.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+
+	{students.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{students.ErrParentPhoneTaken, http.StatusConflict, "parent_phone_taken", "Этот телефон уже у другого родителя в центре"},
+	{students.ErrAlreadyEnrolled, http.StatusConflict, "already_enrolled", "Ученик уже записан в эту группу"},
+	{students.ErrEnrollmentEnded, http.StatusConflict, "enrollment_ended", "Запись уже завершена"},
+	{students.ErrNotPackage, http.StatusConflict, "not_package", "Продлить можно только абонемент"},
+	{students.ErrStudentLeft, http.StatusConflict, "student_left", "Ученик ушёл — сначала верните ему статус"},
 }
 
 // fail переводит ошибку сервиса в ответ API.

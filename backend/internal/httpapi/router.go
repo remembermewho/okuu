@@ -14,6 +14,7 @@ import (
 	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
+	"okuu/internal/students"
 	"okuu/internal/tariffs"
 )
 
@@ -29,6 +30,7 @@ type Deps struct {
 	Staff     *staff.Service
 	Tariffs   *tariffs.Service
 	Groups    *groups.Service
+	Students  *students.Service
 	AppOrigin string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger    *slog.Logger
 }
@@ -38,6 +40,7 @@ type handlers struct {
 	staff     *staff.Service
 	tariffs   *tariffs.Service
 	groups    *groups.Service
+	students  *students.Service
 	appOrigin string
 	logger    *slog.Logger
 }
@@ -48,7 +51,7 @@ func NewRouter(d Deps) http.Handler {
 		d.Logger = slog.Default()
 	}
 	h := &handlers{
-		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups,
+		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students,
 		appOrigin: d.AppOrigin, logger: d.Logger,
 	}
 
@@ -113,6 +116,18 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/groups", h.createGroup)
 					r.Patch("/groups/{groupId}", h.patchGroup)
 					r.Delete("/groups/{groupId}", h.archiveGroup)
+				})
+
+				// Ученики, родители, записи — только owner и admin (преподаватель денег не видит).
+				r.Group(func(r chi.Router) {
+					r.Use(ownerOrAdmin)
+					r.Get("/students", h.listStudents)
+					r.Post("/students", h.createStudent)
+					r.Get("/students/{studentId}", h.getStudent)
+					r.Patch("/students/{studentId}", h.patchStudent)
+					r.Post("/students/{studentId}/enrollments", h.createEnrollment)
+					r.Post("/students/{studentId}/enrollments/{enrollmentId}/end", h.endEnrollment)
+					r.Post("/students/{studentId}/enrollments/{enrollmentId}/renew", h.renewEnrollment)
 				})
 			})
 		})

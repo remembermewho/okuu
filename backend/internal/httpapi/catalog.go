@@ -53,7 +53,7 @@ func (h *handlers) listTariffs(w http.ResponseWriter, r *http.Request) {
 	for _, t := range list {
 		out = append(out, toTariffDTO(t))
 	}
-	httpx.JSON(w, http.StatusOK, out)
+	httpx.JSON(w, http.StatusOK, listOf(out))
 }
 
 func (h *handlers) createTariff(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +160,7 @@ func (h *handlers) listGroups(w http.ResponseWriter, r *http.Request) {
 	for _, g := range list {
 		out = append(out, toGroupDTO(g))
 	}
-	httpx.JSON(w, http.StatusOK, out)
+	httpx.JSON(w, http.StatusOK, listOf(out))
 }
 
 func (h *handlers) getGroup(w http.ResponseWriter, r *http.Request) {

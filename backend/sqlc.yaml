@@ -29,3 +29,13 @@ sql:
               import: time
               type: Time
               pointer: true
+          - db_type: date
+            go_type:
+              import: okuu/internal/civil
+              type: Date
+          - db_type: date
+            nullable: true
+            go_type:
+              import: okuu/internal/civil
+              type: Date
+              pointer: true

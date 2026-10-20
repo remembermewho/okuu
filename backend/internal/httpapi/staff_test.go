@@ -74,7 +74,7 @@ func listStaff(t *testing.T, c *client, centerID uuid.UUID) []staffResp {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list staff: %d %s", rec.Code, rec.Body)
 	}
-	return decode[[]staffResp](t, rec)
+	return decodeItems[staffResp](t, rec)
 }
 
 type auditRow struct {
@@ -152,7 +152,7 @@ func TestStaffInviteFullFlow(t *testing.T) {
 		strings.Contains(rec.Body.String(), `"url"`) {
 		t.Fatalf("список приглашений: %d %s", rec.Code, rec.Body)
 	}
-	if list := decode[[]inviteResp](t, rec); len(list) != 1 || list[0].ID != inv.ID {
+	if list := decodeItems[inviteResp](t, rec); len(list) != 1 || list[0].ID != inv.ID {
 		t.Fatalf("список приглашений = %+v", list)
 	}
 
@@ -196,7 +196,7 @@ func TestStaffInviteFullFlow(t *testing.T) {
 
 	// Использованное приглашение больше не действует и пропало из списка.
 	assertError(t, newbie.do(http.MethodGet, "/api/v1/invites/"+tok, nil), http.StatusNotFound, "invite_invalid")
-	if list := decode[[]inviteResp](t, owner.do(http.MethodGet, centerPath(centerID, "/staff/invites"), nil)); len(list) != 0 {
+	if list := decodeItems[inviteResp](t, owner.do(http.MethodGet, centerPath(centerID, "/staff/invites"), nil)); len(list) != 0 {
 		t.Errorf("использованное приглашение в списке: %+v", list)
 	}
 
@@ -479,7 +479,7 @@ func TestStaffIsolation(t *testing.T) {
 	if staff := listStaff(t, ownerB, centerB); len(staff) != 1 {
 		t.Errorf("staff B = %+v", staff)
 	}
-	if list := decode[[]inviteResp](t, ownerB.do(http.MethodGet, centerPath(centerB, "/staff/invites"), nil)); len(list) != 0 {
+	if list := decodeItems[inviteResp](t, ownerB.do(http.MethodGet, centerPath(centerB, "/staff/invites"), nil)); len(list) != 0 {
 		t.Errorf("invites B = %+v", list)
 	}
 

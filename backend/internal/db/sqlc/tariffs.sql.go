@@ -171,7 +171,7 @@ func (q *Queries) ListTariffs(ctx context.Context, arg ListTariffsParams) ([]Tar
 }
 
 const lockActiveTariff = `-- name: LockActiveTariff :one
-SELECT id FROM tariffs
+SELECT id, center_id, name, kind, price, lessons_count, archived FROM tariffs
 WHERE center_id = $1 AND id = $2 AND NOT archived
 FOR SHARE
 `
@@ -181,12 +181,48 @@ type LockActiveTariffParams struct {
 	ID       uuid.UUID `json:"id"`
 }
 
-// Тариф этого центра и не архивный; FOR SHARE не даёт архивировать его до конца транзакции.
-func (q *Queries) LockActiveTariff(ctx context.Context, arg LockActiveTariffParams) (uuid.UUID, error) {
+// Тариф этого центра и не архивный; FOR SHARE не даёт архивировать его или сменить kind
+// до конца транзакции (группы, запись ученика).
+func (q *Queries) LockActiveTariff(ctx context.Context, arg LockActiveTariffParams) (Tariff, error) {
 	row := q.db.QueryRow(ctx, lockActiveTariff, arg.CenterID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i Tariff
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.Name,
+		&i.Kind,
+		&i.Price,
+		&i.LessonsCount,
+		&i.Archived,
+	)
+	return i, err
+}
+
+const lockTariff = `-- name: LockTariff :one
+SELECT id, center_id, name, kind, price, lessons_count, archived FROM tariffs
+WHERE center_id = $1 AND id = $2
+FOR SHARE
+`
+
+type LockTariffParams struct {
+	CenterID uuid.UUID `json:"center_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+// Тариф уже назначенной записи (продление абонемента): архивный тоже подходит.
+func (q *Queries) LockTariff(ctx context.Context, arg LockTariffParams) (Tariff, error) {
+	row := q.db.QueryRow(ctx, lockTariff, arg.CenterID, arg.ID)
+	var i Tariff
+	err := row.Scan(
+		&i.ID,
+		&i.CenterID,
+		&i.Name,
+		&i.Kind,
+		&i.Price,
+		&i.LessonsCount,
+		&i.Archived,
+	)
+	return i, err
 }
 
 const updateTariff = `-- name: UpdateTariff :one

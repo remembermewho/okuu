@@ -179,6 +179,31 @@ func (q *Queries) ListGroups(ctx context.Context, arg ListGroupsParams) ([]ListG
 	return items, nil
 }
 
+const lockActiveGroup = `-- name: LockActiveGroup :one
+SELECT id, name, default_tariff_id FROM groups
+WHERE center_id = $1 AND id = $2 AND NOT archived
+FOR SHARE
+`
+
+type LockActiveGroupParams struct {
+	CenterID uuid.UUID `json:"center_id"`
+	ID       uuid.UUID `json:"id"`
+}
+
+type LockActiveGroupRow struct {
+	ID              uuid.UUID  `json:"id"`
+	Name            string     `json:"name"`
+	DefaultTariffID *uuid.UUID `json:"default_tariff_id"`
+}
+
+// Группа этого центра и не архивная; FOR SHARE до конца транзакции записи ученика.
+func (q *Queries) LockActiveGroup(ctx context.Context, arg LockActiveGroupParams) (LockActiveGroupRow, error) {
+	row := q.db.QueryRow(ctx, lockActiveGroup, arg.CenterID, arg.ID)
+	var i LockActiveGroupRow
+	err := row.Scan(&i.ID, &i.Name, &i.DefaultTariffID)
+	return i, err
+}
+
 const lockCenterMember = `-- name: LockCenterMember :one
 SELECT user_id FROM memberships
 WHERE center_id = $1 AND user_id = $2

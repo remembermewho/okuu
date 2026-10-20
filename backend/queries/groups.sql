@@ -44,3 +44,9 @@ WHERE center_id = @center_id AND id = @id;
 SELECT user_id FROM memberships
 WHERE center_id = @center_id AND user_id = @user_id
 FOR SHARE;
+
+-- name: LockActiveGroup :one
+-- Группа этого центра и не архивная; FOR SHARE до конца транзакции записи ученика.
+SELECT id, name, default_tariff_id FROM groups
+WHERE center_id = @center_id AND id = @id AND NOT archived
+FOR SHARE;

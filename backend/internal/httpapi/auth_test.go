@@ -23,6 +23,7 @@ import (
 	"okuu/internal/httpapi"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
+	"okuu/internal/students"
 	"okuu/internal/tariffs"
 	"okuu/internal/testdb"
 )
@@ -61,7 +62,8 @@ func newTestAPI(t *testing.T) *testAPI {
 	svc := auth.NewService(pool, auth.Options{Now: clk.Now})
 	return &testAPI{
 		h: httpapi.NewRouter(httpapi.Deps{DB: pool, Auth: svc, Staff: staff.NewService(pool, svc),
-			Tariffs: tariffs.NewService(pool), Groups: groups.NewService(pool), AppOrigin: testOrigin}),
+			Tariffs: tariffs.NewService(pool), Groups: groups.NewService(pool),
+			Students: students.NewService(pool, clk.Now), AppOrigin: testOrigin}),
 		auth:  svc,
 		pool:  pool,
 		clock: clk,
@@ -575,4 +577,24 @@ func TestRequireCenter(t *testing.T) {
 	anon := api.client(t, "10.0.0.4")
 	anon.h = r
 	assertError(t, anon.do(http.MethodGet, "/c/"+centerA.String()+"/any", nil), http.StatusUnauthorized, "unauthorized")
+}
+
+// itemsResp — единый формат списков API.
+type itemsResp[T any] struct {
+	Items      *[]T    `json:"items"`
+	NextCursor *string `json:"next_cursor"`
+}
+
+// decodeItems разбирает список {items, next_cursor} без пагинации: items — массив (не null),
+// next_cursor — null.
+func decodeItems[T any](t *testing.T, rec *httptest.ResponseRecorder) []T {
+	t.Helper()
+	body := decode[itemsResp[T]](t, rec)
+	if body.Items == nil {
+		t.Fatalf("items отсутствует или null: %s", rec.Body)
+	}
+	if body.NextCursor != nil {
+		t.Fatalf("next_cursor = %q, want null для короткого списка", *body.NextCursor)
+	}
+	return *body.Items
 }

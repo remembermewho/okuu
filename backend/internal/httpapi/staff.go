@@ -68,7 +68,7 @@ func (h *handlers) listStaff(w http.ResponseWriter, r *http.Request) {
 	for _, s := range list {
 		out = append(out, toStaffDTO(s))
 	}
-	httpx.JSON(w, http.StatusOK, out)
+	httpx.JSON(w, http.StatusOK, listOf(out))
 }
 
 func (h *handlers) createInvite(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +100,7 @@ func (h *handlers) listInvites(w http.ResponseWriter, r *http.Request) {
 	for _, inv := range list {
 		out = append(out, toInviteDTO(inv))
 	}
-	httpx.JSON(w, http.StatusOK, out)
+	httpx.JSON(w, http.StatusOK, listOf(out))
 }
 
 func (h *handlers) revokeInvite(w http.ResponseWriter, r *http.Request) {

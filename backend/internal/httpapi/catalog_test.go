@@ -121,7 +121,7 @@ func TestTariffsCRUD(t *testing.T) {
 	assertError(t, owner.do(http.MethodPost, centerPath(centerID, "/tariffs"),
 		map[string]any{"name": "x", "kind": "monthly", "price": 100.5}), http.StatusBadRequest, "bad_request")
 
-	list := decode[[]tariffResp](t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs"), nil))
+	list := decodeItems[tariffResp](t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs"), nil))
 	if len(list) != 2 || list[0].ID != p.ID || list[1].ID != m.ID { // по названию: «Абонемент…» < «Английский…»
 		t.Fatalf("list = %+v", list)
 	}
@@ -161,10 +161,10 @@ func TestTariffsCRUD(t *testing.T) {
 			t.Fatalf("archive: %d %s", rec.Code, rec.Body)
 		}
 	}
-	if list := decode[[]tariffResp](t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs?archived=false"), nil)); len(list) != 1 || list[0].ID != m.ID {
+	if list := decodeItems[tariffResp](t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs?archived=false"), nil)); len(list) != 1 || list[0].ID != m.ID {
 		t.Errorf("активные = %+v", list)
 	}
-	if list := decode[[]tariffResp](t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs?archived=true"), nil)); len(list) != 1 || list[0].ID != p.ID || !list[0].Archived {
+	if list := decodeItems[tariffResp](t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs?archived=true"), nil)); len(list) != 1 || list[0].ID != p.ID || !list[0].Archived {
 		t.Errorf("архив = %+v", list)
 	}
 	assertField(t, owner.do(http.MethodGet, centerPath(centerID, "/tariffs?archived=maybe"), nil), http.StatusBadRequest, "archived")
@@ -297,10 +297,10 @@ func TestGroupsPatchAndArchive(t *testing.T) {
 			t.Fatalf("archive: %d", rec.Code)
 		}
 	}
-	if list := decode[[]groupResp](t, owner.do(http.MethodGet, centerPath(centerID, "/groups"), nil)); len(list) != 0 {
+	if list := decodeItems[groupResp](t, owner.do(http.MethodGet, centerPath(centerID, "/groups"), nil)); len(list) != 0 {
 		t.Errorf("активные = %+v", list)
 	}
-	if list := decode[[]groupResp](t, owner.do(http.MethodGet, centerPath(centerID, "/groups?archived=true"), nil)); len(list) != 1 || !list[0].Archived {
+	if list := decodeItems[groupResp](t, owner.do(http.MethodGet, centerPath(centerID, "/groups?archived=true"), nil)); len(list) != 1 || !list[0].Archived {
 		t.Errorf("архив = %+v", list)
 	}
 	assertError(t, owner.do(http.MethodGet, centerPath(centerID, "/groups/"+uuid.NewString()), nil), http.StatusNotFound, "not_found")
@@ -394,7 +394,7 @@ func TestTeacherSeesOnlyOwnGroups(t *testing.T) {
 	theirs := createGroup(t, owner, centerID, map[string]any{"name": "Чужая", "teacher_id": t2ID})
 	nobody := createGroup(t, owner, centerID, map[string]any{"name": "Без учителя"})
 
-	list := decode[[]groupResp](t, t1.do(http.MethodGet, centerPath(centerID, "/groups"), nil))
+	list := decodeItems[groupResp](t, t1.do(http.MethodGet, centerPath(centerID, "/groups"), nil))
 	if len(list) != 1 || list[0].ID != mine.ID {
 		t.Fatalf("учитель видит %+v, want только «Моя»", list)
 	}
@@ -404,7 +404,7 @@ func TestTeacherSeesOnlyOwnGroups(t *testing.T) {
 	for _, g := range []groupResp{theirs, nobody} {
 		assertError(t, t1.do(http.MethodGet, centerPath(centerID, "/groups/"+g.ID.String()), nil), http.StatusNotFound, "not_found")
 	}
-	if all := decode[[]groupResp](t, owner.do(http.MethodGet, centerPath(centerID, "/groups"), nil)); len(all) != 3 {
+	if all := decodeItems[groupResp](t, owner.do(http.MethodGet, centerPath(centerID, "/groups"), nil)); len(all) != 3 {
 		t.Errorf("владелец видит %d групп, want 3", len(all))
 	}
 
@@ -470,15 +470,15 @@ func TestCatalogIsolation(t *testing.T) {
 		http.StatusUnprocessableEntity, "default_tariff_id")
 
 	// В А ничего не изменилось, в Б пусто.
-	tA := decode[[]tariffResp](t, ownerA.do(http.MethodGet, centerPath(centerA, "/tariffs"), nil))
-	gA := decode[[]groupResp](t, ownerA.do(http.MethodGet, centerPath(centerA, "/groups"), nil))
+	tA := decodeItems[tariffResp](t, ownerA.do(http.MethodGet, centerPath(centerA, "/tariffs"), nil))
+	gA := decodeItems[groupResp](t, ownerA.do(http.MethodGet, centerPath(centerA, "/groups"), nil))
 	if len(tA) != 1 || tA[0].Price != 300_000 || tA[0].Archived || len(gA) != 1 || gA[0].Name != "Группа А" {
 		t.Errorf("А после атаки: tariffs=%+v groups=%+v", tA, gA)
 	}
-	if n := len(decode[[]tariffResp](t, ownerB.do(http.MethodGet, centerPath(centerB, "/tariffs"), nil))); n != 0 {
+	if n := len(decodeItems[tariffResp](t, ownerB.do(http.MethodGet, centerPath(centerB, "/tariffs"), nil))); n != 0 {
 		t.Errorf("тарифов в Б: %d", n)
 	}
-	if n := len(decode[[]groupResp](t, ownerB.do(http.MethodGet, centerPath(centerB, "/groups"), nil))); n != 0 {
+	if n := len(decodeItems[groupResp](t, ownerB.do(http.MethodGet, centerPath(centerB, "/groups"), nil))); n != 0 {
 		t.Errorf("групп в Б: %d", n)
 	}
 	if n := len(auditLog(t, api, centerB)); n != 0 {

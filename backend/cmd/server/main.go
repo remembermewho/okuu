@@ -25,6 +25,7 @@ import (
 	"okuu/internal/groups"
 	"okuu/internal/httpapi"
 	"okuu/internal/staff"
+	"okuu/internal/students"
 	"okuu/internal/tariffs"
 )
 
@@ -98,6 +99,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 			Staff:     staff.NewService(pool, authSvc),
 			Tariffs:   tariffs.NewService(pool),
 			Groups:    groups.NewService(pool),
+			Students:  students.NewService(pool, time.Now),
 			AppOrigin: cfg.AppOrigin,
 			Logger:    logger,
 		}),

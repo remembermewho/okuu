@@ -14,8 +14,9 @@ WHERE center_id = @center_id AND id = @id
 FOR UPDATE;
 
 -- name: LockActiveTariff :one
--- Тариф этого центра и не архивный; FOR SHARE не даёт архивировать его до конца транзакции.
-SELECT id FROM tariffs
+-- Тариф этого центра и не архивный; FOR SHARE не даёт архивировать его или сменить kind
+-- до конца транзакции (группы, запись ученика).
+SELECT * FROM tariffs
 WHERE center_id = @center_id AND id = @id AND NOT archived
 FOR SHARE;
 
@@ -38,3 +39,9 @@ WHERE center_id = @center_id AND id = @id;
 -- Любые записи, включая завершённые: смена kind сломала бы историю начислений.
 SELECT count(*) FROM enrollments
 WHERE center_id = @center_id AND tariff_id = @tariff_id;
+
+-- name: LockTariff :one
+-- Тариф уже назначенной записи (продление абонемента): архивный тоже подходит.
+SELECT * FROM tariffs
+WHERE center_id = @center_id AND id = @id
+FOR SHARE;

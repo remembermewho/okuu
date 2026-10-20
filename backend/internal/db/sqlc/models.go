@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"okuu/internal/civil"
 )
 
 type Attendance struct {
@@ -47,14 +48,15 @@ type Center struct {
 }
 
 type Enrollment struct {
-	ID          uuid.UUID   `json:"id"`
-	CenterID    uuid.UUID   `json:"center_id"`
-	StudentID   uuid.UUID   `json:"student_id"`
-	GroupID     uuid.UUID   `json:"group_id"`
-	TariffID    uuid.UUID   `json:"tariff_id"`
-	StartDate   pgtype.Date `json:"start_date"`
-	EndDate     pgtype.Date `json:"end_date"`
-	LessonsLeft *int32      `json:"lessons_left"`
+	ID            uuid.UUID   `json:"id"`
+	CenterID      uuid.UUID   `json:"center_id"`
+	StudentID     uuid.UUID   `json:"student_id"`
+	GroupID       uuid.UUID   `json:"group_id"`
+	TariffID      uuid.UUID   `json:"tariff_id"`
+	StartDate     civil.Date  `json:"start_date"`
+	EndDate       *civil.Date `json:"end_date"`
+	LessonsLeft   *int32      `json:"lessons_left"`
+	BilledThrough *civil.Date `json:"billed_through"`
 }
 
 type Group struct {
@@ -89,8 +91,8 @@ type Ledger struct {
 	EnrollmentID *uuid.UUID  `json:"enrollment_id"`
 	Kind         string      `json:"kind"`
 	Amount       int64       `json:"amount"`
-	Period       pgtype.Date `json:"period"`
-	DueDate      pgtype.Date `json:"due_date"`
+	Period       *civil.Date `json:"period"`
+	DueDate      *civil.Date `json:"due_date"`
 	ListPrice    *int64      `json:"list_price"`
 	Discount     *int64      `json:"discount"`
 	Method       *string     `json:"method"`
@@ -107,7 +109,7 @@ type Lesson struct {
 	ID        uuid.UUID   `json:"id"`
 	CenterID  uuid.UUID   `json:"center_id"`
 	GroupID   uuid.UUID   `json:"group_id"`
-	Date      pgtype.Date `json:"date"`
+	Date      civil.Date  `json:"date"`
 	StartTime pgtype.Time `json:"start_time"`
 	Cancelled bool        `json:"cancelled"`
 }
@@ -163,7 +165,7 @@ type Student struct {
 	CenterID      uuid.UUID   `json:"center_id"`
 	ParentID      *uuid.UUID  `json:"parent_id"`
 	FullName      string      `json:"full_name"`
-	BirthDate     pgtype.Date `json:"birth_date"`
+	BirthDate     *civil.Date `json:"birth_date"`
 	Status        string      `json:"status"`
 	DiscountKind  *string     `json:"discount_kind"`
 	DiscountValue *int64      `json:"discount_value"`

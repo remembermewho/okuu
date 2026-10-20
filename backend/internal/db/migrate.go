@@ -41,6 +41,11 @@ func (m *Migrator) Up(ctx context.Context) ([]*goose.MigrationResult, error) {
 	return res, nil
 }
 
+// UpTo применяет миграции до версии version включительно (для тестов миграций с данными).
+func (m *Migrator) UpTo(ctx context.Context, version int64) ([]*goose.MigrationResult, error) {
+	return m.p.UpTo(ctx, version)
+}
+
 // DownTo откатывает миграции до версии version (0 — всё).
 func (m *Migrator) DownTo(ctx context.Context, version int64) ([]*goose.MigrationResult, error) {
 	return m.p.DownTo(ctx, version)
