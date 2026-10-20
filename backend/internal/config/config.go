@@ -5,16 +5,22 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 )
 
-const minKeyLen = 32
+const (
+	minKeyLen = 32
+	// devOrigin — адрес Vite dev-сервера по умолчанию.
+	devOrigin = "http://localhost:5173"
+)
 
 // Config — настройки процесса. Секреты приходят только из env.
 type Config struct {
 	Env           string // dev | test | prod
 	DatabaseURL   string
 	HTTPAddr      string
+	AppOrigin     string // разрешённый Origin для изменяющих запросов (CSRF)
 	SessionKey    []byte
 	EncryptionKey []byte
 }
@@ -38,6 +44,14 @@ func Load() (Config, error) {
 	}
 	if cfg.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL не задан"))
+	}
+
+	cfg.AppOrigin = os.Getenv("APP_ORIGIN")
+	if cfg.AppOrigin == "" && cfg.Env != "prod" {
+		cfg.AppOrigin = devOrigin
+	}
+	if err := validateOrigin(cfg.AppOrigin); err != nil {
+		errs = append(errs, err)
 	}
 
 	var err error
@@ -71,6 +85,19 @@ func loadKey(name string, required bool) ([]byte, error) {
 		return nil, fmt.Errorf("%s: нужно минимум %d байт, получено %d", name, minKeyLen, len(key))
 	}
 	return key, nil
+}
+
+// validateOrigin проверяет, что APP_ORIGIN — это scheme://host[:port] без пути.
+func validateOrigin(origin string) error {
+	if origin == "" {
+		return errors.New("APP_ORIGIN не задан")
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("APP_ORIGIN: ожидается scheme://host[:port], получено %q", origin)
+	}
+	return nil
 }
 
 func getenv(name, def string) string {

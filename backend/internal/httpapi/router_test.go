@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"okuu/internal/httpx"
 )
 
 type fakePinger struct{ err error }
@@ -35,7 +37,7 @@ func TestHealthz(t *testing.T) {
 			if tt.wantCode == "" {
 				return
 			}
-			var body errorBody
+			var body httpx.ErrorBody
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
@@ -54,7 +56,7 @@ func TestNotFoundUsesErrorFormat(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
-	var body errorBody
+	var body httpx.ErrorBody
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Error.Code != "not_found" {
 		t.Fatalf("body = %s, err = %v", rec.Body.String(), err)
 	}

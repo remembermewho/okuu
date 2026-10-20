@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/auth"
 	"okuu/internal/config"
 	"okuu/internal/db"
 	"okuu/internal/httpapi"
@@ -85,9 +86,15 @@ func run(logger *slog.Logger, args []string) error {
 }
 
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool) error {
+	authSvc := auth.NewService(pool, auth.Options{CookieSecure: cfg.Env == "prod", Logger: logger})
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(httpapi.Deps{DB: pool, Logger: logger}),
+		Addr: cfg.HTTPAddr,
+		Handler: httpapi.NewRouter(httpapi.Deps{
+			DB:            pool,
+			Auth:          authSvc,
+			AllowedOrigin: cfg.AppOrigin,
+			Logger:        logger,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

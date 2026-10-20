@@ -91,17 +91,19 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 
 const touchSession = `-- name: TouchSession :exec
 UPDATE sessions
-SET last_seen_at = now(), expires_at = $2
-WHERE token_hash = $1
+SET last_seen_at = $1, expires_at = $2
+WHERE token_hash = $3
 `
 
 type TouchSessionParams struct {
-	TokenHash []byte    `json:"token_hash"`
-	ExpiresAt time.Time `json:"expires_at"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	TokenHash  []byte     `json:"token_hash"`
 }
 
 // Продление при активности; решение «не чаще раза в сутки» принимает вызывающий код.
+// last_seen_at передаётся из приложения: решение о продлении принимается по тем же часам.
 func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) error {
-	_, err := q.db.Exec(ctx, touchSession, arg.TokenHash, arg.ExpiresAt)
+	_, err := q.db.Exec(ctx, touchSession, arg.LastSeenAt, arg.ExpiresAt, arg.TokenHash)
 	return err
 }

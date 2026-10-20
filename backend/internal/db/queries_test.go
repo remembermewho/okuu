@@ -164,14 +164,15 @@ func TestSessionQueries(t *testing.T) {
 	}
 
 	newExpiry := time.Now().Add(31 * 24 * time.Hour).Truncate(time.Microsecond)
-	if err := q.TouchSession(ctx, sqlc.TouchSessionParams{TokenHash: hash("live"), ExpiresAt: newExpiry}); err != nil {
+	seen := time.Now().Truncate(time.Microsecond)
+	if err := q.TouchSession(ctx, sqlc.TouchSessionParams{TokenHash: hash("live"), LastSeenAt: &seen, ExpiresAt: newExpiry}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = q.GetSessionByTokenHash(ctx, hash("live"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.LastSeenAt == nil || !got.ExpiresAt.Equal(newExpiry) {
+	if got.LastSeenAt == nil || !got.LastSeenAt.Equal(seen) || !got.ExpiresAt.Equal(newExpiry) {
 		t.Errorf("после TouchSession: last_seen_at=%v expires_at=%v, want %v", got.LastSeenAt, got.ExpiresAt, newExpiry)
 	}
 

@@ -12,9 +12,10 @@ WHERE token_hash = $1 AND expires_at > now();
 
 -- name: TouchSession :exec
 -- Продление при активности; решение «не чаще раза в сутки» принимает вызывающий код.
+-- last_seen_at передаётся из приложения: решение о продлении принимается по тем же часам.
 UPDATE sessions
-SET last_seen_at = now(), expires_at = $2
-WHERE token_hash = $1;
+SET last_seen_at = @last_seen_at, expires_at = @expires_at
+WHERE token_hash = @token_hash;
 
 -- name: DeleteSession :exec
 DELETE FROM sessions
