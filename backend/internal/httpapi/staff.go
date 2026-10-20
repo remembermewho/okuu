@@ -12,7 +12,6 @@ import (
 	"okuu/internal/auth"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
-	"okuu/internal/validate"
 )
 
 type staffMemberDTO struct {
@@ -81,7 +80,7 @@ func (h *handlers) createInvite(w http.ResponseWriter, r *http.Request) {
 	m, _ := auth.MembershipFrom(r.Context())
 	inv, err := h.staff.CreateInvite(r.Context(), m.UserID, m.CenterID, req.Role, req.Name)
 	if err != nil {
-		h.staffError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, createdInviteDTO{
@@ -111,7 +110,7 @@ func (h *handlers) revokeInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.staff.RevokeInvite(r.Context(), m.UserID, m.CenterID, id); err != nil {
-		h.staffError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -130,7 +129,7 @@ func (h *handlers) changeStaffRole(w http.ResponseWriter, r *http.Request) {
 	}
 	member, err := h.staff.ChangeRole(r.Context(), m.UserID, m.CenterID, userID, req.Role)
 	if err != nil {
-		h.staffError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, toStaffDTO(member))
@@ -143,7 +142,7 @@ func (h *handlers) removeStaff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.staff.Remove(r.Context(), m.UserID, m.CenterID, userID); err != nil {
-		h.staffError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -153,7 +152,7 @@ func (h *handlers) removeStaff(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) getInvite(w http.ResponseWriter, r *http.Request) {
 	inv, err := h.staff.GetInvite(r.Context(), chi.URLParam(r, "token"))
 	if err != nil {
-		h.staffError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, publicInviteDTO{CenterName: inv.CenterName, Role: inv.Role, Name: inv.Name, ExpiresAt: inv.ExpiresAt})
@@ -185,36 +184,13 @@ func (h *handlers) acceptInvite(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.staff.Accept(r.Context(), in)
 	if err != nil {
-		h.staffError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	if res.Session != nil {
 		h.auth.SetSessionCookie(w, *res.Session)
 	}
 	h.writeMe(w, r, http.StatusOK, res.UserID)
-}
-
-// staffError переводит ошибки staff (и валидации) в ответы API.
-func (h *handlers) staffError(w http.ResponseWriter, r *http.Request, err error) {
-	var verr *validate.Error
-	switch {
-	case errors.As(err, &verr):
-		httpx.Error(w, http.StatusBadRequest, "validation", verr.Message)
-	case errors.Is(err, staff.ErrNotFound):
-		httpx.Error(w, http.StatusNotFound, "not_found", "Не найдено")
-	case errors.Is(err, staff.ErrInviteInvalid):
-		httpx.Error(w, http.StatusNotFound, "invite_invalid", "Приглашение недействительно или уже использовано")
-	case errors.Is(err, staff.ErrLoginRequired):
-		httpx.Error(w, http.StatusConflict, "login_required", "Этот телефон уже зарегистрирован. Войдите и примите приглашение снова")
-	case errors.Is(err, staff.ErrAlreadyMember):
-		httpx.Error(w, http.StatusConflict, "already_member", "Вы уже сотрудник этого центра")
-	case errors.Is(err, staff.ErrOwnerProtected):
-		httpx.Error(w, http.StatusConflict, "owner_protected", "Владельца центра нельзя изменить или удалить")
-	case errors.Is(err, staff.ErrTeacherHasGroups):
-		httpx.Error(w, http.StatusConflict, "teacher_has_groups", "У преподавателя есть группы — сначала назначьте им другого преподавателя")
-	default:
-		h.internalError(w, r, err)
-	}
 }
 
 // uuidParam читает uuid из пути; некорректный — 404, как и несуществующий.

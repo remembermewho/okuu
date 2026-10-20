@@ -19,6 +19,12 @@ const (
 	InviteAccept    = "invite.accept"
 	StaffRoleChange = "staff.role_change"
 	StaffRemove     = "staff.remove"
+	TariffCreate    = "tariff.create"
+	TariffUpdate    = "tariff.update"
+	TariffArchive   = "tariff.archive"
+	GroupCreate     = "group.create"
+	GroupUpdate     = "group.update"
+	GroupArchive    = "group.archive"
 )
 
 // Entry — одна запись журнала. Before/After сериализуются в jsonb (nil → NULL).

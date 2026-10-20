@@ -10,17 +10,25 @@ import (
 // MaxNameLen — предел длины имён и названий.
 const MaxNameLen = 100
 
-// Error — ошибка входных данных в конкретном поле; API отвечает 400 validation.
+// Error — ошибка входных данных в конкретном поле; API отвечает validation с полем.
+// Unprocessable=false — значение некорректно само по себе (400);
+// true — корректно по форме, но ссылается не на то: чужой центр, архив, не сотрудник (422).
 type Error struct {
-	Field   string
-	Message string
+	Field         string
+	Message       string
+	Unprocessable bool
 }
 
 func (e *Error) Error() string { return e.Field + ": " + e.Message }
 
-// Errorf создаёт ошибку поля.
+// Errorf создаёт ошибку поля (400).
 func Errorf(field, format string, args ...any) *Error {
 	return &Error{Field: field, Message: fmt.Sprintf(format, args...)}
+}
+
+// Unprocessablef создаёт ошибку ссылки в поле (422).
+func Unprocessablef(field, format string, args ...any) *Error {
+	return &Error{Field: field, Message: fmt.Sprintf(format, args...), Unprocessable: true}
 }
 
 // Name обрезает пробелы и проверяет имя/название: не пустое, до MaxNameLen символов, корректный UTF-8.

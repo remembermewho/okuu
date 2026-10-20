@@ -1,17 +1,13 @@
 package httpapi
 
 import (
-	"errors"
-	"math"
 	"net"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 
 	"okuu/internal/auth"
 	"okuu/internal/httpx"
-	"okuu/internal/validate"
 )
 
 // meDTO — ответ GET /me, register и login.
@@ -54,7 +50,7 @@ func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 		UserAgent:  r.UserAgent(),
 	})
 	if err != nil {
-		h.authError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	h.auth.SetSessionCookie(w, sess)
@@ -74,7 +70,7 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 		IP:        clientIP(r),
 	})
 	if err != nil {
-		h.authError(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	h.auth.SetSessionCookie(w, sess)
@@ -106,29 +102,6 @@ func (h *handlers) writeMe(w http.ResponseWriter, r *http.Request, status int, u
 		dto.Centers = append(dto.Centers, meCenterDTO{ID: c.CenterID, Name: c.CenterName, Role: c.Role})
 	}
 	httpx.JSON(w, status, dto)
-}
-
-// authError переводит ошибки auth в ответы API.
-func (h *handlers) authError(w http.ResponseWriter, r *http.Request, err error) {
-	var verr *validate.Error
-	var tooMany *auth.TooManyAttemptsError
-	switch {
-	case errors.As(err, &verr):
-		httpx.Error(w, http.StatusBadRequest, "validation", verr.Message)
-	case errors.Is(err, auth.ErrPhoneTaken):
-		httpx.Error(w, http.StatusConflict, "phone_taken", "Этот телефон уже зарегистрирован")
-	case errors.Is(err, auth.ErrInvalidCredentials):
-		httpx.Error(w, http.StatusUnauthorized, "invalid_credentials", "Неверный телефон или пароль")
-	case errors.As(err, &tooMany):
-		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(tooMany.RetryAfter.Seconds()))))
-		httpx.Error(w, http.StatusTooManyRequests, "too_many_attempts", "Слишком много попыток входа. Попробуйте позже")
-	default:
-		h.internalError(w, r, err)
-	}
-}
-
-func badJSON(w http.ResponseWriter) {
-	httpx.Error(w, http.StatusBadRequest, "bad_request", "Некорректное тело запроса")
 }
 
 // clientIP — адрес клиента из соединения.

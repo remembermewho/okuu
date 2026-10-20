@@ -16,10 +16,11 @@ type ErrorBody struct {
 	Error ErrorDetail `json:"error"`
 }
 
-// ErrorDetail — код и сообщение ошибки.
+// ErrorDetail — код и сообщение ошибки; Field — поле запроса для ошибок validation.
 type ErrorDetail struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Field   string `json:"field,omitempty"`
 }
 
 // JSON пишет v как JSON с заданным статусом.

@@ -11,8 +11,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"okuu/internal/auth"
+	"okuu/internal/groups"
 	"okuu/internal/httpx"
 	"okuu/internal/staff"
+	"okuu/internal/tariffs"
 )
 
 // Pinger — то, что нужно /healthz от базы (реализует *pgxpool.Pool).
@@ -25,6 +27,8 @@ type Deps struct {
 	DB        Pinger
 	Auth      *auth.Service
 	Staff     *staff.Service
+	Tariffs   *tariffs.Service
+	Groups    *groups.Service
 	AppOrigin string // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger    *slog.Logger
 }
@@ -32,6 +36,8 @@ type Deps struct {
 type handlers struct {
 	auth      *auth.Service
 	staff     *staff.Service
+	tariffs   *tariffs.Service
+	groups    *groups.Service
 	appOrigin string
 	logger    *slog.Logger
 }
@@ -41,7 +47,10 @@ func NewRouter(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
-	h := &handlers{auth: d.Auth, staff: d.Staff, appOrigin: d.AppOrigin, logger: d.Logger}
+	h := &handlers{
+		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups,
+		appOrigin: d.AppOrigin, logger: d.Logger,
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -76,6 +85,8 @@ func NewRouter(d Deps) http.Handler {
 				ownerOrAdmin := d.Auth.RequireCenter(auth.RoleOwner, auth.RoleAdmin)
 				ownerOnly := d.Auth.RequireCenter(auth.RoleOwner)
 
+				anyStaff := d.Auth.RequireCenter(auth.RoleOwner, auth.RoleAdmin, auth.RoleTeacher)
+
 				r.With(ownerOrAdmin).Get("/staff", h.listStaff)
 				r.Group(func(r chi.Router) {
 					r.Use(ownerOnly)
@@ -84,6 +95,24 @@ func NewRouter(d Deps) http.Handler {
 					r.Delete("/staff/invites/{inviteId}", h.revokeInvite)
 					r.Patch("/staff/{userId}", h.changeStaffRole)
 					r.Delete("/staff/{userId}", h.removeStaff)
+				})
+
+				r.Group(func(r chi.Router) {
+					r.Use(ownerOrAdmin)
+					r.Get("/tariffs", h.listTariffs)
+					r.Post("/tariffs", h.createTariff)
+					r.Patch("/tariffs/{tariffId}", h.patchTariff)
+					r.Delete("/tariffs/{tariffId}", h.archiveTariff)
+				})
+
+				// Группы читают все сотрудники (преподаватель — только свои), меняют owner и admin.
+				r.With(anyStaff).Get("/groups", h.listGroups)
+				r.With(anyStaff).Get("/groups/{groupId}", h.getGroup)
+				r.Group(func(r chi.Router) {
+					r.Use(ownerOrAdmin)
+					r.Post("/groups", h.createGroup)
+					r.Patch("/groups/{groupId}", h.patchGroup)
+					r.Delete("/groups/{groupId}", h.archiveGroup)
 				})
 			})
 		})
