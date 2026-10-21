@@ -1,5 +1,5 @@
 import * as Menu from '@radix-ui/react-dropdown-menu'
-import { Bell, ChevronLeft, MoreVertical, Plus, Send, Wallet } from 'lucide-react'
+import { Bell, ChevronLeft, MoreVertical, Pencil, Plus, Send, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import type { Schemas } from '@/api/client'
@@ -10,12 +10,13 @@ import { MonthSwitcher, StudentStatusBadge, TgBadge } from '@/components/shared'
 import { Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, ErrorState, Input, MoneyText, PageHeader, Skeleton, SkeletonList, layout, useToast } from '@/components/ui'
 import { useLedger, useReminders } from '@/features/money/api'
 import { ru } from '@/i18n/ru'
-import { formatDate, formatDateTime, formatDayMonth, formatMonth } from '@/utils/date'
+import { addDays, formatDate, formatDateTime, formatDayMonth, formatMonth } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { formatSom } from '@/utils/money'
 import { formatPhone } from '@/utils/phone'
 import { useEndEnrollment, useParentInvite, usePatchStudent, useRenewEnrollment, useStudent, useStudentAttendance, type Enrollment, type Student } from '../api'
 import { CancelOperationDialog, EnrollDialog, InviteParentDialog } from './dialogs'
+import { EditStudentDialog } from './EditStudentDialog'
 import { OperationDialog, type OperationKind } from './OperationDialog'
 import s from './StudentPage.module.css'
 
@@ -88,11 +89,16 @@ function StudentMenu({ student, onOperation }: { student: Student; onOperation: 
   const patch = usePatchStudent(c.id, student.id)
   const toast = useToast()
   const [confirmLeft, setConfirmLeft] = useState(false)
+  const [editing, setEditing] = useState(false)
   const setStatus = (status: Schemas['StudentStatus']) =>
-    patch.mutate({ status }, { onSuccess: () => (setConfirmLeft(false), toast({ message: ru.student.statusChanged, tone: 'success' })) })
+    patch.mutate({ status }, { onSuccess: () => toast({ message: ru.student.statusChanged, tone: 'success' }) })
 
   return (
     <>
+      <Button variant="secondary" icon={<Pencil size={18} aria-hidden="true" />} onClick={() => setEditing(true)}>
+        {ru.studentEdit.action}
+      </Button>
+      {editing && <EditStudentDialog student={student} onClose={() => setEditing(false)} />}
       <Menu.Root>
         <Menu.Trigger asChild>
           <Button variant="secondary" icon={<MoreVertical size={18} aria-hidden="true" />}>
@@ -126,17 +132,64 @@ function StudentMenu({ student, onOperation }: { student: Student; onOperation: 
           </Menu.Content>
         </Menu.Portal>
       </Menu.Root>
-      <ConfirmDialog
-        open={confirmLeft}
-        onOpenChange={setConfirmLeft}
-        title={ru.student.leftConfirm}
-        text={ru.student.leftText}
-        confirmLabel={ru.student.statusLeft}
-        danger
-        loading={patch.isPending}
-        onConfirm={() => setStatus('left')}
-      />
+      {confirmLeft && <LeftDialog student={student} onClose={() => setConfirmLeft(false)} />}
     </>
+  )
+}
+
+/**
+ * «Ученик ушёл» с последним днём занятий: по умолчанию сегодня; не раньше начала самой поздней активной
+ * записи и не позже сегодня + 30 (так же проверяет сервер).
+ */
+export function LeftDialog({ student, onClose }: { student: Student; onClose: () => void }) {
+  const c = useCenter()
+  const patch = usePatchStudent(c.id, student.id)
+  const toast = useToast()
+  const min = student.enrollments.filter((e) => e.active).reduce<string | undefined>((m, e) => (!m || e.start_date > m ? e.start_date : m), undefined)
+  const max = addDays(c.today, 30)
+  const [date, setDate] = useState(min && min > c.today ? min : c.today)
+  const [error, setError] = useState<string>()
+
+  const confirm = () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (min && date < min) || date > max) {
+      setError(ru.student.leftDateRange(formatDate(min ?? c.today), formatDate(max)))
+      return
+    }
+    setError(undefined)
+    patch.mutate(
+      { status: 'left', left_date: date },
+      {
+        onSuccess: () => {
+          toast({ message: ru.student.statusChanged, tone: 'success' })
+          onClose()
+        },
+        onError: (err) => setError(errorMessage(err)),
+      },
+    )
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={ru.student.leftConfirm}
+      text={ru.student.leftText}
+      confirmLabel={ru.student.statusLeft}
+      danger
+      loading={patch.isPending}
+      onConfirm={confirm}
+    >
+      <Input
+        label={ru.student.leftDate}
+        type="date"
+        value={date}
+        min={min}
+        max={max}
+        hint={min ? ru.student.leftDateHint(formatDate(min), formatDate(max)) : undefined}
+        error={error}
+        onChange={(e) => setDate(e.target.value)}
+      />
+    </ConfirmDialog>
   )
 }
 

@@ -34,9 +34,10 @@ type operationDTO struct {
 }
 
 type debtorParentDTO struct {
-	Name     *string `json:"name"`
-	Phone    *string `json:"phone"`
-	TgStatus *string `json:"tg_status"`
+	Name           *string    `json:"name"`
+	Phone          *string    `json:"phone"`
+	TgStatus       *string    `json:"tg_status"`
+	LastReminderAt *time.Time `json:"last_reminder_at"`
 }
 
 type debtorDTO struct {
@@ -48,6 +49,8 @@ type debtorDTO struct {
 	Debt          int64            `json:"debt"` // тыйыны, > 0
 	DaysOverdue   int              `json:"days_overdue"`
 	OldestDueDate civil.Date       `json:"oldest_due_date"`
+	DueInDays     int              `json:"due_in_days"`    // ожидают оплаты: дней до срока; у просроченных 0
+	RemindedToday bool             `json:"reminded_today"` // родителю сегодня (в поясе центра) уже напоминали
 }
 
 type summaryDTO struct {
@@ -160,7 +163,7 @@ func (h *handlers) listDebtors(w http.ResponseWriter, r *http.Request) {
 		groupID = &id
 	}
 	m, _ := auth.MembershipFrom(r.Context())
-	list, sum, err := h.billing.Debtors(r.Context(), m.CenterID, groupID)
+	list, sum, err := h.billing.Debtors(r.Context(), m.CenterID, groupID, r.URL.Query().Get("status"))
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -173,10 +176,11 @@ func (h *handlers) listDebtors(w http.ResponseWriter, r *http.Request) {
 		}
 		dto := debtorDTO{
 			StudentID: d.StudentID, FullName: d.FullName, Status: d.Status, Groups: groups,
-			Debt: d.Debt, DaysOverdue: d.DaysOverdue, OldestDueDate: d.OldestDueDate,
+			Debt: d.Debt, DaysOverdue: d.DaysOverdue, OldestDueDate: d.OldestDueDate, DueInDays: d.DueInDays,
+			RemindedToday: d.RemindedToday,
 		}
 		if d.ParentName != nil {
-			dto.Parent = &debtorParentDTO{Name: d.ParentName, Phone: d.ParentPhone, TgStatus: d.ParentTgStatus}
+			dto.Parent = &debtorParentDTO{Name: d.ParentName, Phone: d.ParentPhone, TgStatus: d.ParentTgStatus, LastReminderAt: d.ParentLastReminder}
 		}
 		items = append(items, dto)
 	}

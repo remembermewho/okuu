@@ -362,6 +362,7 @@ func (q *Queries) ListCentersForBilling(ctx context.Context) ([]ListCentersForBi
 const listDebtCandidates = `-- name: ListDebtCandidates :many
 SELECT s.id, s.full_name, s.status,
        p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
+       p.last_reminder_at AS parent_last_reminder_at,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)
                  FROM enrollments e JOIN groups g ON g.id = e.group_id
                  WHERE e.student_id = s.id AND e.end_date IS NULL), '[]'::jsonb)::jsonb AS groups,
@@ -383,14 +384,15 @@ type ListDebtCandidatesParams struct {
 }
 
 type ListDebtCandidatesRow struct {
-	ID             uuid.UUID `json:"id"`
-	FullName       string    `json:"full_name"`
-	Status         string    `json:"status"`
-	ParentName     *string   `json:"parent_name"`
-	ParentPhone    *string   `json:"parent_phone"`
-	ParentTgStatus *string   `json:"parent_tg_status"`
-	Groups         []byte    `json:"groups"`
-	Balance        int64     `json:"balance"`
+	ID                   uuid.UUID  `json:"id"`
+	FullName             string     `json:"full_name"`
+	Status               string     `json:"status"`
+	ParentName           *string    `json:"parent_name"`
+	ParentPhone          *string    `json:"parent_phone"`
+	ParentTgStatus       *string    `json:"parent_tg_status"`
+	ParentLastReminderAt *time.Time `json:"parent_last_reminder_at"`
+	Groups               []byte     `json:"groups"`
+	Balance              int64      `json:"balance"`
 }
 
 // Ученики с отрицательным балансом — кандидаты в должники (R14 решает код по срокам).
@@ -411,6 +413,7 @@ func (q *Queries) ListDebtCandidates(ctx context.Context, arg ListDebtCandidates
 			&i.ParentName,
 			&i.ParentPhone,
 			&i.ParentTgStatus,
+			&i.ParentLastReminderAt,
 			&i.Groups,
 			&i.Balance,
 		); err != nil {

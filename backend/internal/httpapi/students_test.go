@@ -254,6 +254,49 @@ func TestStudentCreateAndParentReuse(t *testing.T) {
 	}
 }
 
+// Фиксированная скидка при PATCH — не больше цены любого АКТИВНОГО тарифа ученика (422, поле discount).
+// Процент 0–100 — всегда можно; завершённая запись не мешает.
+func TestStudentPatchFixedDiscountLimit(t *testing.T) {
+	c := newCatalog(t, "+996702150001") // месяц 3 000 с, абонемент 4 000 с
+	s := c.student(t, "Ученик", "0700 215 001", nil)
+	path := centerPath(c.center, "/students/"+s.ID.String())
+	// Без записей ограничение только общее.
+	if rec := c.owner.do(http.MethodPatch, path, map[string]any{"discount": discountJSON{"fixed", 350_000}}); rec.Code != http.StatusOK {
+		t.Fatalf("без записей: %d %s", rec.Code, rec.Body)
+	}
+	c.enroll(t, s.ID, map[string]any{"group_id": c.group.ID, "start_date": c.today.String(), "first_month": "none"}) // месяц 3 000
+	pkgGroup := createGroup(t, c.owner, c.center, map[string]any{"name": "Абонементная"})
+	c.enroll(t, s.ID, map[string]any{"group_id": pkgGroup.ID, "tariff_id": c.pkg.ID, "start_date": c.today.String()}) // 4 000
+
+	rec := c.owner.do(http.MethodPatch, path, map[string]any{"discount": discountJSON{"fixed", 300_001}})
+	assertField(t, rec, http.StatusUnprocessableEntity, "discount")
+	if !strings.Contains(rec.Body.String(), "Месяц") {
+		t.Errorf("в сообщении нет тарифа: %s", rec.Body)
+	}
+	if got := c.card(t, s.ID).Discount; got == nil || got.Value != 350_000 {
+		t.Errorf("скидка изменилась после 422: %+v", got)
+	}
+	for _, d := range []discountJSON{{"fixed", 300_000}, {"fixed", 0}, {"percent", 0}, {"percent", 100}} {
+		if rec := c.owner.do(http.MethodPatch, path, map[string]any{"discount": d}); rec.Code != http.StatusOK {
+			t.Errorf("скидка %+v: %d %s", d, rec.Code, rec.Body)
+		}
+	}
+	assertField(t, c.owner.do(http.MethodPatch, path, map[string]any{"discount": discountJSON{"percent", 101}}), http.StatusBadRequest, "discount")
+
+	// Месячную запись завершили — остаётся абонемент 4 000: 3 500 можно.
+	card := c.card(t, s.ID)
+	for _, e := range card.Enrollments {
+		if e.Tariff.Kind == "monthly" {
+			if rec := c.owner.do(http.MethodPost, path+"/enrollments/"+e.ID.String()+"/end", nil); rec.Code != http.StatusOK {
+				t.Fatalf("end: %d %s", rec.Code, rec.Body)
+			}
+		}
+	}
+	if rec := c.owner.do(http.MethodPatch, path, map[string]any{"discount": discountJSON{"fixed", 350_000}}); rec.Code != http.StatusOK {
+		t.Errorf("после завершения месячной записи: %d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestStudentPatchAndParent(t *testing.T) {
 	c := newCatalog(t, "+996702100001")
 	a := c.student(t, "Брат", "0700 222 001", nil)
@@ -672,6 +715,79 @@ func TestStatusLeftClosesEnrollments(t *testing.T) {
 	if len(ended) != 3 || ended[1].After["reason"] != "student.left" || ended[2].After["reason"] != "student.left" {
 		t.Errorf("enrollment.end = %+v", ended)
 	}
+}
+
+// Уход с датой: записи закрываются последним днём занятий, left_at — начало этого дня в поясе центра.
+// На занятии в день left_date ученик есть, на следующий — нет. Список: hide_left=true скрывает ушедших.
+func TestStudentLeftWithDate(t *testing.T) {
+	c := newCatalog(t, "+996702160001")
+	s := c.student(t, "Уходящий У", "0700 216 001", nil)
+	stay := c.student(t, "Остающийся О", "0700 216 002", nil)
+	path := centerPath(c.center, "/students/"+s.ID.String())
+	for _, id := range []uuid.UUID{s.ID, stay.ID} {
+		c.enroll(t, id, map[string]any{"group_id": c.group.ID, "start_date": c.today.String(), "first_month": "none"})
+	}
+	leftDate := c.today.AddDays(2)
+
+	assertField(t, c.owner.do(http.MethodPatch, path, map[string]any{"left_date": leftDate.String()}), http.StatusBadRequest, "left_date")
+	assertField(t, c.owner.do(http.MethodPatch, path, map[string]any{"status": "left", "left_date": c.today.AddDays(-1).String()}), http.StatusBadRequest, "left_date")
+	assertField(t, c.owner.do(http.MethodPatch, path, map[string]any{"status": "left", "left_date": c.today.AddDays(31).String()}), http.StatusBadRequest, "left_date")
+	if got := c.card(t, s.ID); got.Status != "active" || !got.Enrollments[0].Active {
+		t.Fatalf("после ошибок ученик изменился: %+v", got)
+	}
+
+	rec := c.owner.do(http.MethodPatch, path, map[string]any{"status": "left", "left_date": leftDate.String()})
+	card := decode[studentResp](t, rec)
+	if rec.Code != http.StatusOK || card.Status != "left" || card.Enrollments[0].EndDate == nil || *card.Enrollments[0].EndDate != leftDate {
+		t.Fatalf("left: %d %+v", rec.Code, card)
+	}
+	var leftAt time.Time
+	if err := c.api.pool.QueryRow(context.Background(), `SELECT left_at FROM students WHERE id = $1`, s.ID).Scan(&leftAt); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(leftDate.Year(), leftDate.Month(), leftDate.Day(), 0, 0, 0, 0, bishkek)
+	if !leftAt.Equal(want) {
+		t.Errorf("left_at = %v, want %v", leftAt, want)
+	}
+	// Повторно дату ухода не поставить: ученик уже ушёл.
+	assertField(t, c.owner.do(http.MethodPatch, path, map[string]any{"status": "left", "left_date": c.today.String()}), http.StatusBadRequest, "left_date")
+
+	studentsOn := func(date civil.Date) []string {
+		t.Helper()
+		l := createLesson(t, c, map[string]any{"group_id": c.group.ID, "date": date.String(), "start_time": "09:00"})
+		got := decode[lessonResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/lessons/"+l.ID.String()+"/attendance"), nil))
+		var names []string
+		for _, st := range got.Students {
+			names = append(names, st.FullName)
+		}
+		return names
+	}
+	if got := strings.Join(studentsOn(leftDate), ","); got != "Остающийся О,Уходящий У" {
+		t.Errorf("занятие в последний день: %s", got)
+	}
+	if got := strings.Join(studentsOn(leftDate.AddDays(1)), ","); got != "Остающийся О" {
+		t.Errorf("занятие на следующий день: %s", got)
+	}
+
+	// Список: по умолчанию все; hide_left — без ушедших; status=left — только ушедшие (hide_left не мешает).
+	names := func(q string) string {
+		t.Helper()
+		var out []string
+		for _, it := range decode[studentListResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/students"+q), nil)).Items {
+			out = append(out, it.FullName)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := names(""); got != "Остающийся О,Уходящий У" {
+		t.Errorf("все: %s", got)
+	}
+	if got := names("?hide_left=true"); got != "Остающийся О" {
+		t.Errorf("hide_left: %s", got)
+	}
+	if got := names("?hide_left=true&status=left"); got != "Уходящий У" {
+		t.Errorf("status=left: %s", got)
+	}
+	assertField(t, c.owner.do(http.MethodGet, centerPath(c.center, "/students?hide_left=yes"), nil), http.StatusBadRequest, "hide_left")
 }
 
 func TestStudentListFiltersBalanceAndPaging(t *testing.T) {

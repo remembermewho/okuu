@@ -3,7 +3,9 @@ import { AuditPage } from '@/features/admin/AuditPage'
 import { ImportPage } from '@/features/admin/ImportPage'
 import { ReportPage } from '@/features/admin/ReportPage'
 import { SettingsPage } from '@/features/admin/SettingsPage'
+import { AccountPage } from '@/features/auth/AccountPage'
 import { LoginPage } from '@/features/auth/LoginPage'
+import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { RegisterPage } from '@/features/auth/RegisterPage'
 import { GroupPage } from '@/features/groups/GroupPage'
 import { GroupsPage } from '@/features/groups/GroupsPage'
@@ -31,11 +33,13 @@ export const routes: RouteObject[] = [
   { path: '/register', element: <RegisterPage /> },
   { path: '/invite/:token', element: <InvitePage /> },
   { path: '/pay/:token', element: <PayPage /> },
+  { path: '/reset/:token', element: <ResetPasswordPage /> },
   {
     element: <RequireAuth />,
     children: [
       { path: '/', element: <HomeRedirect /> },
       { path: '/centers', element: <CenterPicker /> },
+      { path: '/account', element: <AccountPage /> },
       {
         path: '/c/:centerId',
         element: (

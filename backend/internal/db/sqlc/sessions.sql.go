@@ -69,6 +69,39 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 	return err
 }
 
+const deleteUserSessions = `-- name: DeleteUserSessions :execrows
+DELETE FROM sessions
+WHERE user_id = $1
+`
+
+// «Выйти на всех устройствах», сброс пароля: все сессии пользователя.
+func (q *Queries) DeleteUserSessions(ctx context.Context, userID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserSessions, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserSessionsExcept = `-- name: DeleteUserSessionsExcept :execrows
+DELETE FROM sessions
+WHERE user_id = $1 AND token_hash <> $2
+`
+
+type DeleteUserSessionsExceptParams struct {
+	UserID        uuid.UUID `json:"user_id"`
+	KeepTokenHash []byte    `json:"keep_token_hash"`
+}
+
+// Смена пароля: все сессии пользователя, кроме текущей.
+func (q *Queries) DeleteUserSessionsExcept(ctx context.Context, arg DeleteUserSessionsExceptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserSessionsExcept, arg.UserID, arg.KeepTokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
 SELECT token_hash, user_id, created_at, expires_at, last_seen_at, user_agent FROM sessions
 WHERE token_hash = $1 AND expires_at > now()

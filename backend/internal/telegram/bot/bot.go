@@ -1,5 +1,6 @@
 // Package bot — Telegram-бот для родителей: привязка по приглашению (согласие → свой номер
-// телефона), команды /balance, /lang, /stop, /help. Один бот на все центры: чат может быть
+// телефона), команды /balance, /pay, /attendance, /stop, /help (и /lang, если BOT_LANGUAGES включает
+// кыргызский), постоянная клавиатура-меню. Один бот на все центры: чат может быть
 // привязан к родителям в нескольких центрах, и в каждом сообщении — название центра.
 //
 // Апдейты (из вебхука или long polling) идут в очередь и обрабатываются воркерами; апдейты
@@ -18,6 +19,7 @@ import (
 
 	"okuu/internal/alerts"
 	"okuu/internal/db/sqlc"
+	"okuu/internal/notify"
 	"okuu/internal/payments"
 	"okuu/internal/telegram"
 )
@@ -40,6 +42,7 @@ type Options struct {
 	Logger    *slog.Logger
 	Payments  *payments.Service // кнопка «Оплатить»; nil — «оплата недоступна»
 	Alerts    *alerts.Alerter   // panic при обработке — алерт команде
+	Langs     notify.Langs      // BOT_LANGUAGES; по умолчанию — только русский, без /lang
 	Workers   int               // по умолчанию 4
 	QueueSize int               // на воркер; по умолчанию 256
 }
@@ -53,12 +56,13 @@ type Bot struct {
 	logger   *slog.Logger
 	payments *payments.Service
 	alerts   *alerts.Alerter
+	langs    notify.Langs
 	queues   []chan telegram.Update
 }
 
 // New создаёт бота; воркеры запускает Run.
 func New(o Options) *Bot {
-	b := &Bot{pool: o.Pool, q: sqlc.New(o.Pool), tg: o.Sender, now: o.Now, logger: o.Logger, payments: o.Payments, alerts: o.Alerts}
+	b := &Bot{pool: o.Pool, q: sqlc.New(o.Pool), tg: o.Sender, now: o.Now, logger: o.Logger, payments: o.Payments, alerts: o.Alerts, langs: o.Langs}
 	if b.now == nil {
 		b.now = time.Now
 	}

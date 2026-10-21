@@ -1,6 +1,6 @@
 import * as Menu from '@radix-ui/react-dropdown-menu'
-import { ArrowLeftRight, CircleUserRound, LogOut, MoreHorizontal, Wallet } from 'lucide-react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { ArrowLeftRight, CircleUserRound, LogOut, MoreHorizontal, UserRound, Wallet } from 'lucide-react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { Button } from '@/components/ui'
 import { useLogout, useMe } from '@/features/auth/api'
 import { ru } from '@/i18n/ru'
@@ -21,6 +21,7 @@ function AccountMenu() {
   const c = useCenter()
   const me = useMe()
   const navigate = useNavigate()
+  const location = useLocation()
   const signOut = useSignOut()
   return (
     <Menu.Root>
@@ -36,6 +37,10 @@ function AccountMenu() {
             {' · '}
             {ru.roles[c.role]}
           </Menu.Label>
+          <Menu.Item className={s.menuItem} onSelect={() => navigate('/account', { state: { from: location.pathname } })}>
+            <UserRound size={18} aria-hidden="true" />
+            {ru.account.menu}
+          </Menu.Item>
           {c.centersCount > 1 && (
             <Menu.Item className={s.menuItem} onSelect={() => navigate('/centers')}>
               <ArrowLeftRight size={18} aria-hidden="true" />

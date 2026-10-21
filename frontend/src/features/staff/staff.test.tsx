@@ -33,7 +33,7 @@ describe('сотрудники', () => {
     renderRoute('/c/c1/staff')
     expect(await screen.findByText('Нурлан')).toBeInTheDocument()
     expect(screen.getByText('(вы)')).toBeInTheDocument()
-    expect(await screen.findByText('Действующих приглашений нет')).toBeInTheDocument()
+    expect(await screen.findByText('Все приглашения приняты — ожидающих нет')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Пригласить' }))
     const dialog = await screen.findByRole('dialog', { name: 'Пригласить сотрудника' })
     await userEvent.type(within(dialog).getByLabelText(/Кого приглашаете/), 'Нурлан')
@@ -42,6 +42,58 @@ describe('сотрудники', () => {
     expect(within(link).getByLabelText('Ссылка')).toHaveValue(created.url)
     expect(within(link).getByRole('link', { name: 'Отправить в WhatsApp' }).getAttribute('href')).toContain(encodeURIComponent(created.url))
     expect(await bodyOf(calls.find((r) => r.method === 'POST')!)).toEqual({ role: 'teacher', name: 'Нурлан' })
+  })
+
+  it('«Ожидают принятия»: имя, роль, срок; «Новая ссылка» показывает новую ссылку, «Отозвать» — с подтверждением', async () => {
+    const pending = { id: 'i1', role: 'teacher', name: 'Нурлан', expires_at: '2026-10-27T10:00:00Z', created_at: '2026-10-20T10:00:00Z' }
+    const { calls } = mockApi({
+      'GET /api/v1/me': { body: meOwner },
+      [`GET ${C}/staff`]: { body: staff },
+      [`GET ${C}/staff/invites`]: { body: list([pending, { ...pending, id: 'i2', name: null, role: 'admin' }]) },
+      [`POST ${C}/staff/invites/i1/reissue`]: { status: 201, body: { ...created, id: 'i3', url: 'http://localhost:5173/invite/new-token' } },
+      [`DELETE ${C}/staff/invites/i2`]: { status: 204 },
+    })
+    renderRoute('/c/c1/staff')
+    expect(await screen.findByRole('heading', { name: 'Ожидают принятия' })).toBeInTheDocument()
+    expect(await screen.findByText('Нурлан · преподаватель')).toBeInTheDocument()
+    expect(screen.getByText('Без имени · администратор')).toBeInTheDocument()
+    expect(screen.getAllByText(/^до 27\.10\.2026/)).toHaveLength(2)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Новая ссылка: Нурлан · преподаватель' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Ссылка-приглашение' })
+    expect(within(dialog).getByText(/Старая ссылка больше не работает/)).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Ссылка')).toHaveValue('http://localhost:5173/invite/new-token')
+    expect(within(dialog).getByRole('link', { name: 'Отправить в WhatsApp' }).getAttribute('href')).toContain(encodeURIComponent('new-token'))
+    await userEvent.click(within(dialog).getAllByRole('button', { name: 'Закрыть' })[0]!)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Отозвать: Без имени · администратор' }))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отозвать' }))
+    await waitFor(() => expect(calls.some((r) => r.method === 'DELETE' && r.url.endsWith('/staff/invites/i2'))).toBe(true))
+  })
+
+  it('«Сбросить пароль» — ссылка с «Скопировать» и WhatsApp; reset_not_allowed — понятный тост', async () => {
+    let attempt = 0
+    mockApi({
+      'GET /api/v1/me': { body: meOwner },
+      [`GET ${C}/staff`]: { body: staff },
+      [`GET ${C}/staff/invites`]: { body: list([]) },
+      [`POST ${C}/staff/u3/password-reset`]: () =>
+        ++attempt === 1
+          ? { status: 201, body: { url: 'http://localhost:5173/reset/rtok', name: 'Нурлан', expires_at: '2026-10-22T10:00:00Z' } }
+          : apiError(409, 'reset_not_allowed', 'no'),
+    })
+    renderRoute('/c/c1/staff')
+    await userEvent.click(await screen.findByRole('button', { name: 'Действия: Нурлан' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Сбросить пароль' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Ссылка для смены пароля' })
+    expect(within(dialog).getByLabelText('Ссылка')).toHaveValue('http://localhost:5173/reset/rtok')
+    expect(within(dialog).getByRole('button', { name: 'Скопировать ссылку' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('link', { name: 'Отправить в WhatsApp' }).getAttribute('href')).toContain(encodeURIComponent('/reset/rtok'))
+    await userEvent.click(within(dialog).getAllByRole('button', { name: 'Закрыть' })[0]!)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Действия: Нурлан' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Сбросить пароль' }))
+    expect(await screen.findByText(/Обратитесь в поддержку/)).toBeInTheDocument()
   })
 
   it('смена роли и удаление (teacher_has_groups — тост)', async () => {

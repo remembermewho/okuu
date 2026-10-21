@@ -30,6 +30,9 @@ var knownErrors = []struct {
 }{
 	{auth.ErrPhoneTaken, http.StatusConflict, "phone_taken", "Этот телефон уже зарегистрирован"},
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials", "Неверный телефон или пароль"},
+	{auth.ErrNotMember, http.StatusNotFound, "not_found", "Не найдено"},
+	{auth.ErrResetNotAllowed, http.StatusConflict, "reset_not_allowed", "Этому сотруднику пароль сбросить нельзя: он работает и в другом центре или он владелец. Обратитесь в поддержку"},
+	{auth.ErrResetInvalid, http.StatusNotFound, "reset_invalid", "Ссылка для смены пароля недействительна или устарела"},
 
 	{staff.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{staff.ErrInviteInvalid, http.StatusNotFound, "invite_invalid", "Приглашение недействительно или уже использовано"},
@@ -94,7 +97,7 @@ func (h *handlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var tooMany *auth.TooManyAttemptsError
 	if errors.As(err, &tooMany) {
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(tooMany.RetryAfter.Seconds()))))
-		httpx.Error(w, http.StatusTooManyRequests, "too_many_attempts", "Слишком много попыток входа. Попробуйте позже")
+		httpx.Error(w, http.StatusTooManyRequests, "too_many_attempts", "Слишком много неудачных попыток. Попробуйте позже")
 		return
 	}
 	for _, k := range knownErrors {

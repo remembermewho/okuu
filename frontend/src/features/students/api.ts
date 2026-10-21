@@ -8,7 +8,7 @@ export type Enrollment = Schemas['Enrollment']
 export type StudentStatus = Schemas['StudentStatus']
 export type TgStatus = Schemas['TgStatus']
 
-export type StudentFilter = { q?: string; group?: string; status?: StudentStatus; tg?: TgStatus }
+export type StudentFilter = { q?: string; group?: string; status?: StudentStatus; tg?: TgStatus; hide_left?: boolean }
 
 const PAGE = 30
 

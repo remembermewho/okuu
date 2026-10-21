@@ -46,7 +46,7 @@ WHERE id = @id;
 SELECT EXISTS (
   SELECT 1 FROM notifications
   WHERE parent_id = @parent_id AND status = 'sent' AND sent_at >= @since
-    AND kind IN ('due_soon', 'due_today', 'overdue_3', 'overdue_7', 'manual')
+    AND kind IN ('due_soon', 'due_today', 'overdue_3', 'overdue_7', 'overdue_weekly', 'manual')
 );
 
 -- name: RecentManualStudents :many
@@ -66,7 +66,7 @@ SELECT pg_advisory_xact_lock(@key::bigint);
 UPDATE parents SET last_reminder_at = @reminded_at WHERE id = @id;
 
 -- name: ListCentersForReminders :many
-SELECT id, name, timezone, pay_details, (finik_creds IS NOT NULL)::bool AS finik_connected
+SELECT id, name, timezone, pay_details, (finik_creds IS NOT NULL)::bool AS finik_connected, overdue_repeat
 FROM centers
 WHERE reminders_on
 ORDER BY id;

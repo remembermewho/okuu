@@ -21,3 +21,10 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+.inviteActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

@@ -8,5 +8,5 @@ UPDATE centers
 SET name = @name, phone = @phone, timezone = @timezone, billing_day = @billing_day,
     billing_day_next = @billing_day_next, billing_day_next_from = @billing_day_next_from,
     due_days = @due_days, excused_deducts = @excused_deducts, reminders_on = @reminders_on,
-    pay_details = @pay_details, notify_absent = @notify_absent
+    pay_details = @pay_details, notify_absent = @notify_absent, overdue_repeat = @overdue_repeat
 WHERE id = @id;

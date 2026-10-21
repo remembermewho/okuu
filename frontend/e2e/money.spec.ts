@@ -87,4 +87,28 @@ test('ученик с долгом: оплата убирает из должн�
 
   await nav.getByRole('link', { name: 'Должники' }).click()
   await expect(page.getByText('Асанов Бекзат')).toBeVisible()
+  // Вкладки: «Просрочено 1», в «Ожидают оплаты» никого.
+  await expect(page.getByRole('tab', { name: /Просрочено/ })).toContainText('1')
+  await page.getByRole('tab', { name: /Ожидают оплаты/ }).click()
+  await expect(page.getByText('Никто не ждёт оплаты')).toBeVisible()
+
+  // Ученик ушёл (последний день — сегодня): из списка учеников скрыт, в должниках — с пометкой «Ушёл».
+  await page.goto(cardUrl)
+  await page.getByRole('button', { name: 'Ещё действия' }).click()
+  await page.getByRole('menuitem', { name: 'Ученик ушёл' }).click()
+  dialog = page.getByRole('dialog', { name: 'Отметить, что ученик ушёл?' })
+  await expect(dialog.getByLabel('Последний день занятий')).toHaveValue(today)
+  await dialog.getByRole('button', { name: 'Ученик ушёл' }).click()
+  await expect(page.getByText('Статус изменён')).toBeVisible()
+
+  await nav.getByRole('link', { name: 'Ученики' }).click()
+  await expect(page.getByText('Асанов Бекзат')).toHaveCount(0)
+  // Флажок управляется адресом (?show_left=1) — отмечается после перехода, поэтому click, а не check.
+  await page.getByLabel('Показать ушедших').click()
+  await expect(page.getByLabel('Показать ушедших')).toBeChecked()
+  await expect(page.getByText('Асанов Бекзат')).toBeVisible()
+
+  await nav.getByRole('link', { name: 'Должники' }).click()
+  const row = page.getByRole('listitem').filter({ hasText: 'Асанов Бекзат' })
+  await expect(row.getByText('Ушёл')).toBeVisible()
 })

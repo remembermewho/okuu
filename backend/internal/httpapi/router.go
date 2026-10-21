@@ -135,6 +135,10 @@ func NewRouter(d Deps) http.Handler {
 		r.Post("/auth/login", h.login)
 		r.Post("/auth/logout", h.logout)
 
+		// Публичные: сброс пароля по одноразовой ссылке (выдаёт владелец центра или поддержка).
+		r.Get("/password-reset/{token}", h.getPasswordReset)
+		r.Post("/password-reset/{token}", h.completePasswordReset)
+
 		// Публичные: страница приглашения и его принятие (вход необязателен).
 		r.Get("/invites/{token}", h.getInvite)
 		r.Post("/invites/{token}/accept", h.acceptInvite)
@@ -148,6 +152,9 @@ func NewRouter(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(d.Auth.RequireAuth)
 			r.Get("/me", h.me)
+			r.Patch("/me", h.patchMe)
+			r.Post("/me/password", h.changePassword)
+			r.Post("/auth/logout-all", h.logoutAll)
 
 			// Данные центра: членство и роль проверяет RequireCenter, center_id берётся из него.
 			r.Route("/c/{centerId}", func(r chi.Router) {
@@ -174,8 +181,10 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/staff/invites", h.createInvite)
 					r.Get("/staff/invites", h.listInvites)
 					r.Delete("/staff/invites/{inviteId}", h.revokeInvite)
+					r.Post("/staff/invites/{inviteId}/reissue", h.reissueInvite)
 					r.Patch("/staff/{userId}", h.changeStaffRole)
 					r.Delete("/staff/{userId}", h.removeStaff)
+					r.Post("/staff/{userId}/password-reset", h.issuePasswordReset)
 				})
 
 				r.Group(func(r chi.Router) {

@@ -88,6 +88,10 @@ a.row:hover {
   }
 }
 
+.toggleRow {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+}
+
 .loadMore {
   display: flex;
   justify-content: center;
@@ -106,4 +110,10 @@ a.row:hover {
   justify-content: space-between;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }

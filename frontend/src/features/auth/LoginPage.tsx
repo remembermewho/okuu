@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
-import { Button, FormError, Input } from '@/components/ui'
+import { Button, FormError, Input, PasswordInput } from '@/components/ui'
 import { ru } from '@/i18n/ru'
 import { applyFieldError, errorMessage } from '@/utils/errors'
 import { useLogin, useMe } from './api'
@@ -52,7 +52,7 @@ export function LoginPage() {
     >
       <form className={s.form} onSubmit={onSubmit} noValidate>
         <Input label={ru.auth.phone} hint={ru.auth.phoneHint} type="tel" autoComplete="tel" inputMode="tel" error={errors.phone?.message} {...register('phone')} />
-        <Input label={ru.auth.password} type="password" autoComplete="current-password" error={errors.password?.message} {...register('password')} />
+        <PasswordInput label={ru.auth.password} autoComplete="current-password" error={errors.password?.message} {...register('password')} />
         <FormError>{formError}</FormError>
         <Button type="submit" size="lg" block loading={login.isPending}>
           {ru.auth.submitLogin}

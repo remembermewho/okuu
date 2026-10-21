@@ -85,6 +85,88 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Изменить своё имя
+         * @description **Любой вошедший.** Только имя: телефон — логин, через API не меняется. Ответ — как `/me`.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        patch: operations["patchMe"];
+        trace?: never;
+    };
+    "/api/v1/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Сменить пароль
+         * @description **Любой вошедший.** Проверяет текущий пароль (неверный — `400 validation`, поле `current_password`),
+         *     новый — по правилам регистрации (поле `new_password`). Лимит неудачных попыток — как у входа
+         *     (`429 too_many_attempts` с `Retry-After`). При успехе удаляются все другие сессии пользователя,
+         *     текущая остаётся.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Выйти на всех устройствах
+         * @description **Любой вошедший.** Удаляет все сессии пользователя, включая текущую, и cookie.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["logoutAll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/password-reset/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Токен из ссылки (43 символа base64url) */
+                token: components["parameters"]["Token"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Страница сброса пароля
+         * @description **Без входа.** Токен — из ссылки `APP_ORIGIN/reset/<токен>` (выдаёт владелец центра или поддержка,
+         *     действует 24 часа). Неизвестная, просроченная, отозванная и использованная ссылка — одинаково
+         *     `404 reset_invalid`.
+         */
+        get: operations["getPasswordReset"];
+        put?: never;
+        /**
+         * Задать новый пароль по ссылке
+         * @description **Без входа.** Новый пароль — по правилам регистрации (поле `new_password`; при ошибке ссылка не
+         *     расходуется). Ссылка становится использованной, все сессии пользователя удаляются — войти нужно
+         *     с новым паролем.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["completePasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -359,6 +441,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/c/{centerId}/staff/{userId}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ссылка сброса пароля сотрудника
+         * @description **Роли:** owner. Одноразовая ссылка `APP_ORIGIN/reset/<токен>` на 24 часа — только в этом ответе
+         *     (показать с «Скопировать» и «Отправить в WhatsApp»); прежние неиспользованные ссылки этого
+         *     сотрудника перестают работать. Разрешено, только если сотрудник состоит ТОЛЬКО в этом центре и он не
+         *     владелец — иначе `409 reset_not_allowed` (обратиться в поддержку). Не сотрудник центра — `404`.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["issuePasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/c/{centerId}/staff/invites/{inviteId}/reissue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                inviteId: components["parameters"]["InviteId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Новая ссылка вместо приглашения
+         * @description **Роли:** owner. В одной транзакции отзывает приглашение (старая ссылка перестаёт работать) и создаёт
+         *     новое с теми же ролью и именем, срок — снова 7 дней. Ссылка (`url`) — только в этом ответе.
+         *     Отозванное, использованное или чужое приглашение — `404 not_found`.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["reissueInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/c/{centerId}/staff/{userId}": {
         parameters: {
             query?: never;
@@ -546,8 +681,9 @@ export interface paths {
         head?: never;
         /**
          * Изменить ученика и его родителя
-         * @description **Роли:** owner, admin. `status = left` завершает активные записи. Смена телефона родителя
+         * @description **Роли:** owner, admin. `status = left` завершает активные записи датой `left_date` (по умолчанию — сегодня). Смена телефона родителя
          *     отвязывает его от Telegram (нужно новое приглашение). Изменения родителя видны у всех его детей.
+         *     Фиксированная скидка больше цены любого активного тарифа ученика — `422 validation` (поле `discount`).
          *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["patchStudent"];
@@ -740,8 +876,10 @@ export interface paths {
         };
         /**
          * Должники и итоги месяца
-         * @description **Роли:** owner, admin. Должник — баланс < 0 и срок самого старого непогашенного начисления
-         *     прошёл (R14). По убыванию долга. `summary` — по всему центру (без фильтра `group`).
+         * @description **Роли:** owner, admin. `status=overdue` (по умолчанию) — должники: баланс < 0 и срок самого старого
+         *     непогашенного начисления прошёл (R14), по убыванию долга. `status=pending` — «ожидают оплаты»: баланс < 0,
+         *     срок ещё не наступил (или сегодня), по ближайшему сроку; `due_in_days` — дней до срока. Фильтр `group`
+         *     работает в обоих. `summary` — по всему центру (без фильтра `group`), одинаковый для обоих списков.
          */
         get: operations["listDebtors"];
         put?: never;
@@ -1039,6 +1177,32 @@ export interface components {
             phone: components["schemas"]["Phone"];
             password: string;
         };
+        PatchMeRequest: {
+            name: string;
+        };
+        ChangePasswordRequest: {
+            current_password: string;
+            new_password: string;
+        };
+        NewPasswordRequest: {
+            new_password: string;
+        };
+        PasswordResetLink: {
+            /**
+             * Format: uri
+             * @description APP_ORIGIN/reset/<токен> — показать один раз
+             */
+            url: string;
+            /** @description Имя сотрудника */
+            name: string;
+            expires_at: components["schemas"]["DateTime"];
+        };
+        PublicPasswordReset: {
+            /** @description Имя пользователя */
+            name: string;
+            /** @description Центр, выдавший ссылку; null — поддержка */
+            center_name: string | null;
+        };
         PublicInvite: {
             center_name: string;
             /** @enum {string} */
@@ -1108,6 +1272,11 @@ export interface components {
             excused_deducts: boolean;
             /** @description Автонапоминания о долге */
             reminders_on: boolean;
+            /**
+             * @description weekly — после 7-го дня просрочки, пока долг не оплачен, напоминать раз в 7 дней (14, 21, 28…); off — дальше только вручную
+             * @enum {string}
+             */
+            overdue_repeat: "weekly" | "off";
             /** @description Сообщать родителю «не был на занятии» */
             notify_absent: boolean;
             /** @description Реквизиты — в напоминаниях, пока нет Finik */
@@ -1124,6 +1293,8 @@ export interface components {
             due_days?: number;
             excused_deducts?: boolean;
             reminders_on?: boolean;
+            /** @enum {string} */
+            overdue_repeat?: "weekly" | "off";
             notify_absent?: boolean;
             pay_details?: string | null;
         };
@@ -1315,6 +1486,12 @@ export interface components {
             full_name?: string;
             birth_date?: components["schemas"]["NullableDate"];
             status?: components["schemas"]["StudentStatus"];
+            /**
+             * @description Последний день занятий — только вместе с `status = left` (без него — сегодня). Не раньше начала самой
+             *     поздней активной записи и не позже сегодня + 30 дней. Активные записи закрываются этой датой
+             *     (`end_date`), на занятиях после неё ученика нет.
+             */
+            left_date?: components["schemas"]["Date"];
             discount?: components["schemas"]["NullableDiscount"];
             parent?: {
                 name?: string;
@@ -1424,14 +1601,21 @@ export interface components {
                 name: string | null;
                 phone: string | null;
                 tg_status: string | null;
+                last_reminder_at: components["schemas"]["NullableDateTime"];
             } | null;
             /**
              * Format: int64
              * @description Тыйыны, > 0
              */
             debt: number;
+            /** @description `overdue` — дней просрочки (≥ 1); `pending` — 0 */
             days_overdue: number;
+            /** @description Самый ранний непогашенный срок (у «ожидают оплаты» — ближайший) */
             oldest_due_date: components["schemas"]["Date"];
+            /** @description `pending` — дней до срока (0 — срок сегодня); `overdue` — 0 */
+            due_in_days: number;
+            /** @description Родителю сегодня (в поясе центра) уже напоминали — по `last_reminder_at` */
+            reminded_today: boolean;
         };
         DebtorsResponse: {
             items: components["schemas"]["Debtor"][];
@@ -1838,6 +2022,156 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    patchMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchMeRequest"];
+            };
+        };
+        responses: {
+            /** @description Профиль */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["BadOrigin"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Пароль изменён */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["BadOrigin"];
+            /** @description `too_many_attempts` — 5 неверных текущих паролей за 15 минут */
+            429: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    logoutAll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Все сессии закрыты */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["BadOrigin"];
+        };
+    };
+    getPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Токен из ссылки (43 символа base64url) */
+                token: components["parameters"]["Token"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка действует */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicPasswordReset"];
+                };
+            };
+            /** @description `reset_invalid` — ссылка недействительна */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    completePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Токен из ссылки (43 символа base64url) */
+                token: components["parameters"]["Token"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Пароль изменён */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["BadOrigin"];
+            /** @description `reset_invalid` — ссылка недействительна */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getInvite: {
@@ -2265,6 +2599,67 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    issuePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка выдана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetLink"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `reset_not_allowed` — сотрудник работает и в другом центре или он владелец */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reissueInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                inviteId: components["parameters"]["InviteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Новое приглашение */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedInvite"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     removeStaff: {
         parameters: {
             query?: never;
@@ -2605,6 +3000,8 @@ export interface operations {
                 status?: components["schemas"]["StudentStatus"];
                 /** @description Статус связи родителя с Telegram-ботом */
                 tg?: components["schemas"]["TgStatus"];
+                /** @description true — без ушедших (список по умолчанию в интерфейсе); не действует, если задан `status` */
+                hide_left?: boolean;
                 /** @description Размер страницы (по умолчанию 50) */
                 limit?: components["parameters"]["Limit"];
                 /** @description `next_cursor` из прошлого ответа */
@@ -2727,6 +3124,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            422: components["responses"]["Unprocessable"];
         };
     };
     createEnrollment: {
@@ -3026,6 +3424,8 @@ export interface operations {
             query?: {
                 /** @description id группы — ученики, у которых была запись в неё */
                 group?: string;
+                /** @description overdue — просрочено (по умолчанию), pending — ожидают оплаты */
+                status?: "overdue" | "pending";
             };
             header?: never;
             path: {

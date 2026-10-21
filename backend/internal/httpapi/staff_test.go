@@ -316,6 +316,62 @@ func TestInviteInvalid(t *testing.T) {
 	}
 }
 
+// «Новая ссылка»: старое приглашение отозвано, новое — с теми же ролью и именем и новым токеном;
+// по старой ссылке — invite_invalid, по новой — принимается. Повтор по старому id — 404.
+func TestReissueInvite(t *testing.T) {
+	api := newTestAPI(t)
+	owner := api.client(t, "10.0.0.1")
+	centerID := owner.register("+996700410001", "Центр").Centers[0].ID
+	old, oldTok := createInvite(t, owner, centerID, "admin", "Айбек")
+
+	rec := owner.do(http.MethodPost, centerPath(centerID, "/staff/invites/"+old.ID.String()+"/reissue"), nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("reissue: %d %s", rec.Code, rec.Body)
+	}
+	fresh := decode[inviteResp](t, rec)
+	newTok := strings.TrimPrefix(fresh.URL, testOrigin+"/invite/")
+	if fresh.ID == old.ID || newTok == oldTok || newTok == "" || fresh.Role != "admin" || fresh.Name == nil || *fresh.Name != "Айбек" {
+		t.Fatalf("новое приглашение = %+v", fresh)
+	}
+	// В БД — только хэш нового токена.
+	var stored int
+	_ = api.pool.QueryRow(context.Background(), `SELECT count(*) FROM invites WHERE token = $1 OR token = $2`, newTok, token.HashHex(newTok)).Scan(&stored)
+	var raw int
+	_ = api.pool.QueryRow(context.Background(), `SELECT count(*) FROM invites WHERE token = $1`, newTok).Scan(&raw)
+	if stored != 1 || raw != 0 {
+		t.Errorf("токен в БД: всего %d, открытым %d", stored, raw)
+	}
+
+	list := decodeItems[inviteResp](t, owner.do(http.MethodGet, centerPath(centerID, "/staff/invites"), nil))
+	if len(list) != 1 || list[0].ID != fresh.ID {
+		t.Errorf("действующие приглашения = %+v, want только новое", list)
+	}
+	anon := api.client(t, "10.0.0.2")
+	assertError(t, anon.do(http.MethodGet, "/api/v1/invites/"+oldTok, nil), http.StatusNotFound, "invite_invalid")
+	if rec := anon.do(http.MethodGet, "/api/v1/invites/"+newTok, nil); rec.Code != http.StatusOK {
+		t.Errorf("новая ссылка: %d %s", rec.Code, rec.Body)
+	}
+	assertError(t, owner.do(http.MethodPost, centerPath(centerID, "/staff/invites/"+old.ID.String()+"/reissue"), nil),
+		http.StatusNotFound, "not_found")
+	assertError(t, owner.do(http.MethodPost, centerPath(centerID, "/staff/invites/"+uuid.NewString()+"/reissue"), nil),
+		http.StatusNotFound, "not_found")
+
+	log := auditLog(t, api, centerID)
+	if got := strings.Join(auditActions(log), ","); got != "invite.create,invite.reissue" {
+		t.Fatalf("audit = %s", got)
+	}
+	last := log[len(log)-1]
+	if last.EntityID == nil || *last.EntityID != fresh.ID || last.Before["invite_id"] != old.ID.String() {
+		t.Errorf("audit reissue = %+v", last)
+	}
+	for _, r := range log {
+		b, _ := json.Marshal(r)
+		if strings.Contains(string(b), newTok) || strings.Contains(string(b), oldTok) {
+			t.Error("токен попал в журнал")
+		}
+	}
+}
+
 func TestAcceptLoginRequiredAndAlreadyMember(t *testing.T) {
 	api := newTestAPI(t)
 	owner := api.client(t, "10.0.0.1")
@@ -414,6 +470,7 @@ func TestStaffPermissions(t *testing.T) {
 		{http.MethodPost, "/staff/invites", map[string]string{"role": "teacher"}},
 		{http.MethodGet, "/staff/invites", nil},
 		{http.MethodDelete, "/staff/invites/" + inv.ID.String(), nil},
+		{http.MethodPost, "/staff/invites/" + inv.ID.String() + "/reissue", nil},
 		{http.MethodPatch, "/staff/" + teacherID.String(), map[string]string{"role": "admin"}},
 		{http.MethodDelete, "/staff/" + teacherID.String(), nil},
 	}

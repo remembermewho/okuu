@@ -194,6 +194,117 @@ func TestRemindersAutoKindsAndTiming(t *testing.T) {
 	}
 }
 
+// Повтор после 7-го дня просрочки (overdue_repeat = weekly, по умолчанию): 14-й и 21-й день, ключ с номером недели,
+// повторный запуск в тот же день не дублирует; оплата останавливает повтор; off — после 7-го дня тишина.
+func TestRemindersOverdueWeekly(t *testing.T) {
+	env := newBotEnv(t)
+	atBishkek(env.api, 10, 0)
+	weekly := newCatalogOn(t, env.api, "+996707150001")
+	off := newCatalogOn(t, env.api, "+996707150002")
+	off.patchSettings(t, map[string]any{"overdue_repeat": "off"})
+	if got := decode[map[string]any](t, weekly.owner.do(http.MethodGet, centerPath(weekly.center, "/settings"), nil))["overdue_repeat"]; got != "weekly" {
+		t.Errorf("по умолчанию overdue_repeat = %v, want weekly", got)
+	}
+	assertField(t, off.owner.do(http.MethodPatch, centerPath(off.center, "/settings"), map[string]any{"overdue_repeat": "daily"}), http.StatusBadRequest, "overdue_repeat")
+
+	sw := weekly.debtor(t, "Асанов Бакыт", "0707 150 101") // срок — сегодня + 5 (due_days по умолчанию)
+	so := off.debtor(t, "Бекова Айпери", "0707 150 102")
+	due := weekly.today.AddDays(5)
+	const chatW, chatO = 7150101, 7150102
+	linkDirect(t, env.api, sw.Parent.ID, chatW)
+	linkDirect(t, env.api, so.Parent.ID, chatO)
+
+	// Перематываем на день, когда просрочка = overdue, и запускаем задачу дважды.
+	day := 0
+	runOn := func(overdue int) (first, again reminders.AutoResult) {
+		t.Helper()
+		target := 5 + overdue
+		env.api.clock.Advance(time.Duration(target-day) * 24 * time.Hour)
+		day = target
+		return env.runAuto(t), env.runAuto(t)
+	}
+	lastKind := func(parent uuid.UUID) notifRow {
+		rows := notificationsOf(t, env.api, parent)
+		if len(rows) == 0 {
+			return notifRow{}
+		}
+		return rows[len(rows)-1]
+	}
+
+	_, _ = runOn(7) // overdue_7 — у обоих центров
+	if lastKind(sw.Parent.ID).Kind != notify.KindOverdue7 || lastKind(so.Parent.ID).Kind != notify.KindOverdue7 {
+		t.Fatalf("7-й день: %+v / %+v", lastKind(sw.Parent.ID), lastKind(so.Parent.ID))
+	}
+	if res, _ := runOn(13); res.Sent != 0 {
+		t.Errorf("13-й день: %+v", res)
+	}
+
+	res, again := runOn(14)
+	if res.Sent != 1 || again.Sent != 0 || again.Limited != 1 {
+		t.Fatalf("14-й день: %+v, повтор %+v", res, again)
+	}
+	w2 := lastKind(sw.Parent.ID)
+	if w2.Kind != notify.KindOverdueWeekly || w2.Key == nil || *w2.Key != fmt.Sprintf("overdue_weekly:%s:%s:w2", sw.Parent.ID, due) {
+		t.Errorf("14-й день: %+v", w2)
+	}
+	if m := env.tg.Last(chatW); !strings.Contains(m.Text, "оплата просрочена") || !strings.Contains(m.Text, "просрочено на 14 дней") {
+		t.Errorf("текст 14-го дня: %q", m.Text)
+	}
+	if lastKind(so.Parent.ID).Kind != notify.KindOverdue7 {
+		t.Error("off: на 14-й день напоминания быть не должно")
+	}
+
+	// Между неделями — тишина.
+	if res, _ := runOn(15); res.Sent != 0 {
+		t.Errorf("15-й день: %+v", res)
+	}
+	res, _ = runOn(21)
+	if res.Sent != 1 {
+		t.Fatalf("21-й день: %+v", res)
+	}
+	if w3 := lastKind(sw.Parent.ID); w3.Key == nil || !strings.HasSuffix(*w3.Key, ":w3") {
+		t.Errorf("21-й день: %+v", w3)
+	}
+
+	// Оплатили — на 28-й день тишина.
+	weekly.mustOp(t, sw.ID, pay(300_000))
+	if res, _ := runOn(28); res.Sent != 0 {
+		t.Errorf("28-й день после оплаты: %+v", res)
+	}
+	weeklyCount := 0
+	for _, r := range notificationsOf(t, env.api, sw.Parent.ID) {
+		if r.Kind == notify.KindOverdueWeekly {
+			weeklyCount++
+		}
+	}
+	if weeklyCount != 2 {
+		t.Errorf("повторов %d, want 2 (14 и 21)", weeklyCount)
+	}
+	for _, r := range notificationsOf(t, env.api, so.Parent.ID) {
+		if r.Kind == notify.KindOverdueWeekly {
+			t.Errorf("off: повтор %+v", r)
+		}
+	}
+}
+
+func TestAutoKind(t *testing.T) {
+	due := civil.New(2026, 10, 1)
+	for _, tt := range []struct {
+		days   int
+		weekly bool
+		want   string
+	}{
+		{-3, true, notify.KindDueSoon}, {0, true, notify.KindDueToday}, {3, true, notify.KindOverdue3},
+		{7, true, notify.KindOverdue7}, {7, false, notify.KindOverdue7}, {8, true, ""}, {13, true, ""},
+		{14, true, notify.KindOverdueWeekly}, {14, false, ""}, {21, true, notify.KindOverdueWeekly},
+		{28, true, notify.KindOverdueWeekly}, {29, true, ""}, {70, true, notify.KindOverdueWeekly}, {-1, true, ""},
+	} {
+		if got := reminders.AutoKind(due, due.AddDays(tt.days), tt.weekly); got != tt.want {
+			t.Errorf("день %d, weekly=%v: %q, want %q", tt.days, tt.weekly, got, tt.want)
+		}
+	}
+}
+
 // Окно 9:00–20:00 по поясу центра.
 func TestRemindersWindow(t *testing.T) {
 	env := newBotEnv(t)

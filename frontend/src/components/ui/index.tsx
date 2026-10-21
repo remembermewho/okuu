@@ -7,9 +7,9 @@ import { Button } from './Button'
 import s from './ui.module.css'
 
 export { Button, ButtonAnchor, ButtonLink } from './Button'
-export { Checkbox, Input, RadioGroup, Select, Textarea } from './Field'
+export { Checkbox, Input, PasswordInput, RadioGroup, Select, Textarea } from './Field'
 export { Dialog, ConfirmDialog } from './Dialog'
-export { ToastProvider, useToast } from './Toast'
+export { ToastProvider, showToast, useToast } from './Toast'
 
 export function Card({ flush, className, ...rest }: ComponentProps<'section'> & { flush?: boolean }) {
   return <section className={cx(s.card, flush && s.cardFlush, className)} {...rest} />

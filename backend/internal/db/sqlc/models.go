@@ -48,6 +48,7 @@ type Center struct {
 	BillingDayNext     *int16      `json:"billing_day_next"`
 	BillingDayNextFrom *civil.Date `json:"billing_day_next_from"`
 	NotifyAbsent       bool        `json:"notify_absent"`
+	OverdueRepeat      string      `json:"overdue_repeat"`
 }
 
 type Enrollment struct {
@@ -170,6 +171,18 @@ type Parent struct {
 	Lang           string     `json:"lang"`
 	ConsentAt      *time.Time `json:"consent_at"`
 	LastReminderAt *time.Time `json:"last_reminder_at"`
+}
+
+type PasswordReset struct {
+	ID        uuid.UUID  `json:"id"`
+	Token     string     `json:"token"`
+	UserID    uuid.UUID  `json:"user_id"`
+	CenterID  *uuid.UUID `json:"center_id"`
+	CreatedBy *uuid.UUID `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at"`
+	RevokedAt *time.Time `json:"revoked_at"`
 }
 
 type PaymentLink struct {

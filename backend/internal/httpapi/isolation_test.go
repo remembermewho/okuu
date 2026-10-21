@@ -20,12 +20,14 @@ const centerPrefix = "/api/v1/c/{centerId}/"
 // Тело должно быть валидным для своего центра: 404 обязан прийти из-за чужого центра или id,
 // а не из-за ошибки в запросе.
 var isolationCases = map[string]any{
-	"GET /api/v1/c/{centerId}/staff":                       nil,
-	"POST /api/v1/c/{centerId}/staff/invites":              map[string]any{"role": "teacher"},
-	"GET /api/v1/c/{centerId}/staff/invites":               nil,
-	"DELETE /api/v1/c/{centerId}/staff/invites/{inviteId}": nil,
-	"PATCH /api/v1/c/{centerId}/staff/{userId}":            map[string]any{"role": "admin"},
-	"DELETE /api/v1/c/{centerId}/staff/{userId}":           nil,
+	"GET /api/v1/c/{centerId}/staff":                             nil,
+	"POST /api/v1/c/{centerId}/staff/invites":                    map[string]any{"role": "teacher"},
+	"GET /api/v1/c/{centerId}/staff/invites":                     nil,
+	"DELETE /api/v1/c/{centerId}/staff/invites/{inviteId}":       nil,
+	"POST /api/v1/c/{centerId}/staff/invites/{inviteId}/reissue": nil,
+	"PATCH /api/v1/c/{centerId}/staff/{userId}":                  map[string]any{"role": "admin"},
+	"DELETE /api/v1/c/{centerId}/staff/{userId}":                 nil,
+	"POST /api/v1/c/{centerId}/staff/{userId}/password-reset":    nil,
 
 	"GET /api/v1/c/{centerId}/tariffs":               nil,
 	"POST /api/v1/c/{centerId}/tariffs":              map[string]any{"name": "Взлом", "kind": "monthly", "price": 1},

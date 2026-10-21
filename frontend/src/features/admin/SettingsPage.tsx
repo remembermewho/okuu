@@ -33,6 +33,7 @@ const schema = z.object({
   due_days: intIn(0, 60),
   excused_deducts: z.boolean(),
   reminders_on: z.boolean(),
+  overdue_repeat: z.enum(['weekly', 'off']),
   notify_absent: z.boolean(),
   pay_details: z.string().max(1000, ru.errors.tooLong(1000)),
 })
@@ -46,6 +47,7 @@ const toForm = (st: Settings): Values => ({
   due_days: String(st.due_days),
   excused_deducts: st.excused_deducts,
   reminders_on: st.reminders_on,
+  overdue_repeat: st.overdue_repeat,
   notify_absent: st.notify_absent,
   pay_details: st.pay_details ?? '',
 })
@@ -60,6 +62,7 @@ export function settingsPatch(before: Values, v: Values): Schemas['PatchSettings
   if (v.due_days !== before.due_days) out.due_days = Number(v.due_days)
   if (v.excused_deducts !== before.excused_deducts) out.excused_deducts = v.excused_deducts
   if (v.reminders_on !== before.reminders_on) out.reminders_on = v.reminders_on
+  if (v.overdue_repeat !== before.overdue_repeat) out.overdue_repeat = v.overdue_repeat
   if (v.notify_absent !== before.notify_absent) out.notify_absent = v.notify_absent
   if (v.pay_details.trim() !== before.pay_details) out.pay_details = v.pay_details.trim() || null
   return out
@@ -98,6 +101,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
     formState: { errors, isDirty },
   } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: initial })
   const billingDay = useWatch({ control, name: 'billing_day' })
+  const remindersOn = useWatch({ control, name: 'reminders_on' })
   const billingChanged = billingDay !== initial.billing_day
 
   const onSubmit = handleSubmit((v) => {
@@ -164,6 +168,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
             <CardHeader title={ru.settings.notifications} />
             <div className={layout.stackSm}>
               <Checkbox label={ru.settings.remindersOn} hint={ru.settings.remindersOnHint} {...register('reminders_on')} />
+              <Select
+                label={ru.settings.overdueRepeat}
+                hint={remindersOn ? ru.settings.overdueRepeatHint : ru.settings.overdueRepeatOffHint}
+                options={(['weekly', 'off'] as const).map((v) => ({ value: v, label: ru.settings.overdueRepeatOptions[v] }))}
+                {...register('overdue_repeat')}
+              />
               <Checkbox label={ru.settings.notifyAbsent} {...register('notify_absent')} />
             </div>
           </Card>

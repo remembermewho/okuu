@@ -1,6 +1,7 @@
 // Package reminders — напоминания и уведомления родителям в Telegram (R17–R19):
-//   - reminders.auto (раз в час): due_soon, due_today, overdue_3, overdue_7 по срокам непогашенных
-//     начислений; одно сообщение на родителя со всеми детьми центра (R18), не больше одного в день (R17);
+//   - reminders.auto (раз в час): due_soon, due_today, overdue_3, overdue_7 и (overdue_repeat = weekly)
+//     overdue_weekly на 14, 21, 28… день по срокам непогашенных начислений; одно сообщение на родителя
+//     со всеми детьми центра (R18), не больше одного в день (R17);
 //   - событийные из notification_outbox (paid, package_low, absent) — диспетчер, сразу;
 //   - ручные «Напомнить» — не чаще раза в час на ученика.
 //
@@ -71,6 +72,13 @@ type Service struct {
 	tg     *telegram.Sender
 	now    func() time.Time
 	logger *slog.Logger
+	langs  notify.Langs // языки сообщений (BOT_LANGUAGES); по умолчанию — только русский
+}
+
+// WithLangs — языки сообщений родителям (BOT_LANGUAGES). Без вызова — всё по-русски.
+func (s *Service) WithLangs(l notify.Langs) *Service {
+	s.langs = l
+	return s
 }
 
 // NewService создаёт сервис; now — часы (nil — time.Now).
@@ -95,23 +103,29 @@ func InWindow(now time.Time, tz string) (bool, error) {
 }
 
 // AutoKind — вид автонапоминания сегодня по сроку непогашенного начисления ("" — не напоминаем):
-// за 3 дня, в день срока, через 3 и 7 дней просрочки; дальше — только вручную.
-func AutoKind(due, today civil.Date) string {
-	switch today.DaysSince(due) {
-	case -3:
+// за 3 дня, в день срока, через 3 и 7 дней просрочки; weekly = true — и дальше раз в 7 дней
+// (14, 21, 28… день просрочки), пока долг не оплачен; иначе после 7-го дня — только вручную.
+func AutoKind(due, today civil.Date, weekly bool) string {
+	switch days := today.DaysSince(due); {
+	case days == -3:
 		return notify.KindDueSoon
-	case 0:
+	case days == 0:
 		return notify.KindDueToday
-	case 3:
+	case days == 3:
 		return notify.KindOverdue3
-	case 7:
+	case days == 7:
 		return notify.KindOverdue7
+	case weekly && days > 7 && days%7 == 0:
+		return notify.KindOverdueWeekly
 	}
 	return ""
 }
 
+// overdueWeek — номер недели просрочки (2 — 14-й день, 3 — 21-й …): часть ключа дедупликации повтора.
+func overdueWeek(due, today civil.Date) int { return today.DaysSince(due) / 7 }
+
 // priority — какой вид в заголовке, если у детей сработало несколько.
-var priority = map[string]int{notify.KindDueSoon: 1, notify.KindDueToday: 2, notify.KindOverdue3: 3, notify.KindOverdue7: 4}
+var priority = map[string]int{notify.KindDueSoon: 1, notify.KindDueToday: 2, notify.KindOverdue3: 3, notify.KindOverdue7: 4, notify.KindOverdueWeekly: 5}
 
 // recipient — родитель, которому можно писать.
 type recipient struct {
@@ -341,7 +355,7 @@ func (s *Service) autoCenter(ctx context.Context, c sqlc.ListCentersForReminders
 			if u.Kind != billing.KindCharge {
 				continue
 			}
-			if k := AutoKind(u.Due, today); k != "" && priority[k] > priority[g.kind] {
+			if k := AutoKind(u.Due, today, c.OverdueRepeat == "weekly"); k != "" && priority[k] > priority[g.kind] {
 				g.kind, g.due = k, u.Due
 			}
 		}
@@ -367,6 +381,9 @@ func (s *Service) autoCenter(ctx context.Context, c sqlc.ListCentersForReminders
 			continue
 		}
 		key := fmt.Sprintf("%s:%s:%s", g.kind, pid, g.due)
+		if g.kind == notify.KindOverdueWeekly {
+			key += fmt.Sprintf(":w%d", overdueWeek(g.due, today)) // повтор каждую неделю — свой ключ
+		}
 		id, ok, err := s.claim(ctx, s.pool, claimInput{centerID: c.ID, parentID: pid, kind: g.kind, key: &key, students: g.students})
 		if err != nil {
 			return res, err
@@ -375,7 +392,7 @@ func (s *Service) autoCenter(ctx context.Context, c sqlc.ListCentersForReminders
 			res.Duplicate++
 			continue
 		}
-		tx := notify.For(g.r.lang)
+		tx := s.langs.For(g.r.lang)
 		text := notify.DebtReminder(tx, g.kind, c.Name, g.due, g.children, details)
 		outcome, err := s.send(ctx, id, g.r, text, bot.DebtKeyboard(tx, payKids(g.students, g.children)), true)
 		if err != nil {
@@ -552,7 +569,7 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 	details := payDetails(c.PayDetails, len(c.FinikCreds) > 0)
 	var sentIDs []uuid.UUID
 	for _, g := range groups {
-		tx := notify.For(g.r.lang)
+		tx := s.langs.For(g.r.lang)
 		text := notify.DebtReminder(tx, notify.KindManual, c.Name, today, g.children, details)
 		outcome, err := s.send(ctx, g.id, g.r, text, bot.DebtKeyboard(tx, payKids(g.students, g.children)), true)
 		if err != nil {
@@ -668,7 +685,7 @@ func (s *Service) eventMessage(ctx context.Context, o sqlc.ListOutboxRow) (recip
 			return recipient{}, "", nil, false, err
 		}
 		r, ok := recipientOf(ev.ParentID, &ev.ParentTgStatus, ev.ParentChatID, &ev.ParentLang)
-		tx := notify.For(r.lang)
+		tx := s.langs.For(r.lang)
 		return r, tx.Paid(o.CenterName, ev.FullName, ev.Amount, ev.Balance), bot.BalanceKeyboard(tx), ok, nil
 
 	case notify.KindPackageLow:
@@ -686,7 +703,7 @@ func (s *Service) eventMessage(ctx context.Context, o sqlc.ListOutboxRow) (recip
 			return recipient{}, "", nil, false, nil // продлили или отметку исправили
 		}
 		r, ok := recipientOf(ev.ParentID, &ev.ParentTgStatus, ev.ParentChatID, &ev.ParentLang)
-		return r, notify.For(r.lang).PackageLow(o.CenterName, ev.FullName, ev.GroupName), nil, ok, nil
+		return r, s.langs.For(r.lang).PackageLow(o.CenterName, ev.FullName, ev.GroupName), nil, ok, nil
 
 	case notify.KindAbsent:
 		if !o.NotifyAbsent {
@@ -700,7 +717,7 @@ func (s *Service) eventMessage(ctx context.Context, o sqlc.ListOutboxRow) (recip
 			return recipient{}, "", nil, false, err
 		}
 		r, ok := recipientOf(ev.ParentID, &ev.ParentTgStatus, ev.ParentChatID, &ev.ParentLang)
-		return r, notify.For(r.lang).Absent(o.CenterName, ev.FullName, ev.GroupName, ev.Date, ev.StartTime.String()), nil, ok, nil
+		return r, s.langs.For(r.lang).Absent(o.CenterName, ev.FullName, ev.GroupName, ev.Date, ev.StartTime.String()), nil, ok, nil
 	}
 	s.logger.Warn("уведомления: неизвестный вид события", "kind", o.Kind)
 	return recipient{}, "", nil, false, nil

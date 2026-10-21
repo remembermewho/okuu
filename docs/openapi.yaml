@@ -161,6 +161,124 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [auth]
+      operationId: patchMe
+      summary: Изменить своё имя
+      description: |
+        **Любой вошедший.** Только имя: телефон — логин, через API не меняется. Ответ — как `/me`.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchMeRequest' }
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+
+  /api/v1/me/password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      summary: Сменить пароль
+      description: |
+        **Любой вошедший.** Проверяет текущий пароль (неверный — `400 validation`, поле `current_password`),
+        новый — по правилам регистрации (поле `new_password`). Лимит неудачных попыток — как у входа
+        (`429 too_many_attempts` с `Retry-After`). При успехе удаляются все другие сессии пользователя,
+        текущая остаётся.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204':
+          description: Пароль изменён
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '429':
+          description: '`too_many_attempts` — 5 неверных текущих паролей за 15 минут'
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/auth/logout-all:
+    post:
+      tags: [auth]
+      operationId: logoutAll
+      summary: Выйти на всех устройствах
+      description: |
+        **Любой вошедший.** Удаляет все сессии пользователя, включая текущую, и cookie.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '204':
+          description: Все сессии закрыты
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+
+  # ---------------------------------------------------------------- password reset (public)
+  /api/v1/password-reset/{token}:
+    parameters:
+      - $ref: '#/components/parameters/Token'
+    get:
+      tags: [auth]
+      operationId: getPasswordReset
+      summary: Страница сброса пароля
+      security: []
+      description: |
+        **Без входа.** Токен — из ссылки `APP_ORIGIN/reset/<токен>` (выдаёт владелец центра или поддержка,
+        действует 24 часа). Неизвестная, просроченная, отозванная и использованная ссылка — одинаково
+        `404 reset_invalid`.
+      responses:
+        '200':
+          description: Ссылка действует
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicPasswordReset' }
+        '404':
+          description: '`reset_invalid` — ссылка недействительна'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [auth]
+      operationId: completePasswordReset
+      summary: Задать новый пароль по ссылке
+      security: []
+      description: |
+        **Без входа.** Новый пароль — по правилам регистрации (поле `new_password`; при ошибке ссылка не
+        расходуется). Ссылка становится использованной, все сессии пользователя удаляются — войти нужно
+        с новым паролем.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewPasswordRequest' }
+      responses:
+        '204':
+          description: Пароль изменён
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404':
+          description: '`reset_invalid` — ссылка недействительна'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ---------------------------------------------------------------- invites (public)
   /api/v1/invites/{token}:
@@ -494,6 +612,60 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/v1/c/{centerId}/staff/{userId}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [staff]
+      operationId: issuePasswordReset
+      summary: Ссылка сброса пароля сотрудника
+      description: |
+        **Роли:** owner. Одноразовая ссылка `APP_ORIGIN/reset/<токен>` на 24 часа — только в этом ответе
+        (показать с «Скопировать» и «Отправить в WhatsApp»); прежние неиспользованные ссылки этого
+        сотрудника перестают работать. Разрешено, только если сотрудник состоит ТОЛЬКО в этом центре и он не
+        владелец — иначе `409 reset_not_allowed` (обратиться в поддержку). Не сотрудник центра — `404`.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '201':
+          description: Ссылка выдана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasswordResetLink' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`reset_not_allowed` — сотрудник работает и в другом центре или он владелец'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/staff/invites/{inviteId}/reissue:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/InviteId'
+    post:
+      tags: [staff]
+      operationId: reissueInvite
+      summary: Новая ссылка вместо приглашения
+      description: |
+        **Роли:** owner. В одной транзакции отзывает приглашение (старая ссылка перестаёт работать) и создаёт
+        новое с теми же ролью и именем, срок — снова 7 дней. Ссылка (`url`) — только в этом ответе.
+        Отозванное, использованное или чужое приглашение — `404 not_found`.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '201':
+          description: Новое приглашение
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedInvite' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/c/{centerId}/staff/{userId}:
     parameters:
       - $ref: '#/components/parameters/CenterId'
@@ -750,6 +922,10 @@ paths:
           in: query
           description: Статус связи родителя с Telegram-ботом
           schema: { $ref: '#/components/schemas/TgStatus' }
+        - name: hide_left
+          in: query
+          description: 'true — без ушедших (список по умолчанию в интерфейсе); не действует, если задан `status`'
+          schema: { type: boolean, default: false }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -811,8 +987,9 @@ paths:
       operationId: patchStudent
       summary: Изменить ученика и его родителя
       description: |
-        **Роли:** owner, admin. `status = left` завершает активные записи. Смена телефона родителя
+        **Роли:** owner, admin. `status = left` завершает активные записи датой `left_date` (по умолчанию — сегодня). Смена телефона родителя
         отвязывает его от Telegram (нужно новое приглашение). Изменения родителя видны у всех его детей.
+        Фиксированная скидка больше цены любого активного тарифа ученика — `422 validation` (поле `discount`).
         **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
       security: [{ cookieAuth: [] }]
       requestBody:
@@ -835,6 +1012,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
 
   /api/v1/c/{centerId}/students/{studentId}/enrollments:
     parameters:
@@ -1080,14 +1258,20 @@ paths:
       operationId: listDebtors
       summary: Должники и итоги месяца
       description: |
-        **Роли:** owner, admin. Должник — баланс < 0 и срок самого старого непогашенного начисления
-        прошёл (R14). По убыванию долга. `summary` — по всему центру (без фильтра `group`).
+        **Роли:** owner, admin. `status=overdue` (по умолчанию) — должники: баланс < 0 и срок самого старого
+        непогашенного начисления прошёл (R14), по убыванию долга. `status=pending` — «ожидают оплаты»: баланс < 0,
+        срок ещё не наступил (или сегодня), по ближайшему сроку; `due_in_days` — дней до срока. Фильтр `group`
+        работает в обоих. `summary` — по всему центру (без фильтра `group`), одинаковый для обоих списков.
       security: [{ cookieAuth: [] }]
       parameters:
         - name: group
           in: query
           description: id группы — ученики, у которых была запись в неё
           schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          description: 'overdue — просрочено (по умолчанию), pending — ожидают оплаты'
+          schema: { type: string, enum: [overdue, pending], default: overdue }
       responses:
         '200':
           description: Должники
@@ -1674,6 +1858,40 @@ components:
       properties:
         phone: { $ref: '#/components/schemas/Phone' }
         password: { type: string }
+    PatchMeRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password: { type: string }
+        new_password: { type: string, minLength: 8, maxLength: 128 }
+    NewPasswordRequest:
+      type: object
+      required: [new_password]
+      additionalProperties: false
+      properties:
+        new_password: { type: string, minLength: 8, maxLength: 128 }
+    PasswordResetLink:
+      type: object
+      required: [url, name, expires_at]
+      additionalProperties: false
+      properties:
+        url: { type: string, format: uri, description: 'APP_ORIGIN/reset/<токен> — показать один раз' }
+        name: { type: string, description: 'Имя сотрудника' }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+    PublicPasswordReset:
+      type: object
+      required: [name, center_name]
+      additionalProperties: false
+      properties:
+        name: { type: string, description: 'Имя пользователя' }
+        center_name: { type: [string, 'null'], description: 'Центр, выдавший ссылку; null — поддержка' }
     PublicInvite:
       type: object
       required: [center_name, role, name, expires_at]
@@ -1755,7 +1973,7 @@ components:
     Settings:
       type: object
       required: [name, phone, timezone, billing_day, billing_day_next, billing_day_next_from, due_days,
-                 excused_deducts, reminders_on, notify_absent, pay_details, plan, finik_connected]
+                 excused_deducts, reminders_on, overdue_repeat, notify_absent, pay_details, plan, finik_connected]
       additionalProperties: false
       properties:
         name: { type: string }
@@ -1767,6 +1985,10 @@ components:
         due_days: { type: integer, minimum: 0, maximum: 60 }
         excused_deducts: { type: boolean, description: '«Уважительная» списывает занятие с абонемента' }
         reminders_on: { type: boolean, description: 'Автонапоминания о долге' }
+        overdue_repeat:
+          type: string
+          enum: [weekly, off]
+          description: 'weekly — после 7-го дня просрочки, пока долг не оплачен, напоминать раз в 7 дней (14, 21, 28…); off — дальше только вручную'
         notify_absent: { type: boolean, description: 'Сообщать родителю «не был на занятии»' }
         pay_details: { type: [string, 'null'], description: 'Реквизиты — в напоминаниях, пока нет Finik' }
         plan: { type: string }
@@ -1782,6 +2004,7 @@ components:
         due_days: { type: integer, minimum: 0, maximum: 60 }
         excused_deducts: { type: boolean }
         reminders_on: { type: boolean }
+        overdue_repeat: { type: string, enum: [weekly, off] }
         notify_absent: { type: boolean }
         pay_details: { type: [string, 'null'], maxLength: 1000 }
     MonthReport:
@@ -2045,6 +2268,12 @@ components:
         full_name: { type: string, minLength: 1, maxLength: 100 }
         birth_date: { $ref: '#/components/schemas/NullableDate' }
         status: { $ref: '#/components/schemas/StudentStatus' }
+        left_date:
+          $ref: '#/components/schemas/Date'
+          description: |
+            Последний день занятий — только вместе с `status = left` (без него — сегодня). Не раньше начала самой
+            поздней активной записи и не позже сегодня + 30 дней. Активные записи закрываются этой датой
+            (`end_date`), на занятиях после неё ученика нет.
         discount: { $ref: '#/components/schemas/NullableDiscount' }
         parent:
           type: object
@@ -2167,7 +2396,7 @@ components:
         reason: { type: string, minLength: 3, maxLength: 500 }
     Debtor:
       type: object
-      required: [student_id, full_name, status, groups, parent, debt, days_overdue, oldest_due_date]
+      required: [student_id, full_name, status, groups, parent, debt, days_overdue, oldest_due_date, due_in_days, reminded_today]
       additionalProperties: false
       properties:
         student_id: { $ref: '#/components/schemas/UUID' }
@@ -2177,16 +2406,21 @@ components:
         parent:
           oneOf:
             - type: object
-              required: [name, phone, tg_status]
+              required: [name, phone, tg_status, last_reminder_at]
               additionalProperties: false
               properties:
                 name: { type: [string, 'null'] }
                 phone: { type: [string, 'null'] }
                 tg_status: { type: [string, 'null'] }
+                last_reminder_at: { $ref: '#/components/schemas/NullableDateTime' }
             - type: 'null'
         debt: { type: integer, format: int64, minimum: 1, description: 'Тыйыны, > 0' }
-        days_overdue: { type: integer, minimum: 1 }
-        oldest_due_date: { $ref: '#/components/schemas/Date' }
+        days_overdue: { type: integer, minimum: 0, description: '`overdue` — дней просрочки (≥ 1); `pending` — 0' }
+        oldest_due_date:
+          $ref: '#/components/schemas/Date'
+          description: Самый ранний непогашенный срок (у «ожидают оплаты» — ближайший)
+        due_in_days: { type: integer, minimum: 0, description: '`pending` — дней до срока (0 — срок сегодня); `overdue` — 0' }
+        reminded_today: { type: boolean, description: 'Родителю сегодня (в поясе центра) уже напоминали — по `last_reminder_at`' }
     DebtorsResponse:
       type: object
       required: [items, next_cursor, summary]

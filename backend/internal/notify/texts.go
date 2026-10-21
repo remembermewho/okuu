@@ -47,6 +47,20 @@ type Texts struct {
 	Unknown       string
 	BalanceButton string
 
+	// Меню: постоянная клавиатура внизу чата, выбор ребёнка, «« Меню».
+	MenuBalance      string
+	MenuPay          string
+	MenuAttendance   string
+	MenuHelp         string
+	MenuPrompt       string
+	MenuBack         string
+	ChooseChild      string
+	AllChildren      string
+	PayChoose        string
+	PayNothing       string
+	AttendanceHeader func(month int) string
+	AttendanceChild  func(child, center string, present, absent, excused int32) string
+
 	// /balance.
 	BalanceCenter func(center string) string
 	Balance       func(tyiyn int64) string

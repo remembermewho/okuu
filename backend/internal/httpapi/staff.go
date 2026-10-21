@@ -116,6 +116,23 @@ func (h *handlers) revokeInvite(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *handlers) reissueInvite(w http.ResponseWriter, r *http.Request) {
+	m, _ := auth.MembershipFrom(r.Context())
+	id, ok := uuidParam(w, r, "inviteId")
+	if !ok {
+		return
+	}
+	inv, err := h.staff.ReissueInvite(r.Context(), m.UserID, m.CenterID, id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, createdInviteDTO{
+		inviteDTO: toInviteDTO(inv.Invite),
+		URL:       strings.TrimSuffix(h.appOrigin, "/") + "/invite/" + inv.Token,
+	})
+}
+
 func (h *handlers) changeStaffRole(w http.ResponseWriter, r *http.Request) {
 	var req changeRoleRequest
 	if err := httpx.DecodeJSON(w, r, &req); err != nil {

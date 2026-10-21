@@ -132,6 +132,42 @@ func (s *Service) RevokeInvite(ctx context.Context, actor, centerID, inviteID uu
 	})
 }
 
+// ReissueInvite — «Новая ссылка»: в одной транзакции отзывает приглашение и создаёт новое с теми же ролью
+// и именем (срок — снова 7 дней). Старая ссылка перестаёт работать. Чужое, отозванное или использованное —
+// ErrNotFound. Токен нового — только в ответе.
+func (s *Service) ReissueInvite(ctx context.Context, actor, centerID, inviteID uuid.UUID) (CreatedInvite, error) {
+	tok, err := token.New()
+	if err != nil {
+		return CreatedInvite{}, err
+	}
+	var created CreatedInvite
+	err = s.inTx(ctx, func(tx pgx.Tx, q *sqlc.Queries) error {
+		old, err := q.RevokeStaffInvite(ctx, sqlc.RevokeStaffInviteParams{ID: inviteID, CenterID: centerID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		row, err := q.CreateStaffInvite(ctx, sqlc.CreateStaffInviteParams{
+			Token: token.HashHex(tok), CenterID: centerID, Role: old.Role, Name: old.Name, CreatedBy: &actor,
+		})
+		if err != nil {
+			return err
+		}
+		created = CreatedInvite{
+			Invite: Invite{ID: row.ID, Role: deref(row.Role), Name: row.Name, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt},
+			Token:  tok,
+		}
+		return audit.Record(ctx, tx, audit.Entry{
+			CenterID: centerID, UserID: &actor, Action: audit.InviteReissue, Entity: "invite", EntityID: &row.ID,
+			Before: map[string]any{"invite_id": old.ID, "expires_at": old.ExpiresAt},
+			After:  map[string]any{"role": deref(row.Role), "name": row.Name, "expires_at": row.ExpiresAt},
+		})
+	})
+	return created, err
+}
+
 // PublicInvite — то, что видит человек по ссылке до входа.
 type PublicInvite struct {
 	CenterName string

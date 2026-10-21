@@ -1,29 +1,38 @@
-import { CheckCircle2, Send } from 'lucide-react'
+import { BellRing, CheckCircle2, Send } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { centerPath, useCenter } from '@/app/center'
-import { TgBadge } from '@/components/shared'
+import { StudentStatusBadge, TgBadge } from '@/components/shared'
 import shared from '@/components/shared.module.css'
-import { Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, MoneyText, PageHeader, Select, Skeleton, SkeletonList } from '@/components/ui'
+import { Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, MoneyText, PageHeader, Select, Skeleton, SkeletonList } from '@/components/ui'
 import { groupOptions, useGroups } from '@/features/catalog/api'
 import { ru } from '@/i18n/ru'
+import { cx } from '@/utils/cx'
 import { formatDate, formatMonth } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { formatSom } from '@/utils/money'
-import { useDebtors, useReminders, type RemindersResult } from './api'
+import { useDebtors, useReminders, type DebtorsStatus, type RemindersResult } from './api'
 import s from './DebtorsPage.module.css'
+
+/** API принимает до 500 учеников в одном «Напомнить». */
+const MAX_REMIND = 500
 
 export function DebtorsPage() {
   const c = useCenter()
+  const [params, setParams] = useSearchParams()
+  const tab: DebtorsStatus = params.get('tab') === 'pending' ? 'pending' : 'overdue'
   const [group, setGroup] = useState('')
   const groups = useGroups(c.id)
-  const debtors = useDebtors(c.id, group)
+  // Обе вкладки грузим сразу — счётчики на вкладках учитывают фильтр по группе.
+  const overdue = useDebtors(c.id, group, 'overdue')
+  const pending = useDebtors(c.id, group, 'pending')
+  const list = tab === 'pending' ? pending : overdue
   const remind = useReminders(c.id)
   const [confirmAll, setConfirmAll] = useState(false)
   const [result, setResult] = useState<RemindersResult>()
   const [pendingId, setPendingId] = useState<string>()
 
-  const names = new Map((debtors.data?.items ?? []).map((d) => [d.student_id, d.full_name]))
+  const names = new Map([...(overdue.data?.items ?? []), ...(pending.data?.items ?? [])].map((d) => [d.student_id, d.full_name]))
 
   const send = (body: { student_ids?: string[]; all?: boolean }, id?: string) => {
     setPendingId(id)
@@ -35,16 +44,26 @@ export function DebtorsPage() {
       onSettled: () => setPendingId(undefined),
     })
   }
+  // «Напомнить всем»: просроченные — все должники центра (all); ожидающие — ученики списка.
+  const remindAll = () =>
+    tab === 'overdue' && !group
+      ? send({ all: true })
+      : send({ student_ids: (list.data?.items ?? []).slice(0, MAX_REMIND).map((d) => d.student_id) })
 
-  const sum = debtors.data?.summary
+  const setTab = (t: DebtorsStatus) => setParams(t === 'pending' ? { tab: 'pending' } : {}, { replace: true })
+  const sum = overdue.data?.summary ?? pending.data?.summary
   const month = sum ? formatMonth(sum.period.slice(0, 7)) : ''
+  const tabs: { id: DebtorsStatus; label: string; count?: number }[] = [
+    { id: 'overdue', label: ru.debtors.tabOverdue, count: overdue.data?.items.length },
+    { id: 'pending', label: ru.debtors.tabPending, count: pending.data?.items.length },
+  ]
 
   return (
     <>
       <PageHeader
         title={ru.debtors.title}
         actions={
-          (debtors.data?.items.length ?? 0) > 0 && (
+          (list.data?.items.length ?? 0) > 0 && (
             <Button icon={<Send size={18} aria-hidden="true" />} onClick={() => setConfirmAll(true)}>
               {ru.debtors.remindAll}
             </Button>
@@ -79,64 +98,104 @@ export function DebtorsPage() {
       </div>
 
       <div className={s.toolbar}>
+        <div className={s.tabs} role="tablist" aria-label={ru.debtors.tabs}>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls="debtors-panel"
+              className={cx(s.tab, tab === t.id && s.tabOn)}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+              {t.count !== undefined && <span className={s.tabCount}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
         <Select label={ru.debtors.group} value={group} onChange={(e) => setGroup(e.target.value)} options={groupOptions(groups.data)} placeholder={ru.debtors.allGroups} />
       </div>
 
-      {debtors.isPending ? (
-        <SkeletonList rows={5} />
-      ) : debtors.isError ? (
-        <ErrorState message={errorMessage(debtors.error)} onRetry={() => void debtors.refetch()} />
-      ) : debtors.data.items.length === 0 ? (
-        <Card>
-          <EmptyState icon={<CheckCircle2 aria-hidden="true" />} title={group ? ru.debtors.emptyGroup : ru.debtors.emptyTitle} text={group ? undefined : ru.debtors.emptyText} />
-        </Card>
-      ) : (
-        <Card flush>
-          <ul className={shared.list} aria-label={ru.debtors.title}>
-            {debtors.data.items.map((d) => (
-              <li key={d.student_id} className={shared.row}>
-                <div className={shared.rowMain}>
-                  <Link to={centerPath(c.id, `students/${d.student_id}`)} className={shared.rowTitle}>
-                    {d.full_name}
-                  </Link>
-                  <span className={shared.rowMeta}>
-                    {d.groups.map((g) => g.name).join(', ') || ru.students.noGroups}
-                    {d.parent?.name ? ` · ${d.parent.name}` : ''}
-                  </span>
-                  <span>
-                    <TgBadge status={d.parent?.tg_status} short />
-                  </span>
-                </div>
-                <div className={shared.rowSide}>
-                  <MoneyText tyiyn={d.debt} tone="debt" className={shared.amount} />
-                  <span className={s.overdue}>{ru.debtors.overdue(d.days_overdue)}</span>
-                  <span className={shared.rowMeta}>{ru.debtors.since(formatDate(d.oldest_due_date))}</span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon={<Send size={16} aria-hidden="true" />}
-                    loading={pendingId === d.student_id}
-                    disabled={remind.isPending}
-                    onClick={() => send({ student_ids: [d.student_id] }, d.student_id)}
-                    aria-label={`${ru.debtors.remind}: ${d.full_name}`}
-                  >
-                    {ru.debtors.remind}
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      <div id="debtors-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {list.isPending ? (
+          <SkeletonList rows={5} />
+        ) : list.isError ? (
+          <ErrorState message={errorMessage(list.error)} onRetry={() => void list.refetch()} />
+        ) : list.data.items.length === 0 ? (
+          <Card>
+            {tab === 'overdue' ? (
+              <EmptyState icon={<CheckCircle2 aria-hidden="true" />} title={group ? ru.debtors.emptyGroup : ru.debtors.emptyTitle} text={group ? undefined : ru.debtors.emptyText} />
+            ) : (
+              <EmptyState icon={<CheckCircle2 aria-hidden="true" />} title={group ? ru.debtors.pendingEmptyGroup : ru.debtors.pendingEmptyTitle} text={group ? undefined : ru.debtors.pendingEmptyText} />
+            )}
+          </Card>
+        ) : (
+          <Card flush>
+            <ul className={shared.list} aria-label={tab === 'overdue' ? ru.debtors.tabOverdue : ru.debtors.tabPending}>
+              {list.data.items.map((d) => (
+                <li key={d.student_id} className={shared.row}>
+                  <div className={shared.rowMain}>
+                    <span className={shared.rowTitle}>
+                      <Link to={centerPath(c.id, `students/${d.student_id}`)} className={s.name}>
+                        {d.full_name}
+                      </Link>
+                      <StudentStatusBadge status={d.status} />
+                    </span>
+                    <span className={shared.rowMeta}>
+                      {d.groups.map((g) => g.name).join(', ') || ru.students.noGroups}
+                      {d.parent?.name ? ` · ${d.parent.name}` : ''}
+                    </span>
+                    <span className={s.badges}>
+                      <TgBadge status={d.parent?.tg_status} short />
+                      {d.reminded_today && (
+                        <Badge tone="excused">
+                          <BellRing size={12} aria-hidden="true" /> {ru.debtors.remindedToday}
+                        </Badge>
+                      )}
+                    </span>
+                  </div>
+                  <div className={shared.rowSide}>
+                    <MoneyText tyiyn={d.debt} tone={tab === 'overdue' ? 'debt' : undefined} className={shared.amount} />
+                    {tab === 'overdue' ? (
+                      <>
+                        <span className={s.overdue}>{ru.debtors.overdue(d.days_overdue)}</span>
+                        <span className={shared.rowMeta}>{ru.debtors.since(formatDate(d.oldest_due_date))}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className={s.dueIn}>{ru.debtors.dueIn(d.due_in_days)}</span>
+                        <span className={shared.rowMeta}>{ru.debtors.dueOn(formatDate(d.oldest_due_date))}</span>
+                      </>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Send size={16} aria-hidden="true" />}
+                      loading={pendingId === d.student_id}
+                      disabled={remind.isPending}
+                      onClick={() => send({ student_ids: [d.student_id] }, d.student_id)}
+                      aria-label={`${ru.debtors.remind}: ${d.full_name}`}
+                    >
+                      {ru.debtors.remind}
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
 
       <ConfirmDialog
         open={confirmAll}
         onOpenChange={setConfirmAll}
-        title={ru.debtors.remindAllConfirm}
-        text={ru.debtors.remindAllText}
+        title={tab === 'overdue' ? ru.debtors.remindAllConfirm : ru.debtors.remindPendingConfirm}
+        text={tab === 'overdue' ? ru.debtors.remindAllText : ru.debtors.remindPendingText}
         confirmLabel={ru.debtors.remindAll}
         loading={remind.isPending && pendingId === undefined}
-        onConfirm={() => send({ all: true })}
+        onConfirm={remindAll}
       />
 
       <Dialog

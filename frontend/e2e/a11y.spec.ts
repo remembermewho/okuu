@@ -57,6 +57,12 @@ test('основные экраны: нет критических наруше�
     await check(page, info, name)
   }
 
+  // Вкладка «Ожидают оплаты», профиль.
+  await page.goto(`/c/${centerId}/debtors?tab=pending`)
+  await check(page, info, 'debtors-pending')
+  await page.goto('/account')
+  await check(page, info, 'account')
+
   // Окно оплаты (диалог) — тоже.
   await page.goto(`/c/${centerId}/students/${firstId}`)
   await page.getByRole('button', { name: 'Отметить оплату' }).click()

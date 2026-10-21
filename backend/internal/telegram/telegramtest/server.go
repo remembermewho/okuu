@@ -234,7 +234,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error_code": 400, "description": "Bad Request: message to edit not found"})
 			return
 		}
-	case "answerCallbackQuery", "setWebhook":
+	case "answerCallbackQuery", "setWebhook", "setMyCommands":
 	default:
 		s.mu.Unlock()
 		writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "error_code": 404, "description": "Not Found: method " + method})

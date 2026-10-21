@@ -1,4 +1,4 @@
-import { Building2, ChevronRight, LogOut, SearchX } from 'lucide-react'
+import { Building2, ChevronRight, LogOut, SearchX, UserRound } from 'lucide-react'
 import { Link } from 'react-router'
 import { ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui'
 import { AuthLayout } from '@/features/auth/AuthLayout'
@@ -47,6 +47,11 @@ export function MorePage() {
               <ChevronRight size={18} aria-hidden="true" />
             </Link>
           ))}
+          <Link to="/account" state={{ from: centerPath(c.id, 'more') }} className={s.moreItem}>
+            <UserRound size={20} aria-hidden="true" />
+            {ru.account.menu}
+            <ChevronRight size={18} aria-hidden="true" />
+          </Link>
           <button type="button" className={`${s.moreItem} ${s.moreButton}`} onClick={signOut.run}>
             <LogOut size={20} aria-hidden="true" />
             {ru.nav.logout}

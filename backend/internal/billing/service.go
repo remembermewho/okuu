@@ -341,10 +341,20 @@ type Debtor struct {
 	ParentName     *string
 	ParentPhone    *string
 	ParentTgStatus *string
-	Debt           int64
-	DaysOverdue    int
-	OldestDueDate  civil.Date
+	// ParentLastReminder — когда родителю последний раз ушло напоминание; RemindedToday — сегодня в поясе центра.
+	ParentLastReminder *time.Time
+	RemindedToday      bool
+	Debt               int64
+	DaysOverdue        int        // просрочено: дней с самого старого непогашенного срока
+	OldestDueDate      civil.Date // самый ранний непогашенный срок (у ожидающих — ближайший)
+	DueInDays          int        // ожидают оплаты: дней до срока (0 — срок сегодня)
 }
+
+// Списки должников.
+const (
+	DebtorsOverdue = "overdue" // R14: долг, срок прошёл
+	DebtorsPending = "pending" // отрицательный баланс, срок ещё не наступил (или сегодня)
+)
 
 // Summary — итоги текущего месяца по всему центру.
 type Summary struct {
@@ -358,9 +368,16 @@ type Summary struct {
 	PendingCount int
 }
 
-// Debtors — должники (balance < 0 и срок прошёл), по убыванию долга, и итоги месяца.
-// groupID != nil — только ученики, у которых была запись в эту группу; итоги — по всему центру.
-func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID) ([]Debtor, Summary, error) {
+// Debtors — список и итоги месяца. status = overdue: должники (balance < 0 и срок прошёл), по убыванию
+// долга; pending: отрицательный баланс без просрочки, по ближайшему сроку. groupID != nil — только ученики,
+// у которых была запись в эту группу; итоги — по всему центру.
+func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID, status string) ([]Debtor, Summary, error) {
+	if status == "" {
+		status = DebtorsOverdue
+	}
+	if status != DebtorsOverdue && status != DebtorsPending {
+		return nil, Summary{}, validate.Errorf("status", "status — overdue или pending")
+	}
 	c, err := s.q.GetCenter(ctx, centerID)
 	if err != nil {
 		return nil, Summary{}, err
@@ -370,14 +387,17 @@ func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 		return nil, Summary{}, err
 	}
 
-	all, pending, err := s.debtors(ctx, centerID, nil, today, c.Timezone)
+	overdue, pending, err := s.debtors(ctx, centerID, nil, today, c.Timezone)
 	if err != nil {
 		return nil, Summary{}, err
 	}
 	period := today.FirstOfMonth()
-	sum := Summary{Period: period, DebtorsCount: len(all), PendingTotal: pending.total, PendingCount: pending.count}
-	for _, d := range all {
+	sum := Summary{Period: period, DebtorsCount: len(overdue), PendingCount: len(pending)}
+	for _, d := range overdue {
 		sum.DebtTotal += d.Debt
+	}
+	for _, d := range pending {
+		sum.PendingTotal += d.Debt
 	}
 	m, err := s.q.MonthSummary(ctx, sqlc.MonthSummaryParams{CenterID: centerID, Period: period, NextPeriod: period.AddMonths(1), Tz: c.Timezone})
 	if err != nil {
@@ -385,26 +405,23 @@ func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 	}
 	sum.Charged, sum.Collected = m.Charged, m.Collected
 
-	items := all
 	if groupID != nil {
-		if items, _, err = s.debtors(ctx, centerID, groupID, today, c.Timezone); err != nil {
+		if overdue, pending, err = s.debtors(ctx, centerID, groupID, today, c.Timezone); err != nil {
 			return nil, Summary{}, err
 		}
 	}
-	return items, sum, nil
+	if status == DebtorsPending {
+		return pending, sum, nil
+	}
+	return overdue, sum, nil
 }
 
-// pendingStats — ученики с отрицательным балансом, у которых срок ещё не наступил (не должники по R14).
-type pendingStats struct {
-	total int64
-	count int
-}
-
-func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID, today civil.Date, tz string) ([]Debtor, pendingStats, error) {
-	var pending pendingStats
+// debtors — должники (просрочено) и ожидающие оплаты (отрицательный баланс, срок не наступил).
+func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID, today civil.Date, tz string) (overdue, pending []Debtor, err error) {
+	overdue, pending = []Debtor{}, []Debtor{}
 	cands, err := s.q.ListDebtCandidates(ctx, sqlc.ListDebtCandidatesParams{CenterID: centerID, GroupID: groupID})
 	if err != nil || len(cands) == 0 {
-		return []Debtor{}, pending, err
+		return overdue, pending, err
 	}
 	ids := make([]uuid.UUID, 0, len(cands))
 	for _, c := range cands {
@@ -412,47 +429,71 @@ func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 	}
 	rows, err := s.q.ListActiveOperations(ctx, sqlc.ListActiveOperationsParams{CenterID: centerID, StudentIds: ids})
 	if err != nil {
-		return nil, pending, err
+		return nil, nil, err
 	}
 	ops := map[uuid.UUID][]Op{}
 	for _, r := range rows {
 		on, err := civil.DateIn(r.CreatedAt, tz)
 		if err != nil {
-			return nil, pending, err
+			return nil, nil, err
 		}
 		ops[r.StudentID] = append(ops[r.StudentID], Op{ID: r.ID, Kind: r.Kind, Amount: r.Amount, DueDate: r.DueDate, CreatedAt: r.CreatedAt, CreatedOn: on})
 	}
 
-	out := []Debtor{}
 	for _, c := range cands {
 		d := ComputeDebt(ops[c.ID], today)
-		if !d.IsDebtor {
-			if d.Balance < 0 {
-				pending.total += d.Debt
-				pending.count++
-			}
+		if d.Balance >= 0 || d.OldestDue == nil {
 			continue
 		}
 		var groups []GroupRef
 		if err := json.Unmarshal(c.Groups, &groups); err != nil {
-			return nil, pending, fmt.Errorf("группы ученика %s: %w", c.ID, err)
+			return nil, nil, fmt.Errorf("группы ученика %s: %w", c.ID, err)
 		}
-		out = append(out, Debtor{
+		row := Debtor{
 			StudentID: c.ID, FullName: c.FullName, Status: c.Status, Groups: groups,
 			ParentName: c.ParentName, ParentPhone: c.ParentPhone, ParentTgStatus: c.ParentTgStatus,
-			Debt: d.Debt, DaysOverdue: d.DaysOverdue, OldestDueDate: *d.OldestDue,
-		})
-	}
-	slices.SortFunc(out, func(a, b Debtor) int {
-		if c := cmp.Compare(b.Debt, a.Debt); c != 0 {
-			return c
+			ParentLastReminder: c.ParentLastReminderAt,
+			Debt:               d.Debt, DaysOverdue: d.DaysOverdue, OldestDueDate: *d.OldestDue,
 		}
+		if c.ParentLastReminderAt != nil {
+			on, err := civil.DateIn(*c.ParentLastReminderAt, tz)
+			if err != nil {
+				return nil, nil, err
+			}
+			row.RemindedToday = on == today
+		}
+		if d.IsDebtor {
+			overdue = append(overdue, row)
+			continue
+		}
+		if days := d.OldestDue.DaysSince(today); days > 0 {
+			row.DueInDays = days
+		}
+		pending = append(pending, row)
+	}
+	byName := func(a, b Debtor) int {
 		if c := cmp.Compare(a.FullName, b.FullName); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.StudentID.String(), b.StudentID.String())
+	}
+	slices.SortFunc(overdue, func(a, b Debtor) int {
+		if c := cmp.Compare(b.Debt, a.Debt); c != 0 {
+			return c
+		}
+		return byName(a, b)
 	})
-	return out, pending, nil
+	// Ожидающие — по ближайшему сроку, затем по сумме.
+	slices.SortFunc(pending, func(a, b Debtor) int {
+		if c := a.OldestDueDate.Compare(b.OldestDueDate); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(b.Debt, a.Debt); c != 0 {
+			return c
+		}
+		return byName(a, b)
+	})
+	return overdue, pending, nil
 }
 
 func fromLedger(r sqlc.Ledger) Operation {

@@ -120,11 +120,14 @@ func TestLoad(t *testing.T) {
 		{"неизвестный APP_ENV", map[string]string{"APP_ENV": "staging", "DATABASE_URL": "postgres://x"}, true},
 		{"FINIK_ENABLED=true", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "FINIK_ENABLED": "true"}, false},
 		{"FINIK_ENABLED кривой", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "FINIK_ENABLED": "maybe"}, true},
+		{"BOT_LANGUAGES=ru,ky", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ru,ky"}, false},
+		{"BOT_LANGUAGES без ru", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ky"}, true},
+		{"BOT_LANGUAGES неизвестный", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ru,en"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY", "FINIK_ENABLED",
-				"FINIK_API_KEY", "TRUSTED_PROXIES", "ALERT_TELEGRAM_CHAT_ID"}, telegramVars...) {
+				"FINIK_API_KEY", "TRUSTED_PROXIES", "ALERT_TELEGRAM_CHAT_ID", "BOT_LANGUAGES"}, telegramVars...) {
 				t.Setenv(k, tt.env[k])
 			}
 			cfg, err := Load()
@@ -148,6 +151,9 @@ func TestLoad(t *testing.T) {
 			}
 			if cfg.HTTPAddr != ":8080" {
 				t.Errorf("HTTPAddr = %q, want :8080 по умолчанию", cfg.HTTPAddr)
+			}
+			if cfg.BotLanguages.Multi() != (tt.env["BOT_LANGUAGES"] == "ru,ky") {
+				t.Errorf("BotLanguages = %s (по умолчанию — только ru)", cfg.BotLanguages.List())
 			}
 			if cfg.FinikEnabled != (tt.env["FINIK_ENABLED"] == "true") {
 				t.Errorf("FinikEnabled = %v", cfg.FinikEnabled)

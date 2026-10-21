@@ -44,6 +44,12 @@
   margin: 4px 0 var(--space-5);
 }
 
+.okIcon {
+  display: block;
+  margin: 0 auto var(--space-3);
+  color: var(--primary);
+}
+
 .subtitle {
   font-size: var(--fs-lg);
   margin: 0;

@@ -42,6 +42,25 @@ export function useRevokeInvite(centerId: string) {
   })
 }
 
+/** «Новая ссылка»: старое приглашение отзывается, новое — с теми же ролью и именем. */
+export function useReissueInvite(centerId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (inviteId: string) =>
+      unwrap(api.POST('/api/v1/c/{centerId}/staff/invites/{inviteId}/reissue', { params: { path: { centerId, inviteId } } })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.invites(centerId) }),
+  })
+}
+
+/** Ссылка сброса пароля сотрудника (owner); 409 reset_not_allowed — сотрудник в других центрах или владелец. */
+export function useIssuePasswordReset(centerId: string) {
+  return useMutation({
+    mutationFn: (userId: string) =>
+      unwrap(api.POST('/api/v1/c/{centerId}/staff/{userId}/password-reset', { params: { path: { centerId, userId } } })),
+    meta: { silent: true },
+  })
+}
+
 export function useChangeRole(centerId: string) {
   const qc = useQueryClient()
   return useMutation({

@@ -15,11 +15,15 @@ const (
 	KindDueSoon    = "due_soon"    // за 3 дня до срока оплаты
 	KindDueToday   = "due_today"   // в день срока, если не оплачено
 	KindOverdue3   = "overdue_3"   // 3 дня просрочки
-	KindOverdue7   = "overdue_7"   // 7 дней просрочки; дальше — только вручную
+	KindOverdue7   = "overdue_7"   // 7 дней просрочки
 	KindManual     = "manual"      // кнопка «Напомнить»
 	KindPaid       = "paid"        // после оплаты
 	KindPackageLow = "package_low" // в абонементе осталось 1 занятие (R10)
 	KindAbsent     = "absent"      // ребёнок отмечен «не был» (настройка центра notify_absent)
+
+	// KindOverdueWeekly — повтор раз в 7 дней после 7-го дня (14, 21, 28…), пока долг не оплачен
+	// (настройка центра overdue_repeat = weekly; off — дальше только вручную).
+	KindOverdueWeekly = "overdue_weekly"
 )
 
 // Event — событийное уведомление: пишется в notification_outbox в транзакции самого события

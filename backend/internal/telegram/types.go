@@ -70,8 +70,19 @@ type InlineKeyboardButton struct {
 
 type ReplyKeyboardMarkup struct {
 	Keyboard        [][]KeyboardButton `json:"keyboard"`
+	IsPersistent    bool               `json:"is_persistent,omitempty"` // клавиатура видна всегда, не сворачивается
 	ResizeKeyboard  bool               `json:"resize_keyboard,omitempty"`
 	OneTimeKeyboard bool               `json:"one_time_keyboard,omitempty"`
+}
+
+// BotCommand — команда в меню бота (кнопка «Меню» рядом с полем ввода).
+type BotCommand struct {
+	Command     string `json:"command"` // без «/»
+	Description string `json:"description"`
+}
+
+type SetMyCommandsParams struct {
+	Commands []BotCommand `json:"commands"`
 }
 
 type KeyboardButton struct {

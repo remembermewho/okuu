@@ -21,12 +21,13 @@ WHERE center_id = @center_id AND id = @id
 FOR UPDATE;
 
 -- name: UpdateStudent :one
--- left_at: ставится при переходе в left, снимается при выходе из left (в SET status — ещё старое значение).
+-- left_at: ставится при переходе в left (начало последнего дня занятий в поясе центра; без него — сейчас),
+-- снимается при выходе из left (в SET status — ещё старое значение).
 UPDATE students
 SET full_name = @full_name, birth_date = @birth_date, status = @status,
     discount_kind = @discount_kind, discount_value = @discount_value, parent_id = @parent_id,
     left_at = CASE
-      WHEN @status::text = 'left' AND status <> 'left' THEN now()
+      WHEN @status::text = 'left' AND status <> 'left' THEN COALESCE(sqlc.narg(left_at)::timestamptz, now())
       WHEN @status::text <> 'left' THEN NULL
       ELSE left_at
     END
@@ -48,6 +49,7 @@ FROM students s
 LEFT JOIN parents p ON p.id = s.parent_id
 WHERE s.center_id = @center_id
   AND (sqlc.narg(status)::text IS NULL OR s.status = sqlc.narg(status)::text)
+  AND (NOT sqlc.arg(hide_left)::boolean OR s.status <> 'left')
   AND (sqlc.narg(tg)::text IS NULL OR COALESCE(p.tg_status, 'none') = sqlc.narg(tg)::text)
   AND (sqlc.narg(group_id)::uuid IS NULL OR EXISTS (
         SELECT 1 FROM enrollments e

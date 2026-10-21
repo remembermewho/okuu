@@ -21,6 +21,16 @@ WHERE token_hash = @token_hash;
 DELETE FROM sessions
 WHERE token_hash = $1;
 
+-- name: DeleteUserSessions :execrows
+-- «Выйти на всех устройствах», сброс пароля: все сессии пользователя.
+DELETE FROM sessions
+WHERE user_id = $1;
+
+-- name: DeleteUserSessionsExcept :execrows
+-- Смена пароля: все сессии пользователя, кроме текущей.
+DELETE FROM sessions
+WHERE user_id = @user_id AND token_hash <> @keep_token_hash;
+
 -- name: DeleteExpiredSessions :execrows
 DELETE FROM sessions
 WHERE expires_at <= now();

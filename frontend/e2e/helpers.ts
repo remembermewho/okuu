@@ -36,7 +36,8 @@ export async function registerCenter(page: Page, centerName = 'Билим Плю
   await page.getByLabel('Название центра').fill(centerName)
   await page.getByLabel('Ваше имя').fill(name)
   await page.getByLabel('Телефон').fill(ph)
-  await page.getByLabel('Пароль').fill('secret-pass')
+  // exact: рядом кнопка-глаз «Показать пароль».
+  await page.getByLabel('Пароль', { exact: true }).fill('secret-pass')
   await page.getByRole('button', { name: 'Создать центр' }).click()
   await page.waitForURL(/\/c\/[^/]+\/debtors/)
   const centerId = /\/c\/([^/]+)\//.exec(page.url())?.[1]

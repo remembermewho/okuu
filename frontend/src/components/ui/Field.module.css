@@ -56,6 +56,34 @@
   padding-right: 44px;
 }
 
+.withToggle {
+  padding-right: 52px;
+}
+
+.toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  color: var(--text);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -4px;
+}
+
 .suffix {
   position: absolute;
   right: var(--space-3);

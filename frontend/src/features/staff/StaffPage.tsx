@@ -1,19 +1,19 @@
 import * as Menu from '@radix-ui/react-dropdown-menu'
-import { MessageCircle, MoreVertical, UserPlus } from 'lucide-react'
+import { MoreVertical, RefreshCw, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import type { Schemas } from '@/api/client'
 import { useCenter } from '@/app/center'
 import menu from '@/app/layout.module.css'
 import { can } from '@/app/permissions'
-import { CopyButton } from '@/components/shared'
+import { ShareLinkDialog } from '@/components/ShareLinkDialog'
 import shared from '@/components/shared.module.css'
-import { Badge, Button, ButtonAnchor, Card, CardHeader, ConfirmDialog, Dialog, EmptyState, ErrorState, FormError, Input, PageHeader, RadioGroup, SkeletonList, layout, useToast } from '@/components/ui'
+import { Badge, Button, Card, CardHeader, ConfirmDialog, Dialog, EmptyState, ErrorState, FormError, Input, PageHeader, RadioGroup, SkeletonList, layout, useToast } from '@/components/ui'
 import { useMe } from '@/features/auth/api'
 import { ru } from '@/i18n/ru'
 import { formatDateTime } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { formatPhone } from '@/utils/phone'
-import { useChangeRole, useCreateInvite, useInvites, useRemoveStaff, useRevokeInvite, useStaff, type Invite, type StaffMember, type StaffRole } from './api'
+import { useChangeRole, useCreateInvite, useInvites, useIssuePasswordReset, useReissueInvite, useRemoveStaff, useRevokeInvite, useStaff, type Invite, type StaffMember, type StaffRole } from './api'
 import s from './Staff.module.css'
 
 const ROLES: StaffRole[] = ['admin', 'teacher']
@@ -28,10 +28,15 @@ export function StaffPage() {
   const changeRole = useChangeRole(c.id)
   const remove = useRemoveStaff(c.id)
   const revoke = useRevokeInvite(c.id)
+  const reissue = useReissueInvite(c.id)
   const toast = useToast()
   const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
   const [revoking, setRevoking] = useState<Invite | null>(null)
+  const [reissued, setReissued] = useState<Schemas['CreatedInvite'] | null>(null)
+  const pwReset = useIssuePasswordReset(c.id)
+  const [resetLink, setResetLink] = useState<Schemas['PasswordResetLink'] | null>(null)
+  const who = (i: Invite) => ru.staff.inviteFor(ru.roles[i.role] ?? i.role, i.name ?? ru.staff.noName)
 
   return (
     <>
@@ -84,6 +89,12 @@ export function StaffPage() {
                               {ru.staff.makeRole(ru.roles[r] ?? r)}
                             </Menu.Item>
                           ))}
+                          <Menu.Item
+                            className={menu.menuItem}
+                            onSelect={() => pwReset.mutate(m.user_id, { onSuccess: setResetLink, onError: (err) => toast({ message: errorMessage(err), tone: 'error' }) })}
+                          >
+                            {ru.staffReset.action}
+                          </Menu.Item>
                           <Menu.Item className={menu.menuItem} onSelect={() => setRemoving(m)}>
                             {ru.staff.remove}
                           </Menu.Item>
@@ -111,12 +122,24 @@ export function StaffPage() {
                 {invites.data.map((i) => (
                   <li key={i.id} className={s.inviteRow}>
                     <div className={shared.rowMain}>
-                      <span className={shared.rowTitle}>{ru.staff.inviteFor(ru.roles[i.role] ?? i.role, i.name)}</span>
+                      <span className={shared.rowTitle}>{who(i)}</span>
                       <span className={shared.rowMeta}>{ru.staff.expires(formatDateTime(i.expires_at))}</span>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => setRevoking(i)}>
-                      {ru.staff.revoke}
-                    </Button>
+                    <div className={s.inviteActions}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<RefreshCw size={16} aria-hidden="true" />}
+                        aria-label={ru.staff.reissueLabel(who(i))}
+                        loading={reissue.isPending && reissue.variables === i.id}
+                        onClick={() => reissue.mutate(i.id, { onSuccess: setReissued })}
+                      >
+                        {ru.staff.reissue}
+                      </Button>
+                      <Button size="sm" variant="ghost" aria-label={ru.staff.revokeLabel(who(i))} onClick={() => setRevoking(i)}>
+                        {ru.staff.revoke}
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -126,6 +149,17 @@ export function StaffPage() {
       </div>
 
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+      {reissued && <InviteLinkDialog created={reissued} lead={ru.staff.reissuedLead} onClose={() => setReissued(null)} />}
+      {resetLink && (
+        <ShareLinkDialog
+          title={ru.staffReset.title}
+          lead={ru.staffReset.lead(resetLink.name)}
+          url={resetLink.url}
+          hint={ru.staffReset.expires(formatDateTime(resetLink.expires_at))}
+          whatsappText={ru.staffReset.whatsappText(c.name, resetLink.url)}
+          onClose={() => setResetLink(null)}
+        />
+      )}
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(o) => !o && setRemoving(null)}
@@ -180,22 +214,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
     )
   }
 
-  if (created) {
-    const wa = `https://wa.me/?text=${encodeURIComponent(ru.staff.whatsappText(c.name, created.url))}`
-    return (
-      <Dialog open onOpenChange={(o) => !o && onClose()} title={ru.staff.linkTitle} description={ru.staff.linkLead} footer={<Button onClick={onClose}>{ru.common.close}</Button>}>
-        <div className={layout.stack}>
-          <Input label={ru.staff.link} value={created.url} readOnly hint={ru.staff.expires(formatDateTime(created.expires_at))} onFocus={(e) => e.currentTarget.select()} />
-          <div className={s.actions}>
-            <CopyButton text={created.url} label={ru.staff.copyLink} variant="primary" />
-            <ButtonAnchor variant="secondary" href={wa} target="_blank" rel="noopener noreferrer" icon={<MessageCircle size={18} aria-hidden="true" />}>
-              {ru.staff.whatsapp}
-            </ButtonAnchor>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
+  if (created) return <InviteLinkDialog created={created} lead={ru.staff.linkLead} onClose={onClose} />
 
   return (
     <Dialog
@@ -226,5 +245,19 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
         <FormError>{error.form}</FormError>
       </form>
     </Dialog>
+  )
+}
+
+function InviteLinkDialog({ created, lead, onClose }: { created: Schemas['CreatedInvite']; lead: string; onClose: () => void }) {
+  const c = useCenter()
+  return (
+    <ShareLinkDialog
+      title={ru.staff.linkTitle}
+      lead={lead}
+      url={created.url}
+      hint={ru.staff.expires(formatDateTime(created.expires_at))}
+      whatsappText={ru.staff.whatsappText(c.name, created.url)}
+      onClose={onClose}
+    />
   )
 }

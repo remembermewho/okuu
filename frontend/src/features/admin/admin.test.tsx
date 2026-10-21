@@ -159,6 +159,7 @@ const settings: Schemas['Settings'] = {
   due_days: 5,
   excused_deducts: false,
   reminders_on: true,
+  overdue_repeat: 'weekly',
   notify_absent: false,
   pay_details: null,
   plan: 'start',
@@ -167,7 +168,7 @@ const settings: Schemas['Settings'] = {
 
 describe('настройки', () => {
   it('в PATCH — только изменённые поля; пустые необязательные → null', () => {
-    const before = { name: 'Билим', phone: '', timezone: 'Asia/Bishkek', billing_day: '1', due_days: '5', excused_deducts: false, reminders_on: true, notify_absent: false, pay_details: 'old' }
+    const before = { name: 'Билим', phone: '', timezone: 'Asia/Bishkek', billing_day: '1', due_days: '5', excused_deducts: false, reminders_on: true, overdue_repeat: 'weekly' as const, notify_absent: false, pay_details: 'old' }
     expect(settingsPatch(before, { ...before })).toEqual({})
     expect(settingsPatch(before, { ...before, billing_day: '10', phone: '0700 123 456', pay_details: '  ', notify_absent: true })).toEqual({
       billing_day: 10,
@@ -175,6 +176,23 @@ describe('настройки', () => {
       pay_details: null,
       notify_absent: true,
     })
+    expect(settingsPatch(before, { ...before, overdue_repeat: 'off' })).toEqual({ overdue_repeat: 'off' })
+  })
+
+  it('повтор напоминаний после 7-го дня — выбор и сохранение', async () => {
+    const { calls } = mockApi({
+      'GET /api/v1/me': { body: meOwner },
+      [`GET ${C}/settings`]: { body: settings },
+      [`PATCH ${C}/settings`]: { body: { ...settings, overdue_repeat: 'off' } },
+    })
+    renderRoute('/c/c1/settings')
+    const select = await screen.findByLabelText('После 7-го дня просрочки')
+    expect(select).toHaveValue('weekly')
+    expect(screen.getByText(/14, 21, 28… день/)).toBeInTheDocument()
+    await userEvent.selectOptions(select, 'off')
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    await waitFor(() => expect(calls.some((r) => r.method === 'PATCH')).toBe(true))
+    expect(await bodyOf(calls.find((r) => r.method === 'PATCH')!)).toEqual({ overdue_repeat: 'off' })
   })
 
   it('смена дня начисления: подсказка, сохранение, «изменится с …»', async () => {

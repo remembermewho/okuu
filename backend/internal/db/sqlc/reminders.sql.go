@@ -62,7 +62,7 @@ const debtNotifiedSince = `-- name: DebtNotifiedSince :one
 SELECT EXISTS (
   SELECT 1 FROM notifications
   WHERE parent_id = $1 AND status = 'sent' AND sent_at >= $2
-    AND kind IN ('due_soon', 'due_today', 'overdue_3', 'overdue_7', 'manual')
+    AND kind IN ('due_soon', 'due_today', 'overdue_3', 'overdue_7', 'overdue_weekly', 'manual')
 )
 `
 
@@ -246,7 +246,7 @@ func (q *Queries) GetPaidEvent(ctx context.Context, arg GetPaidEventParams) (Get
 }
 
 const listCentersForReminders = `-- name: ListCentersForReminders :many
-SELECT id, name, timezone, pay_details, (finik_creds IS NOT NULL)::bool AS finik_connected
+SELECT id, name, timezone, pay_details, (finik_creds IS NOT NULL)::bool AS finik_connected, overdue_repeat
 FROM centers
 WHERE reminders_on
 ORDER BY id
@@ -258,6 +258,7 @@ type ListCentersForRemindersRow struct {
 	Timezone       string    `json:"timezone"`
 	PayDetails     *string   `json:"pay_details"`
 	FinikConnected bool      `json:"finik_connected"`
+	OverdueRepeat  string    `json:"overdue_repeat"`
 }
 
 func (q *Queries) ListCentersForReminders(ctx context.Context) ([]ListCentersForRemindersRow, error) {
@@ -275,6 +276,7 @@ func (q *Queries) ListCentersForReminders(ctx context.Context) ([]ListCentersFor
 			&i.Timezone,
 			&i.PayDetails,
 			&i.FinikConnected,
+			&i.OverdueRepeat,
 		); err != nil {
 			return nil, err
 		}

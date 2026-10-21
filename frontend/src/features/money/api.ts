@@ -6,10 +6,14 @@ export type Debtor = Schemas['Debtor']
 export type Operation = Schemas['Operation']
 export type RemindersResult = Schemas['RemindersResponse']
 
-export function useDebtors(centerId: string, group: string) {
+export type DebtorsStatus = 'overdue' | 'pending'
+
+/** overdue — просрочено (R14), pending — ожидают оплаты (долг, срок не наступил). */
+export function useDebtors(centerId: string, group: string, status: DebtorsStatus = 'overdue') {
   return useQuery({
-    queryKey: qk.debtors(centerId, group),
-    queryFn: () => unwrap(api.GET('/api/v1/c/{centerId}/debtors', { params: { path: { centerId }, query: group ? { group } : {} } })),
+    queryKey: qk.debtors(centerId, group, status),
+    queryFn: () =>
+      unwrap(api.GET('/api/v1/c/{centerId}/debtors', { params: { path: { centerId }, query: { status, ...(group ? { group } : {}) } } })),
     placeholderData: keepPreviousData,
   })
 }
@@ -66,6 +70,8 @@ export function useReminders(centerId: string) {
     mutationFn: (body: Schemas['RemindersRequest']) => unwrap(api.POST('/api/v1/c/{centerId}/reminders', { params: { path: { centerId } }, body })),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.students(centerId) })
+      // «Напоминали сегодня» в должниках.
+      void qc.invalidateQueries({ queryKey: qk.debtors(centerId) })
     },
   })
 }

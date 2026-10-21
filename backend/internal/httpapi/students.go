@@ -106,6 +106,7 @@ type patchStudentRequest struct {
 		Name  optional.Field[string] `json:"name"`
 		Phone optional.Field[string] `json:"phone"`
 	} `json:"parent"`
+	LeftDate *civil.Date `json:"left_date"` // последний день занятий, только со status = left
 }
 
 type enrollRequest struct {
@@ -123,6 +124,14 @@ type endEnrollmentRequest struct {
 func (h *handlers) listStudents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := students.ListFilter{Q: q.Get("q"), Status: q.Get("status"), Tg: q.Get("tg"), Cursor: q.Get("cursor")}
+	switch q.Get("hide_left") {
+	case "", "false":
+	case "true":
+		f.HideLeft = true
+	default:
+		validationError(w, "hide_left", "hide_left — true или false")
+		return
+	}
 	if v := q.Get("group"); v != "" {
 		id, err := uuid.Parse(v)
 		if err != nil {
@@ -202,7 +211,7 @@ func (h *handlers) patchStudent(w http.ResponseWriter, r *http.Request) {
 		badJSON(w)
 		return
 	}
-	p := students.Patch{FullName: req.FullName, BirthDate: req.BirthDate, Status: req.Status, Discount: req.Discount}
+	p := students.Patch{FullName: req.FullName, BirthDate: req.BirthDate, Status: req.Status, Discount: req.Discount, LeftDate: req.LeftDate}
 	if req.Parent != nil {
 		p.Parent = &students.ParentPatch{Name: req.Parent.Name, Phone: req.Parent.Phone}
 	}

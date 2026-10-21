@@ -150,22 +150,24 @@ FROM students s
 LEFT JOIN parents p ON p.id = s.parent_id
 WHERE s.center_id = $1
   AND ($2::text IS NULL OR s.status = $2::text)
-  AND ($3::text IS NULL OR COALESCE(p.tg_status, 'none') = $3::text)
-  AND ($4::uuid IS NULL OR EXISTS (
+  AND (NOT $3::boolean OR s.status <> 'left')
+  AND ($4::text IS NULL OR COALESCE(p.tg_status, 'none') = $4::text)
+  AND ($5::uuid IS NULL OR EXISTS (
         SELECT 1 FROM enrollments e
-        WHERE e.student_id = s.id AND e.group_id = $4::uuid AND e.end_date IS NULL))
-  AND ($5::text IS NULL
-       OR s.full_name ILIKE $5::text
-       OR ($6::text IS NOT NULL AND p.phone LIKE $6::text))
-  AND ($7::text IS NULL
-       OR (s.full_name, s.id) > ($7::text, $8::uuid))
+        WHERE e.student_id = s.id AND e.group_id = $5::uuid AND e.end_date IS NULL))
+  AND ($6::text IS NULL
+       OR s.full_name ILIKE $6::text
+       OR ($7::text IS NOT NULL AND p.phone LIKE $7::text))
+  AND ($8::text IS NULL
+       OR (s.full_name, s.id) > ($8::text, $9::uuid))
 ORDER BY s.full_name, s.id
-LIMIT $9
+LIMIT $10
 `
 
 type ListStudentsParams struct {
 	CenterID  uuid.UUID  `json:"center_id"`
 	Status    *string    `json:"status"`
+	HideLeft  bool       `json:"hide_left"`
 	Tg        *string    `json:"tg"`
 	GroupID   *uuid.UUID `json:"group_id"`
 	NameQ     *string    `json:"name_q"`
@@ -197,6 +199,7 @@ func (q *Queries) ListStudents(ctx context.Context, arg ListStudentsParams) ([]L
 	rows, err := q.db.Query(ctx, listStudents,
 		arg.CenterID,
 		arg.Status,
+		arg.HideLeft,
 		arg.Tg,
 		arg.GroupID,
 		arg.NameQ,
@@ -242,11 +245,11 @@ UPDATE students
 SET full_name = $1, birth_date = $2, status = $3,
     discount_kind = $4, discount_value = $5, parent_id = $6,
     left_at = CASE
-      WHEN $3::text = 'left' AND status <> 'left' THEN now()
+      WHEN $3::text = 'left' AND status <> 'left' THEN COALESCE($7::timestamptz, now())
       WHEN $3::text <> 'left' THEN NULL
       ELSE left_at
     END
-WHERE center_id = $7 AND id = $8
+WHERE center_id = $8 AND id = $9
 RETURNING id, center_id, parent_id, full_name, birth_date, status, discount_kind, discount_value, created_at, left_at
 `
 
@@ -257,11 +260,13 @@ type UpdateStudentParams struct {
 	DiscountKind  *string     `json:"discount_kind"`
 	DiscountValue *int64      `json:"discount_value"`
 	ParentID      *uuid.UUID  `json:"parent_id"`
+	LeftAt        *time.Time  `json:"left_at"`
 	CenterID      uuid.UUID   `json:"center_id"`
 	ID            uuid.UUID   `json:"id"`
 }
 
-// left_at: ставится при переходе в left, снимается при выходе из left (в SET status — ещё старое значение).
+// left_at: ставится при переходе в left (начало последнего дня занятий в поясе центра; без него — сейчас),
+// снимается при выходе из left (в SET status — ещё старое значение).
 func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error) {
 	row := q.db.QueryRow(ctx, updateStudent,
 		arg.FullName,
@@ -270,6 +275,7 @@ func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (S
 		arg.DiscountKind,
 		arg.DiscountValue,
 		arg.ParentID,
+		arg.LeftAt,
 		arg.CenterID,
 		arg.ID,
 	)

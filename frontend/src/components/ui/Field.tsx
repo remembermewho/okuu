@@ -1,4 +1,5 @@
-import { useId, type ComponentProps, type ReactNode } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
+import { useId, useRef, useState, type ComponentProps, type ReactNode } from 'react'
 import { ru } from '@/i18n/ru'
 import { cx } from '@/utils/cx'
 import s from './Field.module.css'
@@ -65,6 +66,64 @@ export function Input({ label, hint, error, optional, suffix, className, id: idP
             {suffix}
           </span>
         )}
+      </div>
+    </Wrap>
+  )
+}
+
+/**
+ * Поле пароля с кнопкой «показать / скрыть». Кнопка не забирает фокус (mousedown — preventDefault),
+ * курсор и выделение в поле восстанавливаются после смены type.
+ */
+export function PasswordInput({ label, hint, error, optional, className, id: idProp, ref, ...rest }: Omit<InputProps, 'type' | 'suffix'>) {
+  const auto = useId()
+  const id = idProp ?? auto
+  const [shown, setShown] = useState(false)
+  const inner = useRef<HTMLInputElement | null>(null)
+  const setRef = (el: HTMLInputElement | null) => {
+    inner.current = el
+    if (typeof ref === 'function') ref(el)
+    else if (ref) ref.current = el
+  }
+  const toggle = () => {
+    const el = inner.current
+    const focused = el !== null && document.activeElement === el
+    const start = el?.selectionStart ?? null
+    const end = el?.selectionEnd ?? null
+    setShown((v) => !v)
+    if (el && focused) {
+      requestAnimationFrame(() => {
+        el.focus()
+        if (start !== null && end !== null) el.setSelectionRange(start, end)
+      })
+    }
+  }
+  return (
+    <Wrap id={id} label={label} hint={hint} error={error} optional={optional} className={className}>
+      <div className={s.control}>
+        <input
+          id={id}
+          ref={setRef}
+          type={shown ? 'text' : 'password'}
+          className={cx(s.input, s.withToggle)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={described(id, hint, error)}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          {...rest}
+        />
+        <button
+          type="button"
+          className={s.toggle}
+          aria-label={shown ? ru.ui.hidePassword : ru.ui.showPassword}
+          aria-pressed={shown}
+          aria-controls={id}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggle}
+        >
+          {shown ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}
+        </button>
       </div>
     </Wrap>
   )

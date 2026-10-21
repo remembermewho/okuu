@@ -14,6 +14,9 @@ import (
 var monthsKY = [...]string{"Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
 	"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"}
 
+// kyCommands — подсказка по командам (кыргызский бывает только с /lang: BOT_LANGUAGES=ru,ky).
+const kyCommands = "Баланс — /balance\nТөлөө — /pay\nКатышуу — /attendance\nТил — /lang\nБилдирүүлөрдү өчүрүү — /stop"
+
 func balanceKY(t int64) string {
 	switch {
 	case t < 0:
@@ -52,25 +55,45 @@ var ky = &Texts{
 	},
 	Linked: func(center string, children []string) string {
 		return fmt.Sprintf("Даяр! Сиз «%s» борборуна туташтыңыз. Бул жерге төлөм эскертмелери келет: %s.\n\n"+
-			"Баланс жана катышуу — /balance\nТил — /lang\nБилдирүүлөрдү өчүрүү — /stop", center, strings.Join(children, ", "))
+			"Төмөндөгү баскычтар — баланс, төлөм жана катышуу.\n%s", center, strings.Join(children, ", "), kyCommands)
 	},
 
-	StartHint: "Саламатсызбы! Бул — ата-энелер үчүн Окуу боту. Туташуу үчүн борборуңуздун администратору жөнөткөн чакыруу шилтемесин ачыңыз.",
+	StartHint: "Саламатсызбы! Бул — ата-энелер үчүн Окуу боту. Туташуу үчүн борборуңуздун администраторунан чакыруу " +
+		"шилтемесин (WhatsApp же СМС аркылуу) сураңыз жана аны ачыңыз — бот өзү туташат.",
 	Welcome: func(centers []string) string {
-		return fmt.Sprintf("Сиз туташкансыз: %s.\n\nБаланс жана катышуу — /balance\nТил — /lang\nБилдирүүлөрдү өчүрүү — /stop", quoted(centers))
+		return fmt.Sprintf("Сиз туташкансыз: %s.\n\n%s", quoted(centers), kyCommands)
 	},
 	Resumed: func(centers []string) string {
 		return fmt.Sprintf("Билдирүүлөр кайра күйгүзүлдү: %s.", quoted(centers))
 	},
-	Help: "Буйруктар:\n/balance — баланс, абонемент жана катышуу\n/lang — тил\n/stop — билдирүүлөрдү өчүрүү\n/help — жардам\n\n" +
+	Help: "Буйруктар:\n/balance — баланс жана абонемент\n/pay — төлөө\n/attendance — айдагы катышуу\n/lang — тил\n" +
+		"/stop — билдирүүлөрдү өчүрүү\n/start — кайра күйгүзүү\n/help — жардам\n\n" +
 		"Дагы бир борборго туташуу үчүн анын чакыруу шилтемесин ачыңыз.",
 	Stopped: func(centers []string) string {
 		return fmt.Sprintf("Билдирүүлөр өчүрүлдү: %s. Кайра күйгүзүү — /start.", quoted(centers))
 	},
-	NotLinked:     "Сиз али туташа элексиз. Борборуңуздан келген чакыруу шилтемесин ачыңыз.",
+	NotLinked: "Сиз али туташа элексиз. Борборуңуздун администраторунан чакыруу шилтемесин (WhatsApp же СМС аркылуу) " +
+		"сураңыз жана аны ачыңыз — бот өзү туташат.",
 	LangChanged:   "Тил: кыргызча.",
-	Unknown:       "Билдирүү түшүнүксүз. /help — буйруктардын тизмеси.",
+	Unknown:       "Билдирүү түшүнүксүз. Эмнени көрсөтүү керек — төмөндөгү баскычтарды тандаңыз же /help.",
 	BalanceButton: "Баланс жана катышуу",
+
+	MenuBalance:    "💰 Баланс",
+	MenuPay:        "💳 Төлөө",
+	MenuAttendance: "📅 Катышуу",
+	MenuHelp:       "❓ Жардам",
+	MenuPrompt:     "Эмнени көрсөтөйүн?",
+	MenuBack:       "« Меню",
+	ChooseChild:    "Баланы тандаңыз:",
+	AllChildren:    "Бардык балдар",
+	PayChoose:      "Ким үчүн төлөйсүз? Баскычты басыңыз — бот төлөм шилтемесин жөнөтөт.",
+	PayNothing:     "Карыз жок — төлөөнүн кереги жок. 👍",
+	AttendanceHeader: func(month int) string {
+		return monthsKY[month-1] + " айындагы катышуу:"
+	},
+	AttendanceChild: func(child, center string, present, absent, excused int32) string {
+		return fmt.Sprintf("👤 %s (%s)\nкелди %d, келген жок %d, жүйөлүү себеп менен %d", child, center, present, absent, excused)
+	},
 
 	BalanceCenter: func(center string) string { return "🏫 «" + center + "» борбору" },
 	Balance:       balanceKY,
@@ -92,7 +115,7 @@ var ky = &Texts{
 			return fmt.Sprintf("🏫 «%s» борбору: %s — төлөө мөөнөтү (3 күндөн кийин).", center, ddmm(due))
 		case KindDueToday:
 			return fmt.Sprintf("🏫 «%s» борбору: бүгүн төлөө мөөнөтү.", center)
-		case KindOverdue3, KindOverdue7:
+		case KindOverdue3, KindOverdue7, KindOverdueWeekly:
 			return fmt.Sprintf("🏫 «%s» борбору: төлөм мөөнөтү өтүп кетти.", center)
 		}
 		return fmt.Sprintf("🏫 «%s» борбору: төлөм тууралуу эскертме.", center)

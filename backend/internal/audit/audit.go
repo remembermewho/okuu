@@ -16,6 +16,7 @@ import (
 const (
 	InviteCreate    = "invite.create"
 	InviteRevoke    = "invite.revoke"
+	InviteReissue   = "invite.reissue" // «Новая ссылка»: старое отозвано, новое с теми же ролью и именем
 	InviteAccept    = "invite.accept"
 	StaffRoleChange = "staff.role_change"
 	StaffRemove     = "staff.remove"
@@ -44,6 +45,11 @@ const (
 	ImportCommit         = "import.commit"
 	CenterUpdate         = "center.update"
 	ReminderManual       = "reminder.manual" // «Напомнить»: кому ушло, сколько пропущено
+	// Аккаунт сотрудника (без паролей и токенов). Смена пароля и выход везде — в журнал каждого его центра.
+	UserPasswordChange     = "user.password_change"
+	UserLogoutAll          = "user.logout_all"
+	UserPasswordResetIssue = "user.password_reset_issue"
+	UserPasswordResetDone  = "user.password_reset_done"
 	// Оплата от провайдера на сумму, отличную от ссылки: записана как пришла.
 	PaymentAmountMismatch = "payment.amount_mismatch"
 )

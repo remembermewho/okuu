@@ -2,9 +2,7 @@ package bot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -58,6 +56,9 @@ func (b *Bot) handle(ctx context.Context, u telegram.Update) error {
 
 func (b *Bot) onText(ctx context.Context, chatID int64, m *telegram.Message) error {
 	cmd, arg := parseCommand(m.Text)
+	if cmd == "" {
+		cmd = menuAction(m.Text) // кнопка постоянной клавиатуры
+	}
 	switch cmd {
 	case "/start":
 		if arg != "" {
@@ -65,19 +66,22 @@ func (b *Bot) onText(ctx context.Context, chatID int64, m *telegram.Message) err
 		}
 		return b.start(ctx, chatID, m.From)
 	case "/balance":
-		return b.balance(ctx, chatID, m.From)
+		return b.showBalance(ctx, chatID, "")
+	case "/pay":
+		return b.showPayList(ctx, chatID)
+	case "/attendance":
+		return b.showAttendance(ctx, chatID, "")
 	case "/lang":
-		return b.send(ctx, chatID, notify.LangPrompt, langKeyboard())
+		// Только русский (BOT_LANGUAGES=ru) — команды нет: ответ как на непонятный текст.
+		if b.langs.Multi() {
+			return b.send(ctx, chatID, notify.LangPrompt, langKeyboard())
+		}
 	case "/stop":
 		return b.stop(ctx, chatID, m.From)
 	case "/help":
-		tx, err := b.texts(ctx, chatID, m.From)
-		if err != nil {
-			return err
-		}
-		return b.send(ctx, chatID, tx.Help, BalanceKeyboard(tx))
+		return b.showHelp(ctx, chatID, m.From)
 	}
-	tx, err := b.texts(ctx, chatID, m.From)
+	tx, linked, err := b.linkedTexts(ctx, chatID, m.From)
 	if err != nil {
 		return err
 	}
@@ -87,7 +91,11 @@ func (b *Bot) onText(ctx context.Context, chatID int64, m *telegram.Message) err
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	return b.send(ctx, chatID, tx.Unknown, nil)
+	// Непонятный текст: привязанному — подсказка и меню; остальным — как получить ссылку у центра.
+	if !linked {
+		return b.send(ctx, chatID, tx.NotLinked, nil)
+	}
+	return b.send(ctx, chatID, tx.Unknown, MenuKeyboard(tx))
 }
 
 // parseCommand: «/start@okuu_bot abc» → «/start», «abc».
@@ -155,9 +163,22 @@ func (b *Bot) onCallback(ctx context.Context, chatID int64, cq *telegram.Callbac
 		}
 		return b.consent(ctx, chatID, cq, id)
 	case strings.HasPrefix(cq.Data, cbLang):
+		if !b.langs.Multi() {
+			return nil // старая кнопка выбора языка после выключения кыргызского
+		}
 		return b.setLang(ctx, chatID, cq, strings.TrimPrefix(cq.Data, cbLang))
-	case cq.Data == cbBalance:
-		return b.balance(ctx, chatID, &cq.From)
+	case cq.Data == cbBalance: // кнопка из напоминаний и «оплата получена»
+		return b.showBalance(ctx, chatID, "")
+	case strings.HasPrefix(cq.Data, cbBal):
+		return b.showBalance(ctx, chatID, strings.TrimPrefix(cq.Data, cbBal))
+	case strings.HasPrefix(cq.Data, cbAtt):
+		return b.showAttendance(ctx, chatID, strings.TrimPrefix(cq.Data, cbAtt))
+	case cq.Data == cbPayList:
+		return b.showPayList(ctx, chatID)
+	case cq.Data == cbMenu:
+		return b.showMenu(ctx, chatID, &cq.From)
+	case cq.Data == cbHelp:
+		return b.showHelp(ctx, chatID, &cq.From)
 	case strings.HasPrefix(cq.Data, cbPay):
 		id, err := uuid.Parse(strings.TrimPrefix(cq.Data, cbPay))
 		if err != nil {
@@ -182,23 +203,24 @@ func (b *Bot) pay(ctx context.Context, chatID int64, from *telegram.User, studen
 	if err != nil {
 		return err
 	}
-	tx := notify.For(st.Lang)
+	tx := b.langs.For(st.Lang)
 	if b.payments == nil {
 		return b.send(ctx, chatID, tx.PayUnavailable, nil)
 	}
 	link, err := b.payments.CreateLink(ctx, st.CenterID, st.ID)
 	switch {
 	case errors.Is(err, payments.ErrNoDebt):
-		return b.send(ctx, chatID, tx.PayNoDebt(st.CenterName, st.FullName), BalanceKeyboard(tx))
+		return b.send(ctx, chatID, tx.PayNoDebt(st.CenterName, st.FullName), &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{backRow(tx)}})
 	case err != nil:
 		b.logger.Error("telegram: ссылка оплаты не создана", "err", err)
 		return b.send(ctx, chatID, tx.PayUnavailable, nil)
 	}
-	var kb telegram.ReplyMarkup
+	kb := &telegram.InlineKeyboardMarkup{}
 	// Кнопка-ссылка только на https: Telegram не принимает в кнопках http и localhost (dev).
 	if strings.HasPrefix(link.URL, "https://") {
-		kb = &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{{{Text: tx.PayLinkButton, URL: link.URL}}}}
+		kb.InlineKeyboard = append(kb.InlineKeyboard, []telegram.InlineKeyboardButton{{Text: tx.PayLinkButton, URL: link.URL}})
 	}
+	kb.InlineKeyboard = append(kb.InlineKeyboard, backRow(tx))
 	return b.send(ctx, chatID, tx.PayLink(st.CenterName, st.FullName, link.Amount, link.URL), kb)
 }
 
@@ -311,7 +333,9 @@ func (b *Bot) onContact(ctx context.Context, chatID int64, m *telegram.Message) 
 	case "mismatch":
 		return b.send(ctx, chatID, tx.PhoneMismatch(inv.CenterName), contactKeyboard(tx))
 	}
-	return b.send(ctx, chatID, notify.For(lang).Linked(inv.CenterName, children), telegram.RemoveKeyboard)
+	// Постоянная клавиатура-меню заменяет кнопку «Поделиться номером».
+	ltx := b.langs.For(lang)
+	return b.send(ctx, chatID, ltx.Linked(inv.CenterName, children), MenuKeyboard(ltx))
 }
 
 // start — /start без токена: включить уведомления после /stop или подсказать, как подключиться.
@@ -344,9 +368,9 @@ func (b *Bot) start(ctx context.Context, chatID int64, from *telegram.User) erro
 		return b.send(ctx, chatID, tx.StartHint, nil)
 	}
 	if len(resumed) > 0 {
-		return b.send(ctx, chatID, tx.Resumed(centerNames(parents, resumed)), BalanceKeyboard(tx))
+		return b.send(ctx, chatID, tx.Resumed(centerNames(parents, resumed)), MenuKeyboard(tx))
 	}
-	return b.send(ctx, chatID, tx.Welcome(centerNames(parents, nil)), BalanceKeyboard(tx))
+	return b.send(ctx, chatID, tx.Welcome(centerNames(parents, nil)), MenuKeyboard(tx))
 }
 
 // stop — /stop (R18): напоминания больше не шлём, администратор видит «отключил уведомления».
@@ -387,7 +411,7 @@ func (b *Bot) setLang(ctx context.Context, chatID int64, cq *telegram.CallbackQu
 	if err := b.q.SetChatLang(ctx, sqlc.SetChatLangParams{Lang: lang, ChatID: &chatID}); err != nil {
 		return err
 	}
-	tx := notify.For(lang)
+	tx := b.langs.For(lang)
 	if cq.Message != nil {
 		return b.tg.Edit(ctx, telegram.EditMessageTextParams{ChatID: chatID, MessageID: cq.Message.MessageID, Text: tx.LangChanged})
 	}
@@ -400,86 +424,9 @@ type packageInfo struct {
 	LessonsLeft *int32 `json:"lessons_left"`
 }
 
-// balance — /balance: по каждому центру и ребёнку баланс, абонементы и посещения за месяц.
-func (b *Bot) balance(ctx context.Context, chatID int64, from *telegram.User) error {
-	parents, err := b.q.ListChatParents(ctx, &chatID)
-	if err != nil {
-		return err
-	}
-	if len(parents) == 0 {
-		tx, err := b.texts(ctx, chatID, from)
-		if err != nil {
-			return err
-		}
-		return b.send(ctx, chatID, tx.NotLinked, nil)
-	}
-	tx := notify.For(parents[0].Lang)
-
-	var blocks []string
-	var debtors []PayChild
-	for _, p := range parents {
-		today, err := civil.Today(b.now(), p.Timezone)
-		if err != nil {
-			return err
-		}
-		rows, err := b.q.ListParentChildrenSummary(ctx, sqlc.ListParentChildrenSummaryParams{
-			FromDate: today.FirstOfMonth(), ToDate: today, CenterID: p.CenterID, ParentID: &p.ID,
-		})
-		if err != nil {
-			return err
-		}
-		lines := []string{tx.BalanceCenter(p.CenterName)}
-		shown := 0
-		for _, r := range rows {
-			if r.Status == "left" && r.Balance == 0 {
-				continue // ушёл и ничего не должен — не показываем
-			}
-			shown++
-			var pkgs []packageInfo
-			if err := json.Unmarshal(r.Packages, &pkgs); err != nil {
-				return fmt.Errorf("абонементы ученика %s: %w", r.ID, err)
-			}
-			lines = append(lines, "", "👤 "+r.FullName, tx.Balance(r.Balance))
-			if r.Balance < 0 {
-				debtors = append(debtors, PayChild{StudentID: r.ID, Name: r.FullName, Debt: -r.Balance})
-			}
-			for _, pk := range pkgs {
-				if pk.LessonsLeft != nil {
-					lines = append(lines, tx.Package(pk.Group, *pk.LessonsLeft))
-				}
-			}
-			lines = append(lines, tx.Attendance(int(today.Month()), r.Present, r.Absent, r.Excused))
-		}
-		if shown == 0 {
-			lines = append(lines, tx.NoChildren)
-		}
-		blocks = append(blocks, strings.Join(lines, "\n"))
-	}
-
-	// Одно сообщение, а если не влезает — по центрам.
-	var msgs []string
-	cur := ""
-	for _, blk := range blocks {
-		if cur != "" && len(cur)+2+len(blk) > maxMessageLen {
-			msgs = append(msgs, cur)
-			cur = ""
-		}
-		if cur != "" {
-			cur += "\n\n"
-		}
-		cur += blk
-	}
-	msgs = append(msgs, cur)
-	for i, m := range msgs {
-		var kb telegram.ReplyMarkup
-		if i == len(msgs)-1 {
-			kb = DebtKeyboard(tx, debtors)
-		}
-		if err := b.send(ctx, chatID, m, kb); err != nil {
-			return err
-		}
-	}
-	return nil
+// summaryParams — сводка детей родителя за текущий месяц (с 1-го числа по сегодня в поясе центра).
+func summaryParams(centerID, parentID uuid.UUID, today civil.Date) sqlc.ListParentChildrenSummaryParams {
+	return sqlc.ListParentChildrenSummaryParams{FromDate: today.FirstOfMonth(), ToDate: today, CenterID: centerID, ParentID: &parentID}
 }
 
 // texts — тексты на языке чата.
@@ -488,21 +435,21 @@ func (b *Bot) texts(ctx context.Context, chatID int64, from *telegram.User) (*no
 	if err != nil {
 		return nil, err
 	}
-	return notify.For(lang), nil
+	return b.langs.For(lang), nil
 }
 
 // chatLang — язык чата: выбранный родителем (/lang меняет его во всех центрах), а до привязки —
-// язык Telegram (ky → кыргызский, остальное — русский).
+// язык Telegram (ky → кыргызский, остальное — русский). Только русский (BOT_LANGUAGES=ru) — всегда ru.
 func (b *Bot) chatLang(ctx context.Context, chatID int64, from *telegram.User) (string, error) {
 	parents, err := b.q.ListChatParents(ctx, &chatID)
 	if err != nil {
 		return "", err
 	}
 	if len(parents) > 0 {
-		return parents[0].Lang, nil
+		return b.langs.Resolve(parents[0].Lang), nil
 	}
 	if from != nil && strings.HasPrefix(from.LanguageCode, notify.LangKY) {
-		return notify.LangKY, nil
+		return b.langs.Resolve(notify.LangKY), nil
 	}
 	return notify.LangRU, nil
 }

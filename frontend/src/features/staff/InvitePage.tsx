@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router'
 import { z } from 'zod'
 import type { Schemas } from '@/api/client'
-import { Button, ButtonLink, FormError, Input, Skeleton } from '@/components/ui'
+import { Button, ButtonLink, FormError, Input, PasswordInput, Skeleton } from '@/components/ui'
 import { useLogout, useMe } from '@/features/auth/api'
 import { AuthLayout, authStyles as s } from '@/features/auth/AuthLayout'
 import { nameField, passwordField, phoneField } from '@/features/auth/schemas'
@@ -163,7 +163,7 @@ function AcceptAsNew({ token, invite, lead }: { token: string; invite: Schemas['
       <form className={s.form} onSubmit={onSubmit} noValidate>
         <Input label={ru.auth.name} autoComplete="name" error={errors.name?.message} {...register('name')} />
         <Input label={ru.auth.phone} hint={ru.auth.phoneHint} type="tel" autoComplete="tel" inputMode="tel" error={errors.phone?.message} {...register('phone')} />
-        <Input label={ru.auth.password} hint={ru.auth.passwordHint} type="password" autoComplete="new-password" error={errors.password?.message} {...register('password')} />
+        <PasswordInput label={ru.auth.password} hint={ru.auth.passwordHint} autoComplete="new-password" error={errors.password?.message} {...register('password')} />
         <FormError>{formError}</FormError>
         {loginRequired ? (
           <ButtonLink to={loginHref} size="lg" block>

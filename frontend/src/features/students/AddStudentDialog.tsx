@@ -10,10 +10,10 @@ import { useGroups, useTariffs } from '@/features/catalog/api'
 import { nameField, phoneField } from '@/features/auth/schemas'
 import { ru } from '@/i18n/ru'
 import { applyFieldError, errorMessage } from '@/utils/errors'
-import { parseSom } from '@/utils/money'
+import { formatSom, parseSom } from '@/utils/money'
 import { normalizePhone } from '@/utils/phone'
 import { useCreateStudent, useEnroll } from './api'
-import { checkEnroll, emptyEnroll, enrollBody, EnrollFields, enrollFields } from './enroll'
+import { checkEnroll, effectiveTariff, emptyEnroll, enrollBody, EnrollFields, enrollFields } from './enroll'
 
 const base = z.object({
   full_name: nameField(),
@@ -34,15 +34,25 @@ export function discountBody(kind: string, value: string): Schemas['Discount'] |
   return null
 }
 
-export function checkDiscount(kind: string, value: string, ctx: z.RefinementCtx, path: string[]) {
+/**
+ * Проверка скидки до отправки: процент 0–100; фиксированная — сумма в сомах, не больше цены тарифов
+ * (maxFor — самый дешёвый из выбранных / активных тарифов ученика; как на бэкенде).
+ */
+export function checkDiscount(kind: string, value: string, ctx: z.RefinementCtx, path: string[], maxFor?: { name: string; price: number }) {
   if (kind === 'fixed') {
     const t = parseSom(value)
-    if (t === null || t <= 0) ctx.addIssue({ code: 'custom', path, message: ru.errors.invalidAmount })
+    if (t === null || t < 0) ctx.addIssue({ code: 'custom', path, message: ru.errors.invalidAmount })
+    else if (maxFor && t > maxFor.price) ctx.addIssue({ code: 'custom', path, message: ru.studentForm.discountFixedMax(formatSom(maxFor.price), maxFor.name) })
   }
   if (kind === 'percent') {
     const n = Number(value)
-    if (!/^\d+$/.test(value.trim()) || n < 1 || n > 100) ctx.addIssue({ code: 'custom', path, message: ru.errors.range(1, 100) })
+    if (!/^\d+$/.test(value.trim()) || n < 0 || n > 100) ctx.addIssue({ code: 'custom', path, message: ru.errors.range(0, 100) })
   }
+}
+
+/** Самый дешёвый тариф — его цена ограничивает фиксированную скидку. */
+export function cheapest(tariffs: { name: string; price: number }[]): { name: string; price: number } | undefined {
+  return tariffs.reduce<{ name: string; price: number } | undefined>((min, t) => (!min || t.price < min.price ? t : min), undefined)
 }
 
 export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -58,7 +68,8 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
   const schema = useMemo(
     () =>
       base.superRefine((v, ctx) => {
-        checkDiscount(v.discount_kind, v.discount_value, ctx, ['discount_value'])
+        const t = v.with_enroll ? effectiveTariff(v.enroll, groups.data ?? [], tariffs.data ?? []) : undefined
+        checkDiscount(v.discount_kind, v.discount_value, ctx, ['discount_value'], t)
         if (v.with_enroll) checkEnroll(v.enroll, groups.data ?? [], tariffs.data ?? [], ctx, ['enroll'])
       }),
     [groups.data, tariffs.data],

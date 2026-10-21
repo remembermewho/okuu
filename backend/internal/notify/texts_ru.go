@@ -21,6 +21,37 @@ func balanceRU(t int64) string {
 	return "Баланс: 0 сом, долгов нет"
 }
 
+// ruCommands — подсказка по командам; withLang — есть ли /lang (BOT_LANGUAGES с кыргызским).
+func ruCommands(withLang bool) string {
+	s := "Баланс — /balance\nОплатить — /pay\nПосещения — /attendance\n"
+	if withLang {
+		s += "Язык — /lang\n"
+	}
+	return s + "Отключить уведомления — /stop"
+}
+
+func ruLinked(withLang bool) func(center string, children []string) string {
+	return func(center string, children []string) string {
+		return fmt.Sprintf("Готово! Вы подключены к центру «%s». Сюда будут приходить напоминания об оплате: %s.\n\n"+
+			"Кнопки внизу — баланс, оплата и посещения.\n%s", center, strings.Join(children, ", "), ruCommands(withLang))
+	}
+}
+
+func ruWelcome(withLang bool) func(centers []string) string {
+	return func(centers []string) string {
+		return fmt.Sprintf("Вы подключены: %s.\n\n%s", quoted(centers), ruCommands(withLang))
+	}
+}
+
+func ruHelp(withLang bool) string {
+	s := "Команды:\n/balance — баланс и абонемент\n/pay — оплатить\n/attendance — посещения за месяц\n"
+	if withLang {
+		s += "/lang — язык\n"
+	}
+	return s + "/stop — отключить уведомления\n/start — включить снова\n/help — помощь\n\n" +
+		"Подключить ещё один центр — откройте его ссылку-приглашение."
+}
+
 var ru = &Texts{
 	Invite: func(parent, center, botURL string) string {
 		return fmt.Sprintf("Здравствуйте, %s! Центр «%s» присылает напоминания об оплате и посещениях в Telegram. "+
@@ -47,27 +78,40 @@ var ru = &Texts{
 		return fmt.Sprintf("Этот номер не совпадает с номером, который записан в центре «%s». "+
 			"Попросите администратора проверить номер и нажмите кнопку ещё раз — ссылка остаётся действительной.", center)
 	},
-	Linked: func(center string, children []string) string {
-		return fmt.Sprintf("Готово! Вы подключены к центру «%s». Сюда будут приходить напоминания об оплате: %s.\n\n"+
-			"Баланс и посещения — /balance\nЯзык — /lang\nОтключить уведомления — /stop", center, strings.Join(children, ", "))
-	},
+	Linked: ruLinked(true),
 
-	StartHint: "Здравствуйте! Это бот Окуу для родителей. Чтобы подключиться, откройте ссылку-приглашение, которую прислал администратор вашего центра.",
-	Welcome: func(centers []string) string {
-		return fmt.Sprintf("Вы подключены: %s.\n\nБаланс и посещения — /balance\nЯзык — /lang\nОтключить уведомления — /stop", quoted(centers))
-	},
+	StartHint: "Здравствуйте! Это бот Окуу для родителей. Чтобы подключиться, попросите администратора вашего центра " +
+		"прислать ссылку-приглашение (в WhatsApp или СМС) и откройте её — бот подключится сам.",
+	Welcome: ruWelcome(true),
 	Resumed: func(centers []string) string {
 		return fmt.Sprintf("Уведомления снова включены: %s.", quoted(centers))
 	},
-	Help: "Команды:\n/balance — баланс, абонемент и посещения\n/lang — язык\n/stop — отключить уведомления\n/help — помощь\n\n" +
-		"Подключить ещё один центр — откройте его ссылку-приглашение.",
+	Help: ruHelp(true),
 	Stopped: func(centers []string) string {
 		return fmt.Sprintf("Уведомления отключены: %s. Включить снова — /start.", quoted(centers))
 	},
-	NotLinked:     "Вы ещё не подключены. Откройте ссылку-приглашение от вашего центра.",
+	NotLinked: "Вы ещё не подключены. Попросите администратора вашего центра прислать ссылку-приглашение " +
+		"(в WhatsApp или СМС) и откройте её — бот подключится сам.",
 	LangChanged:   "Язык: русский.",
-	Unknown:       "Не понял сообщение. /help — список команд.",
+	Unknown:       "Не понял сообщение. Выберите, что показать, — кнопки внизу, или /help.",
 	BalanceButton: "Баланс и посещения",
+
+	MenuBalance:    "💰 Баланс",
+	MenuPay:        "💳 Оплатить",
+	MenuAttendance: "📅 Посещения",
+	MenuHelp:       "❓ Помощь",
+	MenuPrompt:     "Что показать?",
+	MenuBack:       "« Меню",
+	ChooseChild:    "Выберите ребёнка:",
+	AllChildren:    "Все дети",
+	PayChoose:      "За кого оплатить? Нажмите кнопку — бот пришлёт ссылку на оплату.",
+	PayNothing:     "Долгов нет — оплачивать нечего. 👍",
+	AttendanceHeader: func(month int) string {
+		return "Посещения в " + monthsRU[month-1] + ":"
+	},
+	AttendanceChild: func(child, center string, present, absent, excused int32) string {
+		return fmt.Sprintf("👤 %s (%s)\nбыл %d, не был %d, по уважительной %d", child, center, present, absent, excused)
+	},
 
 	BalanceCenter: func(center string) string { return "🏫 Центр «" + center + "»" },
 	Balance:       balanceRU,
@@ -88,7 +132,7 @@ var ru = &Texts{
 			return fmt.Sprintf("🏫 Центр «%s»: %s — срок оплаты (через 3 дня).", center, ddmm(due))
 		case KindDueToday:
 			return fmt.Sprintf("🏫 Центр «%s»: сегодня срок оплаты.", center)
-		case KindOverdue3, KindOverdue7:
+		case KindOverdue3, KindOverdue7, KindOverdueWeekly:
 			return fmt.Sprintf("🏫 Центр «%s»: оплата просрочена.", center)
 		}
 		return fmt.Sprintf("🏫 Центр «%s»: напоминание об оплате.", center)

@@ -35,13 +35,16 @@ type debtorResp struct {
 	Status    string    `json:"status"`
 	Groups    []refJSON `json:"groups"`
 	Parent    *struct {
-		Name     string `json:"name"`
-		Phone    string `json:"phone"`
-		TgStatus string `json:"tg_status"`
+		Name           string     `json:"name"`
+		Phone          string     `json:"phone"`
+		TgStatus       string     `json:"tg_status"`
+		LastReminderAt *time.Time `json:"last_reminder_at"`
 	} `json:"parent"`
 	Debt          int64      `json:"debt"`
 	DaysOverdue   int        `json:"days_overdue"`
 	OldestDueDate civil.Date `json:"oldest_due_date"`
+	DueInDays     int        `json:"due_in_days"`
+	RemindedToday bool       `json:"reminded_today"`
 }
 
 type refJSON struct {
@@ -413,6 +416,46 @@ func TestDebtors(t *testing.T) {
 		t.Errorf("?group A1 = %+v", g.Items)
 	}
 	assertField(t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors?group=xyz"), nil), http.StatusBadRequest, "group")
+
+	// «Ожидают оплаты»: по ближайшему сроку — Ваня (возврат сегодня, 0 дней), Бекова (через 5 дней).
+	explicit := decode[debtorsResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors?status=overdue"), nil))
+	if len(explicit.Items) != 3 {
+		t.Errorf("status=overdue = %d строк", len(explicit.Items))
+	}
+	p := decode[debtorsResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors?status=pending"), nil))
+	if len(p.Items) != 2 || p.Items[0].FullName != "Ваня В" || p.Items[1].FullName != "Бекова Б" || p.Summary != res.Summary {
+		t.Fatalf("pending = %+v", p.Items)
+	}
+	if x := p.Items[0]; x.Debt != 50_000 || x.DueInDays != 0 || x.DaysOverdue != 0 || x.OldestDueDate != c.today {
+		t.Errorf("Ваня = %+v", x)
+	}
+	if x := p.Items[1]; x.Debt != 400_000 || x.DueInDays != 5 || x.OldestDueDate != c.today.AddDays(5) {
+		t.Errorf("Бекова = %+v", x)
+	}
+	// Фильтр по группе работает и в «Ожидают оплаты».
+	pg := decode[debtorsResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors?status=pending&group="+g2.ID.String()), nil))
+	if len(pg.Items) != 0 {
+		t.Errorf("pending в «Шахматах» = %+v", pg.Items)
+	}
+	assertField(t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors?status=all"), nil), http.StatusBadRequest, "status")
+
+	// «Напоминали сегодня»: last_reminder_at родителя — сегодня в поясе центра; вчера — нет.
+	if _, err := c.api.pool.Exec(ctx, `UPDATE parents SET last_reminder_at = $2 WHERE phone = $1`, "+996704400101", c.api.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.api.pool.Exec(ctx, `UPDATE parents SET last_reminder_at = $2 WHERE phone = $1`, "+996704400105", c.api.clock.Now().Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	res = decode[debtorsResp](t, c.owner.do(http.MethodGet, centerPath(c.center, "/debtors"), nil))
+	for _, it := range res.Items {
+		want := it.FullName == "Асанов А"
+		if it.RemindedToday != want {
+			t.Errorf("%s reminded_today = %v", it.FullName, it.RemindedToday)
+		}
+		if it.FullName == "Ешенов Е" && (it.Parent.LastReminderAt == nil) {
+			t.Error("Ешенов: нет last_reminder_at")
+		}
+	}
 }
 
 func TestMoneyEndpointsTeacherForbidden(t *testing.T) {

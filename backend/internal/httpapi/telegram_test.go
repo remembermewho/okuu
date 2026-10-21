@@ -39,6 +39,7 @@ type botEnv struct {
 	pay *payments.Service  // оплата: онлайн-провайдер — фейковый (для центров с finik_creds)
 
 	provider *fakeProvider
+	langs    notify.Langs // BOT_LANGUAGES этого окружения
 
 	mu         sync.Mutex
 	nextUpdate int64
@@ -52,9 +53,15 @@ func (w testLogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newBotEnv(t *testing.T) *botEnv {
+// newBotEnv — бот на фейковом Telegram. langs — BOT_LANGUAGES (по умолчанию — только русский, как в prod).
+func newBotEnv(t *testing.T, langs ...notify.Langs) *botEnv {
 	t.Helper()
 	env := &botEnv{}
+	var l notify.Langs
+	if len(langs) > 0 {
+		l = langs[0]
+	}
+	env.langs = l
 	env.api = newTestAPIWith(t, func(api *testAPI, d *httpapi.Deps) {
 		env.tg = telegramtest.New(t)
 		env.tg.SetNow(api.clock.Now)
@@ -68,8 +75,8 @@ func newBotEnv(t *testing.T) *botEnv {
 		env.provider = newFakeProvider()
 		env.pay = payments.NewService(payments.Options{Pool: api.pool, Online: env.provider, AppOrigin: testOrigin, Now: api.clock.Now, Logger: logger})
 		d.Payments = env.pay
-		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger, Payments: env.pay})
-		env.rem = reminders.NewService(api.pool, sender, api.clock.Now, logger)
+		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger, Payments: env.pay, Langs: l})
+		env.rem = reminders.NewService(api.pool, sender, api.clock.Now, logger).WithLangs(l)
 		d.Reminders = env.rem
 		d.Bot = env.bot
 		d.TelegramWebhookSecret = testWebhookSecret
@@ -199,10 +206,8 @@ func (u *tgUser) link(c *catalog, parentID uuid.UUID, phone string) telegramtest
 	u.t.Helper()
 	_, tok := inviteParent(u.t, c, parentID)
 	prompt := one(u.t, u.send("/start "+tok))
-	tx := notify.For(notify.LangRU)
-	if u.lang == notify.LangKY {
-		tx = notify.For(notify.LangKY)
-	}
+	// Тексты на языке клиента Telegram, если этот язык включён (BOT_LANGUAGES).
+	tx := u.env.langs.For(u.env.langs.Resolve(u.lang))
 	afterConsent := u.press(prompt, callbackData(u.t, prompt, tx.ConsentButton))
 	if len(afterConsent) != 2 || afterConsent[0].Method != "editMessageText" || afterConsent[1].Text != tx.ContactPrompt {
 		u.t.Fatalf("после согласия: %+v", afterConsent)
@@ -264,8 +269,10 @@ func TestBotLinkFullScenario(t *testing.T) {
 			t.Errorf("подтверждение без %q: %s", want, linked.Text)
 		}
 	}
-	if !strings.Contains(string(linked.Markup), `"remove_keyboard":true`) {
-		t.Errorf("клавиатура номера не убрана: %s", linked.Markup)
+	// Кнопку «Поделиться номером» сменяет постоянная клавиатура-меню.
+	if got := fmt.Sprint(linked.Buttons()); got != "[💰 Баланс|contact=false 💳 Оплатить|contact=false 📅 Посещения|contact=false ❓ Помощь|contact=false]" ||
+		!strings.Contains(string(linked.Markup), `"is_persistent":true`) {
+		t.Errorf("клавиатура после привязки: %s", linked.Markup)
 	}
 
 	p := parentTGOf(t, env.api, pid)
@@ -411,7 +418,13 @@ func TestBotTwoCenters(t *testing.T) {
 		}
 	}
 
-	m := one(t, u.send("/balance"))
+	// Двое детей — сначала выбор; «Все дети» — по обоим центрам с названиями.
+	choose := one(t, u.send("/balance"))
+	if choose.Text != env.langs.For("ru").ChooseChild || len(choose.Buttons()) != 4 ||
+		!strings.Contains(fmt.Sprint(choose.Buttons()), "Касымов Тимур · "+a.centerName(t)) {
+		t.Fatalf("выбор ребёнка: %q %v", choose.Text, choose.Buttons())
+	}
+	m := one(t, u.press(choose, "bal:all"))
 	for _, want := range []string{"«" + a.centerName(t) + "»", "Касымов Тимур", "Баланс: 0 сом, долгов нет",
 		"«" + b.centerName(t) + "»", "Касымова Дана", "Баланс: долг 2 500 сом"} {
 		if !strings.Contains(m.Text, want) {
@@ -483,15 +496,22 @@ func TestBotBalance(t *testing.T) {
 	if strings.Contains(m.Text, "Ушедший") {
 		t.Error("ушедший без долга показан")
 	}
-	data := callbackData(t, m, "Баланс и посещения")
-	if again := one(t, u.press(m, data)); again.Text != want {
+	if fmt.Sprint(m.Buttons()) != fmt.Sprintf("[💳 Оплатить: Осмонова Мээрим — 3 000 сом|pay:%s « Меню|menu]", sid) {
+		t.Errorf("кнопки баланса: %v", m.Buttons())
+	}
+	// Кнопка «Баланс и посещения» из напоминаний делает то же.
+	if again := one(t, u.press(m, "balance")); again.Text != want {
 		t.Errorf("кнопка баланса: %s", again.Text)
+	}
+	// Кнопка «💰 Баланс» постоянной клавиатуры — тоже.
+	if again := one(t, u.send("💰 Баланс")); again.Text != want {
+		t.Errorf("кнопка меню «Баланс»: %s", again.Text)
 	}
 }
 
-// /lang: язык меняется во всех центрах чата; /help — на выбранном языке.
+// /lang (BOT_LANGUAGES=ru,ky): язык меняется во всех центрах чата; /help — на выбранном языке.
 func TestBotLang(t *testing.T) {
-	env := newBotEnv(t)
+	env := newBotEnv(t, notify.MustLangs("ru,ky"))
 	c := newCatalogOn(t, env.api, "+996705600001")
 	s := c.student(t, "Токтогулов Арсен", "0705 666 777", nil)
 	u := env.user(t, 5600001)
@@ -522,6 +542,169 @@ func TestBotLang(t *testing.T) {
 	}
 }
 
+// Навигация: постоянная клавиатура, /pay, /attendance, выбор ребёнка, «« Меню», подсказка на непонятный текст.
+func TestBotNavigation(t *testing.T) {
+	env := newBotEnv(t)
+	c := newCatalogOn(t, env.api, "+996705660001")
+	debt := c.debtor(t, "Асанов Бакыт", "0705 666 001") // месяц: долг 3 000
+	calm := c.student(t, "Асанова Айпери", "0705 666 001", nil)
+	c.enroll(t, calm.ID, map[string]any{"group_id": c.group.ID, "start_date": c.today.String(), "first_month": "none"})
+	lesson := createLesson(t, c, map[string]any{"group_id": c.group.ID, "date": c.today.String(), "start_time": "07:00"})
+	mustMark(t, c, c.owner, lesson.ID, debt.ID, "present", calm.ID, "absent")
+	u := env.user(t, 5660001)
+	linkDirect(t, env.api, debt.Parent.ID, u.id)
+	tx := env.langs.For("ru")
+
+	// /pay — только ребёнок с долгом, кнопка «Оплатить» и «« Меню».
+	payMsg := one(t, u.send("/pay"))
+	if payMsg.Text != tx.PayChoose || fmt.Sprint(payMsg.Buttons()) != fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s « Меню|menu]", debt.ID) {
+		t.Errorf("/pay: %q %v", payMsg.Text, payMsg.Buttons())
+	}
+	// Кнопка «💳 Оплатить» постоянной клавиатуры — то же.
+	if m := one(t, u.send("💳 Оплатить")); m.Text != tx.PayChoose {
+		t.Errorf("кнопка «Оплатить»: %q", m.Text)
+	}
+
+	// /attendance — двое детей: выбор (каждый, «Все дети», «« Меню»).
+	choose := one(t, u.send("/attendance"))
+	if choose.Text != tx.ChooseChild || len(choose.Buttons()) != 4 {
+		t.Fatalf("выбор ребёнка: %q %v", choose.Text, choose.Buttons())
+	}
+	att := one(t, u.press(choose, callbackData(t, choose, "Асанова Айпери")))
+	month := int(c.today.Month())
+	wantOne := tx.AttendanceHeader(month) + "\n\n" + tx.AttendanceChild("Асанова Айпери", c.centerName(t), 0, 1, 0)
+	if att.Text != wantOne || fmt.Sprint(att.Buttons()) != "[« Меню|menu]" {
+		t.Errorf("посещения ребёнка:\n%s\n%v", att.Text, att.Buttons())
+	}
+	all := one(t, u.press(choose, "att:all"))
+	if !strings.Contains(all.Text, tx.AttendanceChild("Асанов Бакыт", c.centerName(t), 1, 0, 0)) || !strings.Contains(all.Text, "Асанова Айпери") {
+		t.Errorf("посещения всех:\n%s", all.Text)
+	}
+	// Чужой ребёнок в данных кнопки — снова выбор, без чужих данных.
+	other := c.student(t, "Чужой Ребёнок", "0705 666 999", nil)
+	if m := one(t, u.press(choose, "att:"+other.ID.String())); m.Text != tx.ChooseChild || strings.Contains(fmt.Sprint(m.Buttons()), "Чужой") {
+		t.Errorf("чужой ребёнок: %q %v", m.Text, m.Buttons())
+	}
+
+	// /balance — выбор, затем один ребёнок.
+	balChoose := one(t, u.send("/balance"))
+	bal := one(t, u.press(balChoose, "bal:"+calm.ID.String()))
+	if !strings.Contains(bal.Text, "👤 Асанова Айпери") || strings.Contains(bal.Text, "Асанов Бакыт") || fmt.Sprint(bal.Buttons()) != "[« Меню|menu]" {
+		t.Errorf("баланс ребёнка:\n%s\n%v", bal.Text, bal.Buttons())
+	}
+
+	// «« Меню» — разделы inline-кнопками; каждая ведёт в свой раздел.
+	menu := one(t, u.press(bal, "menu"))
+	if menu.Text != tx.MenuPrompt || fmt.Sprint(menu.Buttons()) != "[💰 Баланс|bal: 💳 Оплатить|paylist 📅 Посещения|att: ❓ Помощь|help]" {
+		t.Fatalf("меню: %q %v", menu.Text, menu.Buttons())
+	}
+	if m := one(t, u.press(menu, "bal:")); m.Text != tx.ChooseChild {
+		t.Errorf("меню → баланс: %q", m.Text)
+	}
+	if m := one(t, u.press(menu, "paylist")); m.Text != tx.PayChoose {
+		t.Errorf("меню → оплатить: %q", m.Text)
+	}
+	if m := one(t, u.press(menu, "help")); m.Text != tx.Help || !strings.Contains(string(m.Markup), `"is_persistent":true`) {
+		t.Errorf("меню → помощь: %q %s", m.Text, m.Markup)
+	}
+
+	// Непонятный текст — короткая подсказка и постоянная клавиатура.
+	unk := one(t, u.send("а когда занятие?"))
+	if unk.Text != tx.Unknown || len(unk.Buttons()) != 4 {
+		t.Errorf("непонятный текст: %q %v", unk.Text, unk.Buttons())
+	}
+
+	// Оплатили — «оплачивать нечего».
+	c.mustOp(t, debt.ID, pay(300_000))
+	if m := one(t, u.send("/pay")); m.Text != tx.PayNothing || fmt.Sprint(m.Buttons()) != "[« Меню|menu]" {
+		t.Errorf("/pay без долга: %q %v", m.Text, m.Buttons())
+	}
+
+	// Не привязан: /pay и /attendance — как получить ссылку у центра.
+	stranger := env.user(t, 5660009)
+	for _, cmd := range []string{"/pay", "/attendance", "📅 Посещения"} {
+		if m := one(t, stranger.send(cmd)); m.Text != tx.NotLinked {
+			t.Errorf("%s без привязки: %q", cmd, m.Text)
+		}
+	}
+}
+
+// setMyCommands: /start, /balance, /pay, /attendance, /help, /stop с русскими описаниями; /lang — только с ky.
+func TestBotCommandsMenu(t *testing.T) {
+	tg := telegramtest.New(t)
+	ctx := context.Background()
+	if err := bot.SetupCommands(ctx, tg.Client(), notify.Langs{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := bot.SetupCommands(ctx, tg.Client(), notify.MustLangs("ru,ky")); err != nil {
+		t.Fatal(err)
+	}
+	var raws []string
+	for _, c := range tg.Calls() {
+		if c.Method == "setMyCommands" {
+			raws = append(raws, string(c.Raw))
+		}
+	}
+	if len(raws) != 2 {
+		t.Fatalf("setMyCommands: %d вызовов", len(raws))
+	}
+	for _, cmd := range []string{`"start"`, `"balance"`, `"pay"`, `"attendance"`, `"help"`, `"stop"`, "Оплатить", "Посещения за месяц"} {
+		if !strings.Contains(raws[0], cmd) {
+			t.Errorf("в меню нет %s: %s", cmd, raws[0])
+		}
+	}
+	if strings.Contains(raws[0], `"lang"`) || !strings.Contains(raws[1], `"lang"`) {
+		t.Errorf("/lang: ru=%s ru,ky=%s", raws[0], raws[1])
+	}
+}
+
+// BOT_LANGUAGES=ru (по умолчанию): команды /lang нет, кнопок языка нет, всё по-русски — даже если у родителя
+// сохранён lang=ky или у клиента Telegram кыргызский; старая кнопка выбора языка ничего не делает.
+func TestBotRussianOnly(t *testing.T) {
+	env := newBotEnv(t)
+	c := newCatalogOn(t, env.api, "+996705650001")
+	s := c.student(t, "Токтогулов Арсен", "0705 665 777", nil)
+	u := env.user(t, 5650001)
+	u.lang = "ky" // кыргызский Telegram
+	linked := u.link(c, s.Parent.ID, "996705665777")
+	if strings.Contains(linked.Text, "/lang") || !strings.Contains(linked.Text, "Готово!") {
+		t.Errorf("привязка: %q", linked.Text)
+	}
+	if p := parentTGOf(t, env.api, s.Parent.ID); p.Lang != "ru" {
+		t.Errorf("parents.lang = %s, want ru", p.Lang)
+	}
+	// Выбор ky, сохранённый раньше (когда кыргызский был включён), не действует.
+	if _, err := env.api.pool.Exec(context.Background(), `UPDATE parents SET lang = 'ky' WHERE id = $1`, s.Parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	m := one(t, u.send("/lang"))
+	if m.Text != env.langs.For("ru").Unknown {
+		t.Errorf("/lang в режиме ru: %q", m.Text)
+	}
+	for _, b := range m.Buttons() {
+		if strings.Contains(b, "lang:") {
+			t.Errorf("кнопка выбора языка: %v", m.Buttons())
+		}
+	}
+	if m := one(t, u.send("/help")); m.Text != env.langs.For("ru").Help || strings.Contains(m.Text, "/lang") {
+		t.Errorf("/help: %q", m.Text)
+	}
+	if got := u.press(m, "lang:ky"); len(got) != 0 {
+		t.Errorf("старая кнопка языка ответила: %+v", got)
+	}
+	if p := parentTGOf(t, env.api, s.Parent.ID); p.Lang != "ky" {
+		t.Errorf("сохранённый выбор не должен меняться: %s", p.Lang)
+	}
+	// Напоминание о долге — тоже по-русски.
+	c.mustOp(t, s.ID, map[string]any{"kind": "correction", "amount": -100_000, "comment": "Долг за сентябрь"})
+	if rec := c.owner.do(http.MethodPost, centerPath(c.center, "/reminders"), map[string]any{"student_ids": []uuid.UUID{s.ID}}); rec.Code != http.StatusOK {
+		t.Fatalf("reminders: %d %s", rec.Code, rec.Body)
+	}
+	if m := env.tg.Last(u.id); !strings.Contains(m.Text, "напоминание об оплате") || !strings.Contains(m.Text, "1 000 сом") {
+		t.Errorf("напоминание: %q", m.Text)
+	}
+}
+
 // /stop (R18): статус stopped виден администратору; без привязки — подсказка.
 func TestBotStop(t *testing.T) {
 	env := newBotEnv(t)
@@ -535,7 +718,8 @@ func TestBotStop(t *testing.T) {
 	if m := one(t, stranger.send("/start")); m.Text != notify.For("ru").StartHint {
 		t.Errorf("/start без привязки: %q", m.Text)
 	}
-	if m := one(t, stranger.send("привет")); m.Text != notify.For("ru").Unknown {
+	// Непривязанному на любой текст — как получить ссылку у центра.
+	if m := one(t, stranger.send("привет")); m.Text != notify.For("ru").NotLinked {
 		t.Errorf("текст: %q", m.Text)
 	}
 	if m := one(t, stranger.send("/start not-a-valid-token!")); m.Text != notify.For("ru").InviteInvalid {
@@ -583,7 +767,7 @@ func TestBotBlocked(t *testing.T) {
 	}
 
 	env.tg.Unblock(u.id)
-	if m := one(t, u.send("/help")); m.Text != notify.For("ru").Help {
+	if m := one(t, u.send("/help")); m.Text != env.langs.For("ru").Help {
 		t.Errorf("/help: %q", m.Text)
 	}
 	for _, pid := range []uuid.UUID{sa.Parent.ID, sb.Parent.ID} {
@@ -595,7 +779,7 @@ func TestBotBlocked(t *testing.T) {
 
 // 429 в боте: ответ уходит после retry_after; несколько ответов в один чат — не чаще раза в секунду.
 func TestBotRateLimits(t *testing.T) {
-	env := newBotEnv(t)
+	env := newBotEnv(t, notify.MustLangs("ru,ky")) // /lang → кнопка: два сообщения подряд
 	u := env.user(t, 5900001)
 	env.tg.Fail("sendMessage", u.id, http.StatusTooManyRequests, "Too Many Requests: retry after 3", 3, 1)
 	m := one(t, u.send("/help"))
@@ -671,7 +855,7 @@ func TestBotPolling(t *testing.T) {
 	const chat = 6100001
 	env.tg.PushUpdate(telegram.Update{UpdateID: 10, Message: &telegram.Message{MessageID: 1,
 		From: &telegram.User{ID: chat}, Chat: telegram.Chat{ID: chat, Type: "private"}, Text: "/help"}})
-	if m := waitMessage(t, env.tg, chat); m.Text != notify.For("ru").Help {
+	if m := waitMessage(t, env.tg, chat); m.Text != env.langs.For("ru").Help {
 		t.Errorf("ответ: %q", m.Text)
 	}
 	calls := env.tg.Calls()

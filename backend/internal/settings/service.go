@@ -39,7 +39,8 @@ type Settings struct {
 	DueDays            int
 	ExcusedDeducts     bool
 	RemindersOn        bool
-	NotifyAbsent       bool // сообщать родителю «ребёнок не пришёл»
+	OverdueRepeat      string // weekly | off — повтор напоминаний после 7-го дня просрочки
+	NotifyAbsent       bool   // сообщать родителю «ребёнок не пришёл»
 	PayDetails         *string
 	Plan               string
 	FinikConnected     bool
@@ -54,9 +55,16 @@ type Patch struct {
 	DueDays        optional.Field[int]
 	ExcusedDeducts optional.Field[bool]
 	RemindersOn    optional.Field[bool]
+	OverdueRepeat  optional.Field[string]
 	NotifyAbsent   optional.Field[bool]
 	PayDetails     optional.Field[string]
 }
+
+// Повтор напоминаний о просрочке (centers.overdue_repeat).
+const (
+	OverdueRepeatWeekly = "weekly"
+	OverdueRepeatOff    = "off"
+)
 
 // Service — настройки.
 type Service struct {
@@ -154,6 +162,12 @@ func (s *Service) Update(ctx context.Context, actor, centerID uuid.UUID, p Patch
 			}
 			next.RemindersOn = *p.RemindersOn.Value
 		}
+		if p.OverdueRepeat.Set {
+			if p.OverdueRepeat.Value == nil || (*p.OverdueRepeat.Value != OverdueRepeatWeekly && *p.OverdueRepeat.Value != OverdueRepeatOff) {
+				return validate.Errorf("overdue_repeat", "overdue_repeat — weekly или off")
+			}
+			next.OverdueRepeat = *p.OverdueRepeat.Value
+		}
 		if p.NotifyAbsent.Set {
 			if p.NotifyAbsent.Value == nil {
 				return validate.Errorf("notify_absent", "notify_absent — true или false")
@@ -177,7 +191,7 @@ func (s *Service) Update(ctx context.Context, actor, centerID uuid.UUID, p Patch
 			ID: centerID, Name: next.Name, Phone: next.Phone, Timezone: next.Timezone,
 			BillingDay: int16(next.BillingDay), BillingDayNext: int16Ptr(next.BillingDayNext), BillingDayNextFrom: next.BillingDayNextFrom,
 			DueDays: int16(next.DueDays), ExcusedDeducts: next.ExcusedDeducts, RemindersOn: next.RemindersOn, PayDetails: next.PayDetails,
-			NotifyAbsent: next.NotifyAbsent,
+			NotifyAbsent: next.NotifyAbsent, OverdueRepeat: next.OverdueRepeat,
 		}); err != nil {
 			return err
 		}
@@ -202,7 +216,7 @@ func (s *Service) view(c sqlc.Center) (Settings, error) {
 	st := Settings{
 		Name: c.Name, Phone: c.Phone, Timezone: c.Timezone,
 		BillingDay: billing.EffectiveBillingDay(c.BillingDay, c.BillingDayNext, c.BillingDayNextFrom, today.FirstOfMonth()),
-		DueDays:    int(c.DueDays), ExcusedDeducts: c.ExcusedDeducts, RemindersOn: c.RemindersOn,
+		DueDays:    int(c.DueDays), ExcusedDeducts: c.ExcusedDeducts, RemindersOn: c.RemindersOn, OverdueRepeat: c.OverdueRepeat,
 		NotifyAbsent: c.NotifyAbsent, PayDetails: c.PayDetails, Plan: c.Plan, FinikConnected: len(c.FinikCreds) > 0,
 	}
 	if c.BillingDayNext != nil && c.BillingDayNextFrom != nil && today.FirstOfMonth().Before(*c.BillingDayNextFrom) {
@@ -216,7 +230,7 @@ func snapshot(s Settings) map[string]any {
 	return map[string]any{
 		"name": s.Name, "phone": s.Phone, "timezone": s.Timezone, "billing_day": s.BillingDay,
 		"billing_day_next": s.BillingDayNext, "billing_day_next_from": s.BillingDayNextFrom, "due_days": s.DueDays,
-		"excused_deducts": s.ExcusedDeducts, "reminders_on": s.RemindersOn, "notify_absent": s.NotifyAbsent,
+		"excused_deducts": s.ExcusedDeducts, "reminders_on": s.RemindersOn, "overdue_repeat": s.OverdueRepeat, "notify_absent": s.NotifyAbsent,
 		"pay_details": s.PayDetails,
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"okuu/internal/billing"
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
+	"okuu/internal/notify"
 	"okuu/internal/optional"
 	"okuu/internal/tariffs"
 	"okuu/internal/validate"
@@ -229,13 +230,15 @@ type ListFilter struct {
 	GroupID *uuid.UUID // активная запись в группу
 	Status  string     // active | paused | left
 	Tg      string     // tg_status родителя: none | active | stopped | blocked
-	Limit   int
-	Cursor  string
+	// HideLeft — без ушедших (список учеников по умолчанию); не действует, если задан Status.
+	HideLeft bool
+	Limit    int
+	Cursor   string
 }
 
 // List — ученики по алфавиту с балансом; nextCursor == "" — страница последняя.
 func (s *Service) List(ctx context.Context, centerID uuid.UUID, f ListFilter) (items []ListItem, nextCursor string, err error) {
-	p := sqlc.ListStudentsParams{CenterID: centerID, GroupID: f.GroupID}
+	p := sqlc.ListStudentsParams{CenterID: centerID, GroupID: f.GroupID, HideLeft: f.HideLeft && f.Status == ""}
 	switch f.Status {
 	case "":
 	case StatusActive, StatusPaused, StatusLeft:
@@ -312,7 +315,12 @@ type Patch struct {
 	Status    optional.Field[string]
 	Discount  optional.Field[billing.Discount]
 	Parent    *ParentPatch
+	// LeftDate — последний день занятий; только вместе со Status = left (без него — сегодня).
+	LeftDate *civil.Date
 }
+
+// MaxLeftAhead — дату ухода можно поставить не дальше сегодня + столько дней.
+const MaxLeftAhead = 30
 
 // Update меняет ученика и родителя. Скидка действует со следующего начисления (R6).
 // status=left закрывает все активные записи сегодняшним днём (R7); paused записи не трогает.
@@ -325,10 +333,11 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 		if err != nil {
 			return err
 		}
-		today, err := s.centerToday(ctx, q, centerID)
+		center, err := s.center(ctx, q, centerID)
 		if err != nil {
 			return err
 		}
+		today := center.Today
 
 		before := studentSnapshot(cur)
 		next := cur
@@ -361,6 +370,9 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 			if err := billing.ValidateDiscount(p.Discount.Value, tariffs.MaxPrice); err != nil {
 				return err
 			}
+			if err := checkFixedDiscount(ctx, q, centerID, id, p.Discount.Value); err != nil {
+				return err
+			}
 			next.DiscountKind, next.DiscountValue = discountColumns(p.Discount.Value)
 		}
 
@@ -372,8 +384,26 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 			next.ParentID = parentID
 		}
 
-		if next.Status == StatusLeft && cur.Status != StatusLeft {
-			ended, err := q.EndActiveEnrollments(ctx, sqlc.EndActiveEnrollmentsParams{CenterID: centerID, StudentID: id, Today: today})
+		leaving := next.Status == StatusLeft && cur.Status != StatusLeft
+		if p.LeftDate != nil && !leaving {
+			return validate.Errorf("left_date", "Дата ухода — только вместе с переводом в «ушёл»")
+		}
+		var leftAt *time.Time
+		if leaving {
+			leftDate := today
+			if p.LeftDate != nil {
+				leftDate = *p.LeftDate
+				if err := s.checkLeftDate(ctx, q, centerID, id, leftDate, today); err != nil {
+					return err
+				}
+			}
+			at, err := civil.StartOfDay(leftDate, center.Timezone)
+			if err != nil {
+				return err
+			}
+			leftAt = &at
+			// Записи закрываются последним днём занятий: на занятиях после него ученика нет.
+			ended, err := q.EndActiveEnrollments(ctx, sqlc.EndActiveEnrollmentsParams{CenterID: centerID, StudentID: id, Today: leftDate})
 			if err != nil {
 				return err
 			}
@@ -393,7 +423,7 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 		}
 		if _, err := q.UpdateStudent(ctx, sqlc.UpdateStudentParams{
 			CenterID: centerID, ID: id, FullName: next.FullName, BirthDate: next.BirthDate, Status: next.Status,
-			DiscountKind: next.DiscountKind, DiscountValue: next.DiscountValue, ParentID: next.ParentID,
+			DiscountKind: next.DiscountKind, DiscountValue: next.DiscountValue, ParentID: next.ParentID, LeftAt: leftAt,
 		}); err != nil {
 			return err
 		}
@@ -406,6 +436,48 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 		return Student{}, err
 	}
 	return s.Get(ctx, centerID, id)
+}
+
+// checkLeftDate — последний день занятий: не раньше начала самой поздней активной записи (иначе запись
+// закрылась бы раньше, чем началась) и не позже сегодня + MaxLeftAhead.
+func (s *Service) checkLeftDate(ctx context.Context, q *sqlc.Queries, centerID, studentID uuid.UUID, d, today civil.Date) error {
+	if latest := today.AddDays(MaxLeftAhead); d.After(latest) {
+		return validate.Errorf("left_date", "Последний день занятий — не позже %s", ruDate(latest))
+	}
+	enrollments, err := q.ListStudentEnrollments(ctx, sqlc.ListStudentEnrollmentsParams{CenterID: centerID, StudentID: studentID})
+	if err != nil {
+		return err
+	}
+	for _, e := range enrollments {
+		if e.EndDate == nil && d.Before(e.StartDate) {
+			return validate.Errorf("left_date", "Последний день занятий — не раньше начала записи в «%s» (%s)", e.GroupName, ruDate(e.StartDate))
+		}
+	}
+	return nil
+}
+
+// ruDate — «19.10.2026» для сообщений об ошибках.
+func ruDate(d civil.Date) string {
+	return fmt.Sprintf("%02d.%02d.%d", d.Day(), int(d.Month()), d.Year())
+}
+
+// checkFixedDiscount — фиксированная скидка не больше цены каждого активного тарифа ученика (иначе
+// начисление ушло бы в 0, и это почти всегда опечатка). 422 validation, поле discount.
+func checkFixedDiscount(ctx context.Context, q *sqlc.Queries, centerID, studentID uuid.UUID, d *billing.Discount) error {
+	if d == nil || d.Kind != billing.DiscountFixed {
+		return nil
+	}
+	enrollments, err := q.ListStudentEnrollments(ctx, sqlc.ListStudentEnrollmentsParams{CenterID: centerID, StudentID: studentID})
+	if err != nil {
+		return err
+	}
+	for _, e := range enrollments {
+		if e.EndDate == nil && d.Value > e.TariffPrice {
+			return validate.Unprocessablef("discount", "Скидка %s с больше цены тарифа «%s» (%s с)",
+				notify.Som(d.Value), e.TariffName, notify.Som(e.TariffPrice))
+		}
+	}
+	return nil
 }
 
 // updateParent меняет родителя ученика; если родителя нет — находит/создаёт по телефону и привязывает.
@@ -508,6 +580,7 @@ func validateBirthDate(d *civil.Date, today civil.Date) error {
 // centerInfo — то, что нужно от настроек центра для дат и сроков (R2, R4).
 type centerInfo struct {
 	Today      civil.Date // «сегодня» в часовом поясе центра
+	Timezone   string
 	DueDays    int
 	BillingDay int
 }
@@ -521,7 +594,7 @@ func (s *Service) center(ctx context.Context, q *sqlc.Queries, centerID uuid.UUI
 	if err != nil {
 		return centerInfo{}, err
 	}
-	return centerInfo{Today: today, DueDays: int(c.DueDays),
+	return centerInfo{Today: today, Timezone: c.Timezone, DueDays: int(c.DueDays),
 		BillingDay: billing.EffectiveBillingDay(c.BillingDay, c.BillingDayNext, c.BillingDayNextFrom, today.FirstOfMonth())}, nil
 }
 

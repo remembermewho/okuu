@@ -193,14 +193,33 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	checked(t, v, api.client(t, "10.0.0.8"), http.MethodGet, "/api/v1/me", nil, http.StatusUnauthorized)
 
 	// настройки
-	checked(t, v, c, http.MethodPatch, cp("/settings"), map[string]any{"pay_details": "MBank 0700", "billing_day": 15, "phone": nil}, http.StatusOK)
+	checked(t, v, c, http.MethodPatch, cp("/settings"), map[string]any{"pay_details": "MBank 0700", "billing_day": 15, "phone": nil, "overdue_repeat": "off"}, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/settings"), nil, http.StatusOK)
 
 	// сотрудники и приглашения
 	inv := decode[inviteResp](t, checked(t, v, c, http.MethodPost, cp("/staff/invites"), map[string]string{"role": "teacher", "name": "Учитель"}, http.StatusCreated))
 	checked(t, v, c, http.MethodGet, cp("/staff/invites"), nil, http.StatusOK)
+	inv = decode[inviteResp](t, checked(t, v, c, http.MethodPost, cp("/staff/invites/"+inv.ID.String()+"/reissue"), nil, http.StatusCreated))
 	checked(t, v, c, http.MethodGet, "/api/v1/invites/"+strings.TrimPrefix(inv.URL, testOrigin+"/invite/"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/staff"), nil, http.StatusOK)
+
+	// личный кабинет и сброс пароля
+	checked(t, v, c, http.MethodPatch, "/api/v1/me", map[string]string{"name": "Владелец Спеки"}, http.StatusOK)
+	checked(t, v, c, http.MethodPost, "/api/v1/me/password", map[string]string{"current_password": "secret-pass", "new_password": "secret-pass-2"}, http.StatusNoContent)
+	checked(t, v, c, http.MethodPost, "/api/v1/me/password", map[string]string{"current_password": "wrong-pass", "new_password": "secret-pass-3"}, http.StatusBadRequest)
+	staffTok := strings.TrimPrefix(inv.URL, testOrigin+"/invite/")
+	staffer := api.client(t, "10.0.0.6")
+	staffMe := decode[meResp](t, checked(t, v, staffer, http.MethodPost, "/api/v1/invites/"+staffTok+"/accept",
+		acceptReq{Name: "Учитель", Phone: "0709 500 002", Password: "staff-pass"}, http.StatusOK))
+	reset := decode[resetLinkResp](t, checked(t, v, c, http.MethodPost, cp("/staff/"+staffMe.ID.String()+"/password-reset"), nil, http.StatusCreated))
+	resetTok := strings.TrimPrefix(reset.URL, testOrigin+"/reset/")
+	checked(t, v, staffer, http.MethodGet, "/api/v1/password-reset/"+resetTok, nil, http.StatusOK)
+	checked(t, v, staffer, http.MethodPost, "/api/v1/password-reset/"+resetTok, map[string]string{"new_password": "staff-pass-2"}, http.StatusNoContent)
+	checked(t, v, staffer, http.MethodGet, "/api/v1/password-reset/"+resetTok, nil, http.StatusNotFound)
+	checked(t, v, c, http.MethodPost, cp("/staff/"+me.ID.String()+"/password-reset"), nil, http.StatusConflict)
+	other := api.client(t, "10.0.0.5")
+	other.register("0709 500 003", "Вторая")
+	checked(t, v, other, http.MethodPost, "/api/v1/auth/logout-all", nil, http.StatusNoContent)
 
 	// каталог
 	monthly := decode[tariffResp](t, checked(t, v, c, http.MethodPost, cp("/tariffs"), monthly("Месяц", 300_000), http.StatusCreated))
@@ -226,6 +245,7 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	checked(t, v, c, http.MethodPost, cp("/students/"+pst.ID.String()+"/enrollments"),
 		map[string]any{"group_id": group.ID, "tariff_id": pkg.ID, "start_date": today}, http.StatusCreated)
 	checked(t, v, c, http.MethodGet, cp("/students?limit=1"), nil, http.StatusOK)
+	checked(t, v, c, http.MethodGet, cp("/students?hide_left=true"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/students/"+st.ID.String()), nil, http.StatusOK)
 	checked(t, v, c, http.MethodPatch, cp("/students/"+st.ID.String()), map[string]any{"birth_date": "2015-03-01", "discount": nil}, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/students/"+uuid.NewString()), nil, http.StatusNotFound)
@@ -237,6 +257,7 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	c.headers = nil
 	checked(t, v, c, http.MethodGet, cp("/students/"+st.ID.String()+"/ledger"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/debtors"), nil, http.StatusOK)
+	checked(t, v, c, http.MethodGet, cp("/debtors?status=pending"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodPost, cp("/reminders"), map[string]any{"all": true}, http.StatusConflict) // бот выключен
 
 	// импорт: превью (multipart) и подтверждение; first_month — только full | none, как в бэкенде
@@ -269,6 +290,10 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 		{"student_id": st.ID, "status": "present"}, {"student_id": pst.ID, "status": "absent"},
 	}}, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/students/"+pst.ID.String()+"/attendance"), nil, http.StatusOK)
+	leaver := decode[studentResp](t, checked(t, v, c, http.MethodPost, cp("/students"), map[string]any{
+		"full_name": "Уходящий Ученик", "parent": map[string]string{"name": "Родитель", "phone": "0709 500 103"},
+	}, http.StatusCreated))
+	checked(t, v, c, http.MethodPatch, cp("/students/"+leaver.ID.String()), map[string]any{"status": "left", "left_date": today}, http.StatusOK)
 
 	// отчёт и журнал
 	checked(t, v, c, http.MethodGet, cp("/reports/month"), nil, http.StatusOK)

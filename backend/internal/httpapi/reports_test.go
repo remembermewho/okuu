@@ -224,8 +224,9 @@ func TestStudentLeftAt(t *testing.T) {
 	}
 	c.owner.do(http.MethodPatch, path, map[string]any{"status": "left"})
 	first := leftAt()
-	if first == nil || time.Since(*first) > time.Minute {
-		t.Fatalf("left_at после ухода = %v", first)
+	// Без left_date последний день — сегодня: left_at — начало сегодняшнего дня в поясе центра.
+	if want := time.Date(c.today.Year(), c.today.Month(), c.today.Day(), 0, 0, 0, 0, bishkek); first == nil || !first.Equal(want) {
+		t.Fatalf("left_at после ухода = %v, want %v", first, want)
 	}
 	c.owner.do(http.MethodPatch, path, map[string]any{"full_name": "Ученик Переименован"}) // статус не менялся — дата та же
 	if v := leftAt(); v == nil || !v.Equal(*first) {

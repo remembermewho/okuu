@@ -24,6 +24,7 @@ type API interface {
 	AnswerCallbackQuery(ctx context.Context, p AnswerCallbackQueryParams) error
 	GetUpdates(ctx context.Context, p GetUpdatesParams) ([]Update, error)
 	SetWebhook(ctx context.Context, p SetWebhookParams) error
+	SetMyCommands(ctx context.Context, p SetMyCommandsParams) error
 }
 
 // APIError — ответ Telegram с ok=false.
@@ -105,6 +106,11 @@ func (c *Client) GetUpdates(ctx context.Context, p GetUpdatesParams) ([]Update, 
 
 func (c *Client) SetWebhook(ctx context.Context, p SetWebhookParams) error {
 	return c.call(ctx, "setWebhook", p, nil, requestTimeout)
+}
+
+// SetMyCommands — список команд в меню бота (один раз при старте).
+func (c *Client) SetMyCommands(ctx context.Context, p SetMyCommandsParams) error {
+	return c.call(ctx, "setMyCommands", p, nil, requestTimeout)
 }
 
 type apiResponse struct {

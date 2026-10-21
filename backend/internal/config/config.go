@@ -11,6 +11,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"okuu/internal/notify"
 )
 
 const (
@@ -35,6 +37,8 @@ type Config struct {
 	TrustedProxies []netip.Prefix
 	// AlertChatID — служебный Telegram-чат для алертов (ALERT_TELEGRAM_CHAT_ID); 0 — только лог.
 	AlertChatID int64
+	// BotLanguages — языки сообщений родителям (BOT_LANGUAGES: «ru» по умолчанию или «ru,ky»).
+	BotLanguages notify.Langs
 }
 
 // Режимы Telegram-бота.
@@ -122,6 +126,9 @@ func Load() (Config, error) {
 		if cfg.AlertChatID, err = strconv.ParseInt(v, 10, 64); err != nil || cfg.AlertChatID == 0 {
 			errs = append(errs, fmt.Errorf("ALERT_TELEGRAM_CHAT_ID: ожидается id чата (число, у групп — отрицательное), получено %q", v))
 		}
+	}
+	if cfg.BotLanguages, err = notify.ParseLangs(os.Getenv("BOT_LANGUAGES")); err != nil {
+		errs = append(errs, fmt.Errorf("BOT_LANGUAGES: %w", err))
 	}
 	if cfg.Env == "prod" {
 		errs = append(errs, prodChecks(cfg)...)

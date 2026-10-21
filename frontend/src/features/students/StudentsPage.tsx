@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { centerPath, useCenter } from '@/app/center'
 import { StudentStatusBadge, TgBadge } from '@/components/shared'
 import shared from '@/components/shared.module.css'
-import { Button, ButtonLink, Card, EmptyState, ErrorState, Input, MoneyText, PageHeader, Select, SkeletonList } from '@/components/ui'
+import { Button, ButtonLink, Card, Checkbox, EmptyState, ErrorState, Input, MoneyText, PageHeader, Select, SkeletonList } from '@/components/ui'
 import { groupOptions, useGroups } from '@/features/catalog/api'
 import { ru } from '@/i18n/ru'
 import { errorMessage } from '@/utils/errors'
@@ -32,7 +32,10 @@ export function StudentsPage() {
     group: params.get('group') || undefined,
     status: (params.get('status') || undefined) as StudentFilter['status'],
     tg: (params.get('tg') || undefined) as StudentFilter['tg'],
+    // Ушедшие по умолчанию скрыты; «Показать ушедших» или фильтр по статусу — показываются.
+    hide_left: params.get('show_left') !== '1' && !params.get('status') ? true : undefined,
   }
+  const showLeft = params.get('show_left') === '1'
   const groups = useGroups(c.id)
   const list = useStudentList(c.id, filter)
   const [adding, setAdding] = useState(false)
@@ -79,6 +82,11 @@ export function StudentsPage() {
         <Select label={ru.students.group} value={filter.group ?? ''} onChange={(e) => setFilter('group', e.target.value)} options={groupOptions(groups.data)} placeholder={ru.students.allGroups} />
         <Select label={ru.students.telegram} value={filter.tg ?? ''} onChange={(e) => setFilter('tg', e.target.value)} options={(['active', 'none', 'stopped', 'blocked'] as const).map((k) => ({ value: k, label: ru.statuses.tgFilter[k] ?? k }))} placeholder={ru.statuses.tgFilter['']} />
       </div>
+      {!filter.status && (
+        <div className={shared.toggleRow}>
+          <Checkbox label={ru.students.showLeft} checked={showLeft} onChange={(e) => setFilter('show_left', e.target.checked ? '1' : '')} />
+        </div>
+      )}
 
       {list.isPending ? (
         <SkeletonList rows={6} />

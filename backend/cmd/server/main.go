@@ -5,6 +5,8 @@
 //	server migrate status   показать состояние миграций
 //	server billing run --center=<id> [--date=YYYY-MM-DD]
 //	                        начисления billing.monthly по центру на дату (по умолчанию — сегодня в его поясе)
+//	server user reset-link --phone=<телефон>
+//	                        одноразовая ссылка сброса пароля на 24 часа (для поддержки)
 package main
 
 import (
@@ -159,8 +161,13 @@ func run(logger *slog.Logger, cfg config.Config, args []string) error {
 			return errors.New("использование: server billing run --center=<id> [--date=YYYY-MM-DD]")
 		}
 		return billingRun(ctx, logger, pool, args[2:])
+	case "user":
+		if len(args) < 2 || args[1] != "reset-link" {
+			return errors.New("использование: server user reset-link --phone=<телефон>")
+		}
+		return userResetLink(ctx, logger, cfg, pool, args[2:])
 	}
-	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing)", cmd)
+	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing|user)", cmd)
 }
 
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool) error {
@@ -215,13 +222,13 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	alerter := alerts.New(alerts.Options{Sender: alertSender, ChatID: cfg.AlertChatID, Env: cfg.Env, Logger: logger})
 	deps.Alerts = alerter
 	if cfg.Telegram.Mode != config.TelegramOff {
-		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Payments: paymentsSvc, Alerts: alerter})
+		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Payments: paymentsSvc, Alerts: alerter, Langs: cfg.BotLanguages})
 		if cfg.Telegram.Mode == config.TelegramWebhook {
 			deps.Bot = tgBot
 			deps.TelegramWebhookSecret = cfg.Telegram.WebhookSecret.Reveal()
 		}
 	}
-	remindersSvc := reminders.NewService(pool, sender, time.Now, logger)
+	remindersSvc := reminders.NewService(pool, sender, time.Now, logger).WithLangs(cfg.BotLanguages)
 	deps.Reminders = remindersSvc
 
 	scheduler := &jobs.Scheduler{Pool: pool, Logger: logger, Reminders: remindersSvc, Alerts: alerter}
@@ -277,6 +284,11 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	start(func() { alerter.WatchAudit(stopCtx, pool, time.Minute) })
 
 	if tgBot != nil {
+		// Меню команд бота (/start, /balance, /pay, /attendance, /help, /stop) — с русскими описаниями.
+		if err := bot.SetupCommands(ctx, tgAPI, cfg.BotLanguages); err != nil {
+			logger.Warn("telegram: не удалось задать меню команд", "err", err)
+		}
+		logger.Info("telegram: языки бота", "langs", cfg.BotLanguages.List())
 		start(func() { tgBot.Run(stopCtx, workCtx) })
 		// Событийные уведомления (paid, package_low, absent) — сразу после события.
 		start(func() { jobs.RunDispatcher(stopCtx, workCtx, pool, logger, alerter, remindersSvc, time.Minute) })
@@ -384,6 +396,30 @@ func migrateStatus(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		fmt.Printf("%-4d %-8s %-20s %s\n", s.Source.Version, s.State, applied, filepath.Base(s.Source.Path))
 	}
+	return nil
+}
+
+// userResetLink — для поддержки: одноразовая ссылка сброса пароля (24 часа) по телефону пользователя,
+// в том числе владельцу центра. Печатает ссылку в stdout — передайте её человеку лично.
+// Прежние неиспользованные ссылки этого пользователя перестают работать.
+func userResetLink(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool, args []string) error {
+	fs := flag.NewFlagSet("user reset-link", flag.ContinueOnError)
+	phoneFlag := fs.String("phone", "", "телефон пользователя (+996XXXXXXXXX или 0XXXXXXXXX)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*phoneFlag) == "" {
+		return errors.New("--phone: укажите телефон пользователя")
+	}
+	if err := migrateUp(ctx, logger, pool); err != nil {
+		return err
+	}
+	res, err := auth.NewService(pool, auth.Options{Logger: logger}).IssueSupportPasswordReset(ctx, *phoneFlag)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Ссылка для смены пароля (%s), действует до %s:\n%s\n",
+		res.UserName, res.ExpiresAt.Local().Format("02.01.2006 15:04"), httpapi.ResetURL(cfg.AppOrigin, res.Token))
 	return nil
 }
 

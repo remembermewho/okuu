@@ -179,11 +179,11 @@ func TestPayFromBotManual(t *testing.T) {
 	u := env.user(t, 8300101)
 	linkDirect(t, env.api, s1.Parent.ID, u.id)
 
-	// /balance: по кнопке «Оплатить» на каждого ребёнка с долгом.
-	bal := one(t, u.send("/balance"))
-	want := fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s 💳 Оплатить: Асанова Айпери — 3 000 сом|pay:%s Баланс и посещения|balance]", s1.ID, s2.ID)
+	// /pay: по кнопке «Оплатить» на каждого ребёнка с долгом и «« Меню».
+	bal := one(t, u.send("/pay"))
+	want := fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s 💳 Оплатить: Асанова Айпери — 3 000 сом|pay:%s « Меню|menu]", s1.ID, s2.ID)
 	if fmt.Sprint(bal.Buttons()) != want {
-		t.Errorf("кнопки /balance:\n%v\nwant\n%s", bal.Buttons(), want)
+		t.Errorf("кнопки /pay:\n%v\nwant\n%s", bal.Buttons(), want)
 	}
 
 	tok := pressPay(t, u, s1.ID)
@@ -191,7 +191,7 @@ func TestPayFromBotManual(t *testing.T) {
 	if !strings.Contains(m.Text, "оплата за Асанов Бакыт — 3 000 сом") || !strings.Contains(m.Text, "24 часа") {
 		t.Errorf("ответ на «Оплатить»: %q", m.Text)
 	}
-	if len(m.Buttons()) != 0 {
+	if fmt.Sprint(m.Buttons()) != "[« Меню|menu]" {
 		t.Errorf("на http (dev) кнопки-ссылки быть не должно: %v", m.Buttons())
 	}
 	var stored, provider string
