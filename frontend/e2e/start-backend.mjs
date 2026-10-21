@@ -1,0 +1,49 @@
+// Бэкенд для e2e: чистая база okuu_e2e в dev-контейнере Postgres (okuu-db), сервер на :8091.
+// Запускает Playwright (webServer) и сам же его останавливает. Рабочую базу okuu и сервер
+// на :8080 не трогает. Telegram выключен — реальный бот в e2e не участвует.
+import { execFileSync, spawn } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const backend = join(here, '..', '..', 'backend')
+const container = process.env.E2E_PG_CONTAINER ?? 'okuu-db'
+const db = 'okuu_e2e'
+const port = process.env.E2E_API_PORT ?? '8091'
+const origin = process.env.E2E_ORIGIN ?? 'http://localhost:5174'
+
+function psql(sql) {
+  execFileSync('docker', ['exec', container, 'psql', '-U', 'okuu', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql], { stdio: 'inherit' })
+}
+
+// 1. Чистая база: каждый прогон e2e — с нуля.
+psql(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`)
+psql(`CREATE DATABASE ${db}`)
+
+// 2. Свежий бинарник.
+mkdirSync(join(backend, 'bin'), { recursive: true })
+const bin = join(backend, 'bin', process.platform === 'win32' ? 'okuu-e2e.exe' : 'okuu-e2e')
+execFileSync('go', ['build', '-o', bin, './cmd/server'], { cwd: backend, stdio: 'inherit' })
+
+// 3. Сервер. Переменные окружения сильнее .env (его dev-загрузчик не перезаписывает заданное).
+const child = spawn(bin, [], {
+  cwd: backend,
+  stdio: 'inherit',
+  env: {
+    ...process.env,
+    APP_ENV: 'dev',
+    HTTP_ADDR: ':' + port,
+    APP_ORIGIN: origin,
+    DATABASE_URL: `postgres://okuu:okuu_dev_password@localhost:5433/${db}?sslmode=disable`,
+    TELEGRAM_MODE: 'off',
+    TELEGRAM_BOT_USERNAME: 'okuu_e2e_bot',
+    ALERT_TELEGRAM_CHAT_ID: '',
+    FINIK_ENABLED: 'false',
+  },
+})
+const stop = () => child.kill()
+process.on('SIGINT', stop)
+process.on('SIGTERM', stop)
+process.on('exit', stop)
+child.on('exit', (code) => process.exit(code ?? 0))

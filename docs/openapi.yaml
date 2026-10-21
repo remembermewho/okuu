@@ -15,7 +15,8 @@ info:
     Без сессии защищённые маршруты отвечают `401 unauthorized`.
 
     **CSRF.** Для `POST`, `PUT`, `PATCH`, `DELETE` обязателен заголовок `Origin`, равный адресу
-    фронтенда (`APP_ORIGIN`); иначе `403 bad_origin`. Браузер ставит его сам.
+    фронтенда (`APP_ORIGIN`); иначе `403 bad_origin`. Браузер ставит его сам (из JS его задать
+    нельзя), поэтому в параметрах операций он не описан — сгенерированный клиент его не требует.
 
     **Данные центра** — под `/api/v1/c/{centerId}`. Пользователь не из этого центра получает
     `404 not_found` (как будто центра нет), сотрудник с неподходящей ролью — `403 forbidden`.
@@ -74,8 +75,6 @@ paths:
       description: |
         **Без входа.** Создаёт пользователя, центр и делает его владельцем (`owner`); ставит cookie сессии.
         Телефон — в любом виде (`0700 123 456`, `+996700123456`), хранится как `+996XXXXXXXXX`.
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -106,8 +105,6 @@ paths:
       description: |
         **Без входа.** Ставит cookie сессии. Лимит: 5 неудачных попыток за 15 минут на телефон
         и на IP — затем `429 too_many_attempts` с `Retry-After`.
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -143,8 +140,6 @@ paths:
       summary: Выход
       security: [{}, { cookieAuth: [] }] # сессия необязательна
       description: '**Без входа** (без сессии — тоже 204). Удаляет сессию и cookie.'
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '204':
           description: Вышел
@@ -199,8 +194,6 @@ paths:
         **Без входа или вошедший.** Вошедший пользователь принимает без тела. Новый — с телом
         `{name, phone, password}`: создаётся пользователь и ставится cookie сессии. Ответ — как `/me`,
         с новым центром в списке.
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: false
         content:
@@ -266,8 +259,6 @@ paths:
         **Без входа.** `manual` — вернёт реквизиты центра (оплату отметит администратор);
         онлайн-провайдер (`finik`) — создаст платёж и вернёт ссылку банка / QR. Повторный вызов
         возвращает тот же платёж.
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '200':
           description: Что делать дальше
@@ -319,8 +310,6 @@ paths:
         **Роли:** owner. Частичное изменение: переданные поля меняются, `null` очищает необязательные.
         Новый `billing_day` действует со следующего месяца (`billing_day_next`, `billing_day_next_from`).
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -466,8 +455,6 @@ paths:
       description: |
         **Роли:** owner. Ссылка (`url`) с одноразовым токеном — только в этом ответе; срок 7 дней.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -494,8 +481,6 @@ paths:
       summary: Отозвать приглашение
       description: '**Роли:** owner.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '204':
           description: Отозвано
@@ -513,8 +498,6 @@ paths:
       summary: Сменить роль сотрудника
       description: '**Роли:** owner.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -541,8 +524,6 @@ paths:
       summary: Удалить сотрудника из центра
       description: '**Роли:** owner. Его сессии в этом центре больше не действуют.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '204':
           description: Удалён
@@ -579,8 +560,6 @@ paths:
       summary: Создать тариф
       description: '**Роли:** owner, admin. У абонемента (`package`) обязателен `lessons_count`, у месячного — `null`.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -607,8 +586,6 @@ paths:
       summary: Изменить тариф
       description: '**Роли:** owner, admin. Новая цена действует со следующего начисления (R6).'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -635,8 +612,6 @@ paths:
       summary: Архивировать тариф
       description: '**Роли:** owner, admin. Удаление = архив; существующие записи остаются.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '204':
           description: В архиве
@@ -672,8 +647,6 @@ paths:
       summary: Создать группу
       description: '**Роли:** owner, admin.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -716,8 +689,6 @@ paths:
       summary: Изменить группу
       description: '**Роли:** owner, admin. `null` у `teacher_id` / `default_tariff_id` — снять.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -740,8 +711,6 @@ paths:
       summary: Архивировать группу
       description: '**Роли:** owner, admin.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '204':
           description: В архиве
@@ -795,8 +764,6 @@ paths:
         **Роли:** owner, admin. Родитель с тем же телефоном в центре переиспользуется
         (`parent_existing = true`) — так у родителя бывает несколько детей.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -840,8 +807,6 @@ paths:
         **Роли:** owner, admin. `status = left` завершает активные записи. Смена телефона родителя
         отвязывает его от Telegram (нужно новое приглашение). Изменения родителя видны у всех его детей.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -876,8 +841,6 @@ paths:
         `full` — цена со скидкой, `manual` — `manual_amount`, `none` — не начислять. Абонемент —
         начисление на его цену и `lessons_left = lessons_count` (R8). `charge = null` — не начислено.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -913,8 +876,6 @@ paths:
       summary: Завершить запись
       description: '**Роли:** owner, admin. Тело необязательно: без `end_date` — сегодня.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: false
         content:
@@ -950,8 +911,6 @@ paths:
         **Роли:** owner, admin. Новое начисление на цену тарифа; к остатку добавляется `lessons_count`
         (минусовые занятия вычитаются из нового, R10).
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '200':
           description: Запись и начисление
@@ -981,8 +940,6 @@ paths:
         **Роли:** owner, admin. Одноразовая ссылка на бота (30 дней) и готовый текст для WhatsApp
         на русском и кыргызском; `whatsapp_url` — на языке родителя.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       responses:
         '201':
           description: Приглашение
@@ -1014,7 +971,6 @@ paths:
         ключом и теми же данными — `200` с той же операцией, с другими данными — `422 idempotency_mismatch`.
       security: [{ cookieAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/Origin'
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
@@ -1078,8 +1034,6 @@ paths:
         **Роли:** owner, admin; оплату Finik — только owner (R15). Операции не удаляются и не
         редактируются — только отмена с причиной.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1143,8 +1097,6 @@ paths:
         **Роли:** owner, admin. По выбранным ученикам (`student_ids`, до 500) или по всем должникам
         (`all: true`). Дети одного родителя — одним сообщением (R18); об ученике — не чаще раза в час (R17).
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1225,8 +1177,6 @@ paths:
       summary: Внеплановое занятие
       description: '**Роли:** owner, admin.'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1259,8 +1209,6 @@ paths:
       summary: Отменить / вернуть занятие
       description: '**Роли:** owner, admin. Отменённое занятие ничего не списывает; отметки снимаются (R11).'
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1304,8 +1252,6 @@ paths:
         **Роли:** owner, admin, teacher (своя группа и только за 7 дней, R12). Пакетно; `status = null` —
         снять отметку. «Был»/«не был» списывают занятие с абонемента, «уважительная» — по настройке (R9).
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1365,8 +1311,6 @@ paths:
         **Роли:** owner, admin. `multipart/form-data`, поле `file`: .xlsx или .csv (UTF-8 / windows-1251,
         разделитель `,` или `;`) до 5 МБ и 2000 строк. Ничего не сохраняет, кроме превью (на час).
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1405,8 +1349,6 @@ paths:
         **Роли:** owner, admin. Одной транзакцией: строки ok/warning без дубликатов. `first_month` — как у записи
         в группу (R5) для месячных тарифов. Начальный долг — поправкой со сроком в день импорта.
       security: [{ cookieAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/Origin'
       requestBody:
         required: true
         content:
@@ -1453,12 +1395,6 @@ components:
       schema: { type: string }
 
   parameters:
-    Origin:
-      name: Origin
-      in: header
-      required: true
-      description: Адрес фронтенда (APP_ORIGIN) — защита от CSRF; браузер ставит сам. Иначе `403 bad_origin`.
-      schema: { type: string, format: uri }
     IdempotencyKey:
       name: Idempotency-Key
       in: header

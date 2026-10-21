@@ -1,0 +1,153 @@
+.toolbar {
+  margin-bottom: var(--space-3);
+}
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+@media (min-width: 720px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.cardTitle {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.cardTitle:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.cardActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--control-h);
+  color: var(--text-2);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.back:hover {
+  color: var(--primary);
+}
+
+.titleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.membersHead {
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+/* Форма группы: расписание */
+.schedule {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.legend {
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.day {
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.day:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.dayOn {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.slot {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.slotDay {
+  font-weight: 600;
+}
+
+.time {
+  gap: 0;
+}
+
+.slotError {
+  grid-column: 2 / -1;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}

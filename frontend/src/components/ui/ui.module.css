@@ -1,0 +1,209 @@
+/* Card */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+.cardFlush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.neutral {
+  background: var(--bg);
+  color: var(--text-2);
+  border: 1px solid var(--line);
+}
+.success {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.debt {
+  background: var(--debt-light);
+  color: var(--debt);
+}
+.excused {
+  background: var(--excused-light);
+  color: var(--excused);
+}
+
+/* Skeleton */
+.skeleton {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eceee9 25%, #f6f7f3 50%, #eceee9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeletonList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* EmptyState */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  color: var(--text-2);
+}
+
+.emptyIcon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary);
+  margin-bottom: var(--space-2);
+}
+
+.emptyTitle {
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--fs-lg);
+}
+
+.emptyAction {
+  margin-top: var(--space-3);
+}
+
+/* Money */
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.moneyDebt {
+  color: var(--debt);
+}
+.moneyAdvance {
+  color: var(--primary);
+}
+
+/* PageHeader */
+.pageHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.pageTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pageSubtitle {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.pageActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Error state */
+.errorBox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  background: var(--debt-light);
+  color: var(--debt);
+}
+
+.errorText {
+  color: var(--text);
+}
+
+/* Stack / row helpers */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.stackSm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.formGrid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .formGrid2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.formError {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--debt-light);
+  color: var(--debt);
+  font-size: var(--fs-sm);
+}

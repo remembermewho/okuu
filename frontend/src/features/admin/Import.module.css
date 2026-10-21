@@ -1,0 +1,243 @@
+.steps {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 900px) {
+  .steps {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+
+.steps p {
+  margin: 0 0 var(--space-3);
+}
+
+.upload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 120px;
+  padding: var(--space-4);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: center;
+}
+
+.drop:hover,
+.drop:focus-within {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.dropText {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.fileInput {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fileError {
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.chips {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip_ok {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.chip_warning {
+  background: var(--debt-light);
+  color: var(--debt);
+}
+
+.chip_error {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.chip_skip {
+  background: var(--bg);
+  color: var(--text-2);
+}
+
+.toImport {
+  font-weight: 650;
+  font-size: var(--fs-lg);
+  margin: var(--space-2) 0;
+}
+
+.tableHead {
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  max-width: 320px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.row_error {
+  background: var(--danger-light);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+.row_warning {
+  background: var(--debt-light);
+  box-shadow: inset 4px 0 0 var(--debt);
+}
+
+.row_skip {
+  color: var(--text-2);
+}
+
+.badge_error {
+  background: var(--danger);
+  color: #fff;
+}
+
+.badge_warning {
+  background: var(--debt);
+  color: #fff;
+}
+
+.messages {
+  margin: 4px 0 0;
+  padding-left: 1.1em;
+  font-weight: 500;
+}
+
+.row_error .messages {
+  color: var(--danger);
+}
+
+.row_warning .messages {
+  color: var(--debt);
+}
+
+.sub {
+  color: var(--text-2);
+}
+
+/* Телефон: строки таблицы — карточками */
+@media (max-width: 719px) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+  }
+  .table tr {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+  .table td {
+    border: 0;
+    padding: 2px 0;
+    text-align: left;
+  }
+  .table td[data-label]::before {
+    content: attr(data-label) ': ';
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .table td:nth-child(2)::before {
+    content: none;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.resultHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--primary);
+}
+
+.resultHead h2 {
+  margin: 0;
+  color: var(--text);
+}
+
+.resultList {
+  margin: var(--space-3) 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

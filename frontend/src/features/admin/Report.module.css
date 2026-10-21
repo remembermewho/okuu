@@ -1,0 +1,79 @@
+.month {
+  margin-bottom: var(--space-4);
+}
+
+.grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+@media (min-width: 720px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .wide {
+    grid-column: span 3;
+  }
+}
+
+@media (min-width: 1024px) {
+  .wide {
+    grid-column: span 3;
+  }
+}
+
+.grid[aria-busy='true'] {
+  opacity: 0.6;
+}
+
+.big {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.value {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.debt {
+  background: var(--debt-light);
+  border-color: transparent;
+}
+
+.note {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.list {
+  margin: 0;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.line:last-child {
+  border-bottom: 0;
+}
+
+.line dt {
+  color: var(--text-2);
+}
+
+.line dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.total dt {
+  color: var(--text);
+  font-weight: 600;
+}

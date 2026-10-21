@@ -1,0 +1,129 @@
+/* Дизайн-токены Окуу. Цвета — только отсюда (CSS Modules берут их через var()). */
+:root {
+  --bg: #f4f5f1;
+  --card: #ffffff;
+  --text: #17201b;
+  --text-2: #56605a;
+  --line: #e3e6e0;
+
+  --primary: #1e6b47;
+  --primary-hover: #185a3b;
+  --primary-light: #e3f0e8;
+  --debt: #a84b12;
+  --debt-light: #fbede3;
+  --excused: #3e5c8a;
+  --excused-light: #e6ecf5;
+  --danger: #a3261b;
+  --danger-light: #fbe7e5;
+  --focus: #1e6b47;
+
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 2px rgb(23 32 27 / 6%);
+  --control-h: 44px;
+
+  --font: 'Golos Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --fs-xs: 0.8125rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --nav-h: 64px;
+  --sidebar-w: 248px;
+  --content-max: 1100px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+h3 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+a {
+  color: var(--primary);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Цифры одинаковой ширины — суммы в колонках не «прыгают». */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

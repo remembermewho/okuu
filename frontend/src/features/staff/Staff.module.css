@@ -1,0 +1,23 @@
+.row,
+.inviteRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.inviteRow {
+  padding: var(--space-3) 0;
+}
+
+.row:last-child,
+.inviteRow:last-child {
+  border-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

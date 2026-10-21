@@ -11,6 +11,20 @@ make migrate           # миграции (сервер применяет их 
 make run               # API на http://localhost:8080
 ```
 
+Фронтенд (Node 20+), во втором терминале:
+
+```sh
+cd frontend
+npm ci
+npm run dev            # http://localhost:5173, /api и /webhooks проксируются на :8080
+```
+
+Проверки фронтенда: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` (сборка — в `frontend/dist`).
+Клиент API генерируется из `docs/openapi.yaml`: после правки спецификации — `npm run gen:api` (файл
+`src/api/schema.d.ts` коммитится). E2E на настоящем бэкенде: `npm run e2e:install` (один раз — Chromium), затем
+`npm run e2e` — сам создаёт чистую базу `okuu_e2e` в контейнере из `make db`, поднимает API на :8091 и фронтенд
+на :5174 (dev-сервер на :8080/:5173 не трогает); отчёт со скриншотами 390 и 1280px — `npx playwright show-report`.
+
 Тесты: `make test` — с интеграционными на PostgreSQL из `make db`; `make test-short` — только юнит-тесты.
 Код запросов: `make sqlc` (sqlc в Docker, сгенерированный код коммитится).
 Ручная проверка API: [requests/](requests/) — файлы для расширения VS Code REST Client.
@@ -95,9 +109,18 @@ Caddy сам получит и будет продлевать сертифик�
 
 ### 4. Запуск
 
+Сначала — сборка фронтенда в `frontend/dist` (Caddy отдаёт её как статику, неизвестные пути → `index.html`).
+Node на сервер ставить не нужно — собираем в контейнере:
+
 ```sh
 cd /opt/okuu
-mkdir -p deploy/frontend        # сюда — сборка фронтенда (vite build), пока можно пусто
+docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine sh -c "npm ci && npm run build"
+ls frontend/dist                # index.html и assets/
+```
+
+Фронтенд обращается к API по тому же домену (`/api/...`), отдельных переменных окружения у него нет.
+
+```sh
 docker compose -f deploy/docker-compose.prod.yml up -d --build
 docker compose -f deploy/docker-compose.prod.yml ps        # app — healthy
 docker compose -f deploy/docker-compose.prod.yml logs -f app
@@ -153,7 +176,12 @@ deploy/backup.sh                                            # бэкап пер�
 git pull
 docker compose -f deploy/docker-compose.prod.yml up -d --build app
 docker compose -f deploy/docker-compose.prod.yml ps        # app снова healthy
+# если менялся фронтенд — пересобрать; Caddy подхватит новые файлы без перезапуска
+docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine sh -c "npm ci && npm run build"
 ```
+
+Сборка фронтенда заменяет `frontend/dist` целиком; `index.html` отдаётся с `Cache-Control: no-cache`, файлы из
+`assets/` (с хэшем в имени) кэшируются навсегда — пользователи получают новую версию при следующем открытии.
 
 При остановке сервер дожидается текущих запросов и фоновых задач (до 20 с) — начисления и рассылки
 не обрываются на середине. Откат — `git checkout <прошлый коммит>` и та же команда (миграции назад сами

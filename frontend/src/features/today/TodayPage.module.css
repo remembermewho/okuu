@@ -1,0 +1,222 @@
+.dateBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+}
+
+.dateMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dateTitle {
+  font-size: var(--fs-lg);
+  text-align: center;
+}
+
+.dateInput {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  border: 0;
+  background: transparent;
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
+
+.dateInput:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.dateNote {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.lessons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.lesson {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.lessonCancelled {
+  background: transparent;
+  border-style: dashed;
+}
+
+.lessonHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.lessonTitle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px var(--space-2);
+}
+
+.time {
+  font-weight: 700;
+  font-size: var(--fs-lg);
+}
+
+.groupName {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.counter {
+  margin: 0;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.counterDone {
+  color: var(--primary);
+}
+
+.students {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.student {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+@media (min-width: 720px) {
+  .student {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .marks {
+    flex: 0 0 340px;
+  }
+}
+
+.studentInfo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px var(--space-2);
+  min-width: 0;
+}
+
+.studentName {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.studentName:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.changedDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.warn {
+  color: var(--debt);
+  font-weight: 550;
+  font-size: var(--fs-sm);
+}
+
+.marks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+.mark {
+  min-height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 var(--space-2);
+}
+
+.mark:hover {
+  border-color: var(--text-2);
+}
+
+.mark:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.mark_present.markOn {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.mark_absent.markOn {
+  background: var(--debt);
+  border-color: var(--debt);
+  color: #fff;
+}
+
+.mark_excused.markOn {
+  background: var(--excused);
+  border-color: var(--excused);
+  color: #fff;
+}
+
+.lessonActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.lessonActions > :nth-child(2) {
+  flex: 1 1 160px;
+}
+
+.unsaved {
+  width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--debt);
+  font-weight: 500;
+}

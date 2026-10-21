@@ -1,0 +1,69 @@
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.action {
+  font-weight: 600;
+}
+
+.time {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.who {
+  color: var(--text-2);
+}
+
+.details summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 500;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.diff {
+  display: grid;
+  gap: var(--space-2);
+}
+
+@media (min-width: 720px) {
+  .diff {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.diffLabel {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.diff pre {
+  margin: 4px 0 0;
+  padding: var(--space-2);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 280px;
+}

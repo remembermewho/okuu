@@ -2,3 +2,9 @@
 backend/bin/
 *.exe
 .vscode/
+.claude/
+node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+frontend/.env*.local

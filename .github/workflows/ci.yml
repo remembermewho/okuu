@@ -60,6 +60,33 @@ jobs:
       - name: sqlc diff (сгенерированный код совпадает с queries/)
         run: docker run --rm -v "$PWD:/src" -w /src sqlc/sqlc:1.31.1 diff
 
+  frontend:
+    name: frontend typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: клиент API совпадает с docs/openapi.yaml
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/schema.d.ts || { echo "запустите npm run gen:api и закоммитьте src/api/schema.d.ts"; exit 1; }
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   image:
     name: docker image
     needs: backend
