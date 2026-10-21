@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { list, meAdmin, meOwner } from '@/test/fixtures'
+import { center, list, meAdmin, meOwner } from '@/test/fixtures'
 import { apiError, bodyOf, mockApi, renderRoute, unauthorized } from '@/test/utils'
 
 const C = '/api/v1/c/c1'
@@ -88,7 +88,7 @@ describe('страница приглашения', () => {
     const { calls } = mockApi({
       'GET /api/v1/me': unauthorized,
       'GET /api/v1/invites/tok': { body: pub },
-      'POST /api/v1/invites/tok/accept': { body: { id: 'u3', name: 'Нурлан', phone: '+996700333333', centers: [{ id: 'c1', name: 'Билим', role: 'teacher' }] } },
+      'POST /api/v1/invites/tok/accept': { body: { id: 'u3', name: 'Нурлан', phone: '+996700333333', centers: [center('teacher')] } },
       [`GET ${C}/lessons`]: { body: list([]) },
     })
     const { router } = renderRoute('/invite/tok')
@@ -117,11 +117,11 @@ describe('страница приглашения', () => {
   })
 
   it('вошедший: принять без формы — в новый центр', async () => {
-    const before = { ...meOwner, centers: [{ id: 'c9', name: 'Свой центр', role: 'owner' }] }
+    const before = { ...meOwner, centers: [center('owner', 'c9', 'Свой центр')] }
     const { calls } = mockApi({
       'GET /api/v1/me': { body: before },
       'GET /api/v1/invites/tok': { body: pub },
-      'POST /api/v1/invites/tok/accept': { body: { ...before, centers: [...before.centers, { id: 'c1', name: 'Билим', role: 'teacher' }] } },
+      'POST /api/v1/invites/tok/accept': { body: { ...before, centers: [...before.centers, center('teacher')] } },
       [`GET ${C}/lessons`]: { body: list([]) },
     })
     const { router } = renderRoute('/invite/tok')

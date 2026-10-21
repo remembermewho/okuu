@@ -9,7 +9,6 @@ import { Button, Checkbox, Dialog, FormError, Input, Select, layout, useToast } 
 import { useGroups, useTariffs } from '@/features/catalog/api'
 import { nameField, phoneField } from '@/features/auth/schemas'
 import { ru } from '@/i18n/ru'
-import { todayISO } from '@/utils/date'
 import { applyFieldError, errorMessage } from '@/utils/errors'
 import { parseSom } from '@/utils/money'
 import { normalizePhone } from '@/utils/phone'
@@ -75,7 +74,7 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
       discount_kind: 'none',
       discount_value: '',
       with_enroll: true,
-      enroll: emptyEnroll(todayISO()),
+      enroll: emptyEnroll(c.today),
     },
   })
   const {

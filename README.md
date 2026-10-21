@@ -24,6 +24,8 @@ npm run dev            # http://localhost:5173, /api и /webhooks проксир
 `src/api/schema.d.ts` коммитится). E2E на настоящем бэкенде: `npm run e2e:install` (один раз — Chromium), затем
 `npm run e2e` — сам создаёт чистую базу `okuu_e2e` в контейнере из `make db`, поднимает API на :8091 и фронтенд
 на :5174 (dev-сервер на :8080/:5173 не трогает); отчёт со скриншотами 390 и 1280px — `npx playwright show-report`.
+Без контейнера `okuu-db` (так в CI) — `E2E_PG_URL=postgres://user:pass@host:port npm run e2e` и клиент `psql` на машине.
+В CI e2e — отдельная задача; при падении отчёт Playwright лежит в артефакте `playwright-report` прогона.
 
 Тесты: `make test` — с интеграционными на PostgreSQL из `make db`; `make test-short` — только юнит-тесты.
 Код запросов: `make sqlc` (sqlc в Docker, сгенерированный код коммитится).

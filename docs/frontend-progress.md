@@ -441,7 +441,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 **Не сделано / ограничения:**
 - QR-код на странице оплаты (нужна библиотека; онлайн-оплата Finik ещё не подключена).
-- E2E не запускаются в CI (только локально).
+- ~~E2E не запускаются в CI~~ — добавлены в CI (см. «Правки после ревью»).
 - Кыргызский перевод интерфейса — только заготовка (все тексты в `src/i18n/ru.ts`, второго файла нет).
 - Бэкенд не менялся (кроме `docs/openapi.yaml` в части I — убран заголовок `Origin` из параметров).
 
@@ -465,6 +465,87 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 ---
 
+## Правки после ревью
+
+### Что сделано
+1. **«Сегодня» в поясе центра.**
+   - Бэкенд: в `GET /me` у каждого центра поле `today` (дата в часовом поясе центра; запрос
+     `ListMembershipsByUser` отдаёт `timezone`, `auth.Profile` считает дату), в `GET /lessons` — поле `today`
+     рядом с `items`.
+   - `docs/openapi.yaml`: `Me.centers[].today`, `LessonList.today` (оба обязательные).
+   - Тест `TestTodayInMeAndLessons`: часы теста — 18:30 UTC 20.10, в Бишкеке уже 21.10 → `today = 2026-10-21`
+     в `/me` и `/lessons`; после смены пояса на Asia/Tashkent — `2026-10-20`. Сверка ответов со спецификацией
+     (`TestOpenAPIResponsesMatchSpec`) проверяет новые поля.
+   - Фронтенд: `useCenter().today` — из `/me`; «Сегодня» строит окно дат от него; ответ `/lessons` освежает
+     `today` в кэше `/me` (вкладка, открытая за полночь, переходит на новый день). Даты по умолчанию в формах
+     (начало и завершение записи, текущий месяц в отчёте и посещениях) — тоже из `today` центра.
+   - Тесты: в фикстурах `/me` «сегодня» — фиксированная дата, не совпадающая с часами машины; новый тест —
+     дата берётся из `/me`, а свежий `today` из `/lessons` сдвигает окно.
+2. **Импорт:** в `docs/openapi.yaml` `ImportCommitRequest.first_month` — `full | none` (описание операции
+   поясняет: ручной суммы у импорта нет). В тест-сверку добавлены превью (multipart) и подтверждение импорта:
+   спецификация не принимает `first_month: manual` (как и бэкенд — `400`), запрос с `none` и ответ проходят
+   валидацию.
+3. **Origin:** в описание каждой из 30 изменяющих операций добавлено: «браузер обязан прислать заголовок
+   `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`». Параметром заголовок по-прежнему не описан (иначе
+   сгенерированный клиент требует передавать его вручную).
+4. **E2E в CI:** задача `e2e` в `.github/workflows/ci.yml` — сервис postgres 16, Go и Node, `npm ci`,
+   `npx playwright install --with-deps chromium`, `npm run e2e`; при падении — артефакт `playwright-report`
+   (отчёт и `test-results` с трейсами, 14 дней). Для CI `e2e/start-backend.mjs` и `e2e/helpers.ts` умеют
+   подключаться к Postgres напрямую (`E2E_PG_URL`, клиент `psql`), локально — как раньше через
+   `docker exec okuu-db`. Даты в e2e считаются в поясе Бишкека (в CI часы в UTC). `forbidOnly` в CI,
+   ожидание бэкенда — до 5 минут (первая сборка Go без кэша). Режим CI проверен локально (`E2E_PG_URL` на
+   dev-базу, `psql` 18): 10 из 10.
+5. **npm audit** (до правки — 3 уязвимости, все в dev-зависимостях тестов, в сборку приложения не попадают):
+
+   | Пакет | Уровень | Суть | Что сделано |
+   | --- | --- | --- | --- |
+   | `tinypool` ≤ 2.1.1 (через vitest 3) | **critical** ×2 | GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr — prototype pollution → RCE в опциях воркеров | vitest 3.2 → **4.1.12**: tinypool больше не используется |
+   | `@vitest/mocker` 2.1.0–4.1.10 | moderate | GHSA-82fw-gwwq-j7x9 — path traversal / чтение файлов через redirect-мок | исправлено той же версией (mocker 4.1.12) |
+
+   После обновления `npm audit` — **0 уязвимостей**; тесты прошли без правок кода. `npm audit fix --force`
+   предлагал vitest 5.0.5 — не брал: 4.1.12 уже закрывает всё и совместим с Vite 7. Средних и низких,
+   оставшихся без исправления, нет. Замечание: npm (новая политика `allowScripts`) предупреждает, что
+   postinstall у `esbuild@0.28.2` (зависимость Vite) не запущен — он только проверяет бинарник; сборка,
+   тесты и e2e работают.
+
+Проверки: `go vet`, `gofmt`, `make sqlc-diff`, `go test ./...` — зелёные; `npm run typecheck`, `lint`,
+`test` (116), `build` — зелёные; `npm run e2e` — 10 из 10 (локально и в режиме CI). После прогонов порты
+8091/5174 свободны.
+
+### Файлы
+- Бэкенд: `backend/queries/memberships.sql`, `backend/internal/db/sqlc/memberships.sql.go` (sqlc),
+  `backend/internal/auth/service.go`, `backend/internal/httpapi/{auth.go,attendance.go}`,
+  `backend/internal/httpapi/{auth_test.go,attendance_test.go,openapi_test.go}`.
+- Спецификация: `docs/openapi.yaml`.
+- Фронтенд: `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts`,
+  `frontend/e2e/{start-backend.mjs,helpers.ts,money.spec.ts,a11y.spec.ts}`, `frontend/src/api/schema.d.ts`,
+  `frontend/src/app/{center.tsx,guards.tsx}`, `frontend/src/features/today/{api.ts,TodayPage.tsx,today.test.tsx}`,
+  `frontend/src/features/students/{AddStudentDialog.tsx,students.test.tsx}`,
+  `frontend/src/features/students/card/{StudentPage.tsx,dialogs.tsx}`, `frontend/src/features/admin/ReportPage.tsx`,
+  `frontend/src/features/{auth/auth.test.tsx,staff/staff.test.tsx}`, `frontend/src/test/fixtures.ts`.
+- Прочее: `.github/workflows/ci.yml`, `README.md`, `CLAUDE.md`, `docs/frontend-progress.md`.
+
+### Сообщение для коммита
+```
+Use center-local "today", fix import spec, run e2e in CI, update vitest
+
+- API: GET /me centers[].today and GET /lessons today - the date in the
+  center's timezone; the frontend builds the attendance date window and
+  default form dates from it instead of the browser clock
+- openapi: import commit first_month is full | none (as the backend);
+  spec check covers import preview/commit and rejects "manual";
+  every mutating operation states that Origin must equal APP_ORIGIN
+- CI: e2e job with postgres service, backend build and Playwright
+  (chromium), report uploaded on failure; e2e can use a direct
+  Postgres URL (E2E_PG_URL) and compute dates in the center timezone
+- vitest 3 -> 4.1.12: fixes critical tinypool and moderate
+  @vitest/mocker advisories (npm audit: 0 vulnerabilities)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+```
+
+---
+
 ## Решения на проверку
 
 1. `docs/openapi.yaml`: `Origin` убран из параметров операций (часть I) — иначе сгенерированный клиент
@@ -475,14 +556,20 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 5. В карточке ученика «Долг» — любой отрицательный баланс, даже до срока оплаты (часть J).
 6. Сумма в окне оплаты по умолчанию = долг, в целых сомах (часть J).
 7. «Сегодня»: повторное нажатие снимает отметку; кнопка «Все были» (не из ТЗ) (часть K).
-8. «Сегодня» считается по часам браузера, а не по поясу центра (часть K).
+8. ~~«Сегодня» считается по часам браузера, а не по поясу центра (часть K).~~ Исправлено в «Правках после
+   ревью»: `today` центра приходит в `/me` и `/lessons`.
 9. Порядок меню изменён на ТЗ-шный: Должники · Сегодня · Ученики · Ещё (часть K).
 10. Тарифы можно изменять, не только создавать и архивировать (часть K).
-11. Импорт: «За текущий месяц» — только full / none; в openapi.yaml есть `manual`, бэкенд его не принимает (часть L).
+11. ~~Импорт: в openapi.yaml есть `manual`, бэкенд его не принимает (часть L).~~ Исправлено: спецификация —
+    `full | none`, тест-сверка это проверяет.
 12. Страница оплаты без QR-кода — только кнопка «Оплатить онлайн» (часть L).
 13. Журнал: «Было / Стало» показывается как JSON (часть L).
 14. Часовой пояс в настройках — выбор из короткого списка (часть L).
 15. E2E: ссылка оплаты вставляется прямо в базу `okuu_e2e` (её выдаёт только бот) (часть M).
-16. E2E не добавлены в CI — только локально (часть M).
+16. ~~E2E не добавлены в CI — только локально (часть M).~~ Исправлено: задача `e2e` в CI.
 17. Сборка делится на чанки (`manualChunks`), а не ленивые маршруты; sourcemaps в сборке оставлены (часть M).
 18. Сборка фронтенда на сервере — в контейнере `node:22-alpine`, Caddy монтирует `frontend/dist` (часть M).
+19. `today` в ответе `/lessons` освежает «сегодня» центра в кэше `/me` (правки после ревью).
+20. Даты по умолчанию в формах (начало записи, завершение записи, текущий месяц в отчёте и посещениях) тоже
+    берутся из «сегодня» центра, а не из часов браузера (правки после ревью).
+21. vitest обновлён 3 → 4.1.12 ради исправления критических уязвимостей (правки после ревью).

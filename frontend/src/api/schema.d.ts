@@ -17,6 +17,7 @@ export interface paths {
          * Регистрация владельца и центра
          * @description **Без входа.** Создаёт пользователя, центр и делает его владельцем (`owner`); ставит cookie сессии.
          *     Телефон — в любом виде (`0700 123 456`, `+996700123456`), хранится как `+996XXXXXXXXX`.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["register"];
         delete?: never;
@@ -38,6 +39,7 @@ export interface paths {
          * Вход
          * @description **Без входа.** Ставит cookie сессии. Лимит: 5 неудачных попыток за 15 минут на телефон
          *     и на IP — затем `429 too_many_attempts` с `Retry-After`.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["login"];
         delete?: never;
@@ -57,7 +59,7 @@ export interface paths {
         put?: never;
         /**
          * Выход
-         * @description **Без входа** (без сессии — тоже 204). Удаляет сессию и cookie.
+         * @description **Без входа** (без сессии — тоже 204). Удаляет сессию и cookie. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["logout"];
         delete?: never;
@@ -126,6 +128,7 @@ export interface paths {
          * @description **Без входа или вошедший.** Вошедший пользователь принимает без тела. Новый — с телом
          *     `{name, phone, password}`: создаётся пользователь и ставится cookie сессии. Ответ — как `/me`,
          *     с новым центром в списке.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["acceptInvite"];
         delete?: never;
@@ -175,6 +178,7 @@ export interface paths {
          * @description **Без входа.** `manual` — вернёт реквизиты центра (оплату отметит администратор);
          *     онлайн-провайдер (`finik`) — создаст платёж и вернёт ссылку банка / QR. Повторный вызов
          *     возвращает тот же платёж.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["startPayment"];
         delete?: never;
@@ -206,6 +210,7 @@ export interface paths {
          * Изменить настройки
          * @description **Роли:** owner. Частичное изменение: переданные поля меняются, `null` очищает необязательные.
          *     Новый `billing_day` действует со следующего месяца (`billing_day_next`, `billing_day_next_from`).
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["patchSettings"];
         trace?: never;
@@ -322,6 +327,7 @@ export interface paths {
         /**
          * Пригласить сотрудника
          * @description **Роли:** owner. Ссылка (`url`) с одноразовым токеном — только в этом ответе; срок 7 дней.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createInvite"];
         delete?: never;
@@ -345,7 +351,7 @@ export interface paths {
         post?: never;
         /**
          * Отозвать приглашение
-         * @description **Роли:** owner.
+         * @description **Роли:** owner. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         delete: operations["revokeInvite"];
         options?: never;
@@ -368,14 +374,14 @@ export interface paths {
         post?: never;
         /**
          * Удалить сотрудника из центра
-         * @description **Роли:** owner. Его сессии в этом центре больше не действуют.
+         * @description **Роли:** owner. Его сессии в этом центре больше не действуют. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         delete: operations["removeStaff"];
         options?: never;
         head?: never;
         /**
          * Сменить роль сотрудника
-         * @description **Роли:** owner.
+         * @description **Роли:** owner. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["changeStaffRole"];
         trace?: never;
@@ -397,7 +403,7 @@ export interface paths {
         put?: never;
         /**
          * Создать тариф
-         * @description **Роли:** owner, admin. У абонемента (`package`) обязателен `lessons_count`, у месячного — `null`.
+         * @description **Роли:** owner, admin. У абонемента (`package`) обязателен `lessons_count`, у месячного — `null`. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createTariff"];
         delete?: never;
@@ -421,14 +427,14 @@ export interface paths {
         post?: never;
         /**
          * Архивировать тариф
-         * @description **Роли:** owner, admin. Удаление = архив; существующие записи остаются.
+         * @description **Роли:** owner, admin. Удаление = архив; существующие записи остаются. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         delete: operations["archiveTariff"];
         options?: never;
         head?: never;
         /**
          * Изменить тариф
-         * @description **Роли:** owner, admin. Новая цена действует со следующего начисления (R6).
+         * @description **Роли:** owner, admin. Новая цена действует со следующего начисления (R6). **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["patchTariff"];
         trace?: never;
@@ -450,7 +456,7 @@ export interface paths {
         put?: never;
         /**
          * Создать группу
-         * @description **Роли:** owner, admin.
+         * @description **Роли:** owner, admin. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createGroup"];
         delete?: never;
@@ -478,14 +484,14 @@ export interface paths {
         post?: never;
         /**
          * Архивировать группу
-         * @description **Роли:** owner, admin.
+         * @description **Роли:** owner, admin. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         delete: operations["archiveGroup"];
         options?: never;
         head?: never;
         /**
          * Изменить группу
-         * @description **Роли:** owner, admin. `null` у `teacher_id` / `default_tariff_id` — снять.
+         * @description **Роли:** owner, admin. `null` у `teacher_id` / `default_tariff_id` — снять. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["patchGroup"];
         trace?: never;
@@ -509,6 +515,7 @@ export interface paths {
          * Создать ученика (и родителя)
          * @description **Роли:** owner, admin. Родитель с тем же телефоном в центре переиспользуется
          *     (`parent_existing = true`) — так у родителя бывает несколько детей.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createStudent"];
         delete?: never;
@@ -541,6 +548,7 @@ export interface paths {
          * Изменить ученика и его родителя
          * @description **Роли:** owner, admin. `status = left` завершает активные записи. Смена телефона родителя
          *     отвязывает его от Telegram (нужно новое приглашение). Изменения родителя видны у всех его детей.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["patchStudent"];
         trace?: never;
@@ -562,6 +570,7 @@ export interface paths {
          * @description **Роли:** owner, admin. Месячный тариф — начисление за текущий месяц по `first_month` (R5):
          *     `full` — цена со скидкой, `manual` — `manual_amount`, `none` — не начислять. Абонемент —
          *     начисление на его цену и `lessons_left = lessons_count` (R8). `charge = null` — не начислено.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createEnrollment"];
         delete?: never;
@@ -585,7 +594,7 @@ export interface paths {
         put?: never;
         /**
          * Завершить запись
-         * @description **Роли:** owner, admin. Тело необязательно: без `end_date` — сегодня.
+         * @description **Роли:** owner, admin. Тело необязательно: без `end_date` — сегодня. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["endEnrollment"];
         delete?: never;
@@ -611,6 +620,7 @@ export interface paths {
          * Продлить абонемент
          * @description **Роли:** owner, admin. Новое начисление на цену тарифа; к остатку добавляется `lessons_count`
          *     (минусовые занятия вычитаются из нового, R10).
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["renewEnrollment"];
         delete?: never;
@@ -635,6 +645,7 @@ export interface paths {
          * Пригласить родителя в Telegram-бот
          * @description **Роли:** owner, admin. Одноразовая ссылка на бота (30 дней) и готовый текст для WhatsApp
          *     на русском и кыргызском; `whatsapp_url` — на языке родителя.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createParentInvite"];
         delete?: never;
@@ -661,6 +672,7 @@ export interface paths {
          *     `correction` — `amount` со знаком (≠ 0) и обязательный `comment`. Оплата зачисляется на баланс
          *     (R13), возврат его уменьшает (R16). Заголовок `Idempotency-Key` обязателен: повтор с тем же
          *     ключом и теми же данными — `200` с той же операцией, с другими данными — `422 idempotency_mismatch`.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createOperation"];
         delete?: never;
@@ -708,6 +720,7 @@ export interface paths {
          * Отменить операцию
          * @description **Роли:** owner, admin; оплату Finik — только owner (R15). Операции не удаляются и не
          *     редактируются — только отмена с причиной.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["cancelOperation"];
         delete?: never;
@@ -754,6 +767,7 @@ export interface paths {
          * «Напомнить» в Telegram
          * @description **Роли:** owner, admin. По выбранным ученикам (`student_ids`, до 500) или по всем должникам
          *     (`all: true`). Дети одного родителя — одним сообщением (R18); об ученике — не чаще раза в час (R17).
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["sendReminders"];
         delete?: never;
@@ -803,7 +817,7 @@ export interface paths {
         put?: never;
         /**
          * Внеплановое занятие
-         * @description **Роли:** owner, admin.
+         * @description **Роли:** owner, admin. **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createLesson"];
         delete?: never;
@@ -830,7 +844,7 @@ export interface paths {
         head?: never;
         /**
          * Отменить / вернуть занятие
-         * @description **Роли:** owner, admin. Отменённое занятие ничего не списывает; отметки снимаются (R11).
+         * @description **Роли:** owner, admin. Отменённое занятие ничего не списывает; отметки снимаются (R11). **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         patch: operations["patchLesson"];
         trace?: never;
@@ -854,6 +868,7 @@ export interface paths {
          * Сохранить отметки
          * @description **Роли:** owner, admin, teacher (своя группа и только за 7 дней, R12). Пакетно; `status = null` —
          *     снять отметку. «Был»/«не был» списывают занятие с абонемента, «уважительная» — по настройке (R9).
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         put: operations["putAttendance"];
         post?: never;
@@ -900,6 +915,7 @@ export interface paths {
          * Разобрать файл импорта
          * @description **Роли:** owner, admin. `multipart/form-data`, поле `file`: .xlsx или .csv (UTF-8 / windows-1251,
          *     разделитель `,` или `;`) до 5 МБ и 2000 строк. Ничего не сохраняет, кроме превью (на час).
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["importPreview"];
         delete?: never;
@@ -921,8 +937,10 @@ export interface paths {
         put?: never;
         /**
          * Подтвердить импорт
-         * @description **Роли:** owner, admin. Одной транзакцией: строки ok/warning без дубликатов. `first_month` — как у записи
-         *     в группу (R5) для месячных тарифов. Начальный долг — поправкой со сроком в день импорта.
+         * @description **Роли:** owner, admin. Одной транзакцией: строки ok/warning без дубликатов. `first_month` — текущий
+         *     месяц для месячных тарифов (R5): `full` — начислить по тарифу, `none` — не начислять (ручной суммы у
+         *     импорта нет). Начальный долг — поправкой со сроком в день импорта.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["importCommit"];
         delete?: never;
@@ -1007,6 +1025,8 @@ export interface components {
                 id: components["schemas"]["UUID"];
                 name: string;
                 role: components["schemas"]["Role"];
+                /** @description «Сегодня» в часовом поясе центра — по нему интерфейс считает окно дат посещаемости */
+                today: components["schemas"]["Date"];
             }[];
         };
         RegisterRequest: {
@@ -1469,6 +1489,8 @@ export interface components {
         LessonList: {
             items: components["schemas"]["Lesson"][];
             next_cursor: components["schemas"]["NextCursor"];
+            /** @description «Сегодня» в часовом поясе центра (окно дат: преподаватель — сегодня−7…сегодня, владелец и админ — до сегодня+30) */
+            today: components["schemas"]["Date"];
         };
         AttendanceHistoryList: {
             items: {
@@ -1540,7 +1562,7 @@ export interface components {
              * @default full
              * @enum {string}
              */
-            first_month?: "full" | "manual" | "none";
+            first_month?: "full" | "none";
         };
         ImportResult: {
             students_created: number;

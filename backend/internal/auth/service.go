@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/token"
 	"okuu/internal/validate"
@@ -250,7 +251,13 @@ func (s *Service) Authenticate(ctx context.Context, tok string) (sess Session, e
 // Profile — пользователь и его центры для GET /me.
 type Profile struct {
 	User    sqlc.User
-	Centers []sqlc.ListMembershipsByUserRow
+	Centers []ProfileCenter
+}
+
+// ProfileCenter — центр пользователя, его роль и «сегодня» в поясе центра (для окна дат в интерфейсе).
+type ProfileCenter struct {
+	sqlc.ListMembershipsByUserRow
+	Today civil.Date
 }
 
 // Profile загружает пользователя и список его центров.
@@ -259,9 +266,18 @@ func (s *Service) Profile(ctx context.Context, userID uuid.UUID) (Profile, error
 	if err != nil {
 		return Profile{}, err
 	}
-	centers, err := s.q.ListMembershipsByUser(ctx, userID)
+	rows, err := s.q.ListMembershipsByUser(ctx, userID)
 	if err != nil {
 		return Profile{}, err
+	}
+	now := s.now()
+	centers := make([]ProfileCenter, 0, len(rows))
+	for _, r := range rows {
+		today, err := civil.Today(now, r.Timezone)
+		if err != nil {
+			return Profile{}, fmt.Errorf("центр %s: %w", r.CenterID, err)
+		}
+		centers = append(centers, ProfileCenter{ListMembershipsByUserRow: r, Today: today})
 	}
 	return Profile{User: user, Centers: centers}, nil
 }

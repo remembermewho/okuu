@@ -55,7 +55,7 @@ export function CenterScope({ children }: { children: React.ReactNode }) {
   const centers = me.data?.centers ?? []
   const c = centers.find((x) => x.id === centerId)
   if (!c) return <Navigate to="/" replace />
-  return <CenterContext.Provider value={{ id: c.id, name: c.name, role: c.role, centersCount: centers.length }}>{children}</CenterContext.Provider>
+  return <CenterContext.Provider value={{ id: c.id, name: c.name, role: c.role, centersCount: centers.length, today: c.today }}>{children}</CenterContext.Provider>
 }
 
 /** /c/:centerId/ — первый экран по роли. */

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -31,6 +32,37 @@ type lessonResp struct {
 	StudentsCount int                 `json:"students_count"`
 	MarkedCount   int                 `json:"marked_count"`
 	Students      []lessonStudentResp `json:"students"`
+}
+
+// «Сегодня» центра — в его часовом поясе (не по UTC и не по часам браузера): в /me и в /lessons.
+// По нему интерфейс строит окно дат посещаемости.
+func TestTodayInMeAndLessons(t *testing.T) {
+	c := newCatalog(t, "+996707300001")
+	// 18:30 UTC 20.10: в Бишкеке (UTC+6) уже 00:30 21.10, в Ташкенте (UTC+5) ещё 23:30 20.10.
+	c.api.clock.Set(time.Date(2026, 10, 20, 18, 30, 0, 0, time.UTC))
+	check := func(want string) {
+		t.Helper()
+		me := decode[meResp](t, c.owner.do(http.MethodGet, "/api/v1/me", nil))
+		if len(me.Centers) != 1 || me.Centers[0].Today != want {
+			t.Errorf("/me centers = %+v, want today %s", me.Centers, want)
+		}
+		rec := c.owner.do(http.MethodGet, centerPath(c.center, "/lessons?date="+want), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("lessons: %d %s", rec.Code, rec.Body)
+		}
+		if got := decode[struct {
+			Today string `json:"today"`
+		}](t, rec).Today; got != want {
+			t.Errorf("/lessons today = %s, want %s", got, want)
+		}
+	}
+	check("2026-10-21")
+
+	rec := c.owner.do(http.MethodPatch, centerPath(c.center, "/settings"), map[string]any{"timezone": "Asia/Tashkent"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings: %d %s", rec.Code, rec.Body)
+	}
+	check("2026-10-20")
 }
 
 func createLesson(t *testing.T, c *catalog, body map[string]any) lessonResp {

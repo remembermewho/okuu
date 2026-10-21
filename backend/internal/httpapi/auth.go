@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"okuu/internal/auth"
+	"okuu/internal/civil"
 	"okuu/internal/httpx"
 )
 
@@ -18,9 +19,10 @@ type meDTO struct {
 }
 
 type meCenterDTO struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
-	Role string    `json:"role"`
+	ID    uuid.UUID  `json:"id"`
+	Name  string     `json:"name"`
+	Role  string     `json:"role"`
+	Today civil.Date `json:"today"` // «сегодня» в часовом поясе центра
 }
 
 type registerRequest struct {
@@ -98,7 +100,7 @@ func (h *handlers) writeMe(w http.ResponseWriter, r *http.Request, status int, u
 	}
 	dto := meDTO{ID: p.User.ID, Name: p.User.Name, Phone: p.User.Phone, Centers: make([]meCenterDTO, 0, len(p.Centers))}
 	for _, c := range p.Centers {
-		dto.Centers = append(dto.Centers, meCenterDTO{ID: c.CenterID, Name: c.CenterName, Role: c.Role})
+		dto.Centers = append(dto.Centers, meCenterDTO{ID: c.CenterID, Name: c.CenterName, Role: c.Role, Today: c.Today})
 	}
 	httpx.JSON(w, status, dto)
 }

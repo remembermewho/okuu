@@ -1,13 +1,15 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { group, lesson, list, meAdmin, meTeacher } from '@/test/fixtures'
+import { group, lesson, list as listOf, meAdmin, meTeacher, TODAY } from '@/test/fixtures'
 import { apiError, bodyOf, mockApi, renderRoute } from '@/test/utils'
-import { addDays, todayISO } from '@/utils/date'
+import { addDays } from '@/utils/date'
 import { dateWindow } from './TodayPage'
 
 const C = '/api/v1/c/c1'
-const today = todayISO()
+// «Сегодня» центра из /me (TODAY), а не часы машины, на которой идут тесты.
+const today = TODAY
+const list = <T,>(items: T[]) => ({ ...listOf(items), today })
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -21,6 +23,20 @@ describe('окно дат', () => {
 })
 
 describe('Сегодня', () => {
+  it('«сегодня» — из /me (пояс центра), свежее значение из /lessons сдвигает окно', async () => {
+    const tomorrow = addDays(today, 1)
+    const { calls } = mockApi({
+      'GET /api/v1/me': { body: meTeacher },
+      // Сервер говорит: в центре уже следующий день (вкладка простояла за полночь).
+      [`GET ${C}/lessons`]: { body: { ...listOf([]), today: tomorrow } },
+    })
+    renderRoute('/c/c1/today')
+    await waitFor(() => expect(calls.some((r) => r.url.includes(`date=${today}`))).toBe(true))
+    await waitFor(() => expect(calls.some((r) => r.url.includes(`date=${tomorrow}`))).toBe(true))
+    // Новое «сегодня» — край окна преподавателя: дальше вперёд нельзя.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Следующий день' })).toBeDisabled())
+  })
+
   it('отметки: в запрос уходят только изменения; повторное нажатие снимает отметку', async () => {
     const { calls } = mockApi({
       'GET /api/v1/me': { body: meTeacher },

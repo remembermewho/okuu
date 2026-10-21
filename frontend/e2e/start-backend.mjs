@@ -1,6 +1,9 @@
-// Бэкенд для e2e: чистая база okuu_e2e в dev-контейнере Postgres (okuu-db), сервер на :8091.
-// Запускает Playwright (webServer) и сам же его останавливает. Рабочую базу okuu и сервер
-// на :8080 не трогает. Telegram выключен — реальный бот в e2e не участвует.
+// Бэкенд для e2e: чистая база okuu_e2e, сервер на :8091. Запускает Playwright (webServer) и сам же
+// его останавливает. Рабочую базу okuu и сервер на :8080 не трогает. Telegram выключен — реальный бот
+// в e2e не участвует.
+//
+// Postgres: локально — dev-контейнер `okuu-db` (docker exec psql, порт 5433); в CI — сервис postgres:
+// E2E_PG_URL=postgres://user:pass@host:port (без имени базы), psql — клиент на машине.
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -9,12 +12,15 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const backend = join(here, '..', '..', 'backend')
 const container = process.env.E2E_PG_CONTAINER ?? 'okuu-db'
+const pgURL = process.env.E2E_PG_URL?.replace(/\/+$/, '')
 const db = 'okuu_e2e'
 const port = process.env.E2E_API_PORT ?? '8091'
 const origin = process.env.E2E_ORIGIN ?? 'http://localhost:5174'
 
 function psql(sql) {
-  execFileSync('docker', ['exec', container, 'psql', '-U', 'okuu', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql], { stdio: 'inherit' })
+  const args = ['-v', 'ON_ERROR_STOP=1', '-q', '-c', sql]
+  if (pgURL) execFileSync('psql', [`${pgURL}/postgres`, ...args], { stdio: 'inherit' })
+  else execFileSync('docker', ['exec', container, 'psql', '-U', 'okuu', '-d', 'postgres', ...args], { stdio: 'inherit' })
 }
 
 // 1. Чистая база: каждый прогон e2e — с нуля.
@@ -35,7 +41,7 @@ const child = spawn(bin, [], {
     APP_ENV: 'dev',
     HTTP_ADDR: ':' + port,
     APP_ORIGIN: origin,
-    DATABASE_URL: `postgres://okuu:okuu_dev_password@localhost:5433/${db}?sslmode=disable`,
+    DATABASE_URL: `${pgURL ?? 'postgres://okuu:okuu_dev_password@localhost:5433'}/${db}?sslmode=disable`,
     TELEGRAM_MODE: 'off',
     TELEGRAM_BOT_USERNAME: 'okuu_e2e_bot',
     ALERT_TELEGRAM_CHAT_ID: '',

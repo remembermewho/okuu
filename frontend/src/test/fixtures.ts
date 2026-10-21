@@ -1,8 +1,12 @@
 import type { Schemas } from '@/api/client'
 
-export const meOwner = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [{ id: 'c1', name: 'Билим', role: 'owner' }] }
-export const meAdmin = { ...meOwner, centers: [{ id: 'c1', name: 'Билим', role: 'admin' }] }
-export const meTeacher = { ...meOwner, centers: [{ id: 'c1', name: 'Билим', role: 'teacher' }] }
+/** «Сегодня» центра в тестах — нарочно не по часам машины: интерфейс должен брать дату с сервера. */
+export const TODAY = '2026-10-19'
+export const center = (role: 'owner' | 'admin' | 'teacher', id = 'c1', name = 'Билим') => ({ id, name, role, today: TODAY })
+
+export const meOwner = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [center('owner')] }
+export const meAdmin = { ...meOwner, centers: [center('admin')] }
+export const meTeacher = { ...meOwner, centers: [center('teacher')] }
 
 export const group: Schemas['Group'] = {
   id: 'g1',

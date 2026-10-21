@@ -13,6 +13,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1, // одна база на прогон: сценарии идут по очереди
   retries: 0,
+  forbidOnly: !!process.env.CI, // test.only, забытый в коде, в CI — ошибка
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   outputDir: 'test-results',
   use: {
@@ -30,7 +31,7 @@ export default defineConfig({
     {
       command: 'node e2e/start-backend.mjs',
       url: `http://localhost:${API_PORT}/readyz`,
-      timeout: 180_000,
+      timeout: 300_000, // в CI первая сборка Go без кэша — дольше
       reuseExistingServer: false,
       stdout: 'ignore',
       stderr: 'pipe',

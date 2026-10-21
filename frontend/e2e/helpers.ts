@@ -7,6 +7,19 @@ export const API_PORT = 8091
 export const FRONT_PORT = 5174
 export const ORIGIN = `http://localhost:${FRONT_PORT}`
 const container = process.env.E2E_PG_CONTAINER ?? 'okuu-db'
+// В CI — прямое подключение к сервису postgres (см. e2e/start-backend.mjs).
+const pgURL = process.env.E2E_PG_URL?.replace(/\/+$/, '')
+
+/** «Сегодня» центра (Asia/Bishkek), YYYY-MM-DD — машина с тестами может жить в другом поясе (CI — UTC). */
+export function centerToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bishkek', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+}
+
+/** День недели центра: 1 — понедельник … 7 — воскресенье. */
+export function centerDow(): number {
+  const [y, m, d] = centerToday().split('-').map(Number)
+  return ((new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay() + 6) % 7) + 1
+}
 
 /** Уникальный телефон на прогон: база общая для проектов mobile/desktop. */
 let seq = 0
@@ -51,7 +64,11 @@ export function apiOf(page: Page) {
 }
 
 function psql(sql: string): string {
-  return execFileSync('docker', ['exec', container, 'psql', '-U', 'okuu', '-d', 'okuu_e2e', '-v', 'ON_ERROR_STOP=1', '-qtA', '-c', sql], { encoding: 'utf8' }).trim()
+  const args = ['-v', 'ON_ERROR_STOP=1', '-qtA', '-c', sql]
+  const out = pgURL
+    ? execFileSync('psql', [`${pgURL}/okuu_e2e`, ...args], { encoding: 'utf8' })
+    : execFileSync('docker', ['exec', container, 'psql', '-U', 'okuu', '-d', 'okuu_e2e', ...args], { encoding: 'utf8' })
+  return out.trim()
 }
 
 /**

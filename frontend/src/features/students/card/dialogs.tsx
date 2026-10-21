@@ -10,7 +10,7 @@ import { Button, ButtonAnchor, Dialog, FormError, Input, Textarea, layout, useTo
 import { useGroups, useTariffs } from '@/features/catalog/api'
 import { useCancelOperation } from '@/features/money/api'
 import { ru } from '@/i18n/ru'
-import { formatDateTime, todayISO } from '@/utils/date'
+import { formatDateTime } from '@/utils/date'
 import { applyFieldError, errorMessage } from '@/utils/errors'
 import { useEnroll } from '../api'
 import { checkEnroll, emptyEnroll, enrollBody, EnrollFields, enrollFields } from '../enroll'
@@ -115,10 +115,10 @@ export function EnrollDialog({ studentId, open, onClose }: { studentId: string; 
   const toast = useToast()
   const [formError, setFormError] = useState<string>()
   const schema = useMemo(() => enrollSchema.superRefine((v, ctx) => checkEnroll(v.enroll, groups.data ?? [], tariffs.data ?? [], ctx, ['enroll'])), [groups.data, tariffs.data])
-  const form = useForm<{ enroll: z.infer<typeof enrollFields> }>({ resolver: zodResolver(schema), defaultValues: { enroll: emptyEnroll(todayISO()) } })
+  const form = useForm<{ enroll: z.infer<typeof enrollFields> }>({ resolver: zodResolver(schema), defaultValues: { enroll: emptyEnroll(c.today) } })
 
   const close = () => {
-    form.reset({ enroll: emptyEnroll(todayISO()) })
+    form.reset({ enroll: emptyEnroll(c.today) })
     setFormError(undefined)
     onClose()
   }

@@ -239,6 +239,28 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	checked(t, v, c, http.MethodGet, cp("/debtors"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodPost, cp("/reminders"), map[string]any{"all": true}, http.StatusConflict) // бот выключен
 
+	// импорт: превью (multipart) и подтверждение; first_month — только full | none, как в бэкенде
+	csv := "ФИО ученика*;Имя родителя*;Телефон родителя*;Группа*;Тариф*\nИмпортов Азамат;Гульнара;0709 500 201;Английский;Месяц\n"
+	rec := c.upload(cp("/import/preview"), "students.csv", []byte(csv))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import/preview: %d %s", rec.Code, rec.Body)
+	}
+	previewReq := httptest.NewRequest(http.MethodPost, cp("/import/preview"), http.NoBody)
+	previewHTTP := rec.Result()
+	previewHTTP.Request = previewReq
+	if ok, errs := v.ValidateHttpResponse(previewReq, previewHTTP); !ok {
+		for _, e := range errs {
+			t.Errorf("import/preview: ответ не по спецификации: %s: %s", e.Message, e.Reason)
+		}
+	}
+	prev := decode[previewResp](t, rec)
+	manual := map[string]any{"preview_id": prev.PreviewID, "first_month": "manual"}
+	if specAcceptsRequest(t, v, c, http.MethodPost, cp("/import/commit"), manual) {
+		t.Error("спецификация принимает first_month = manual у /import/commit, а бэкенд — нет")
+	}
+	checked(t, v, c, http.MethodPost, cp("/import/commit"), manual, http.StatusBadRequest)
+	checked(t, v, c, http.MethodPost, cp("/import/commit"), map[string]any{"preview_id": prev.PreviewID, "first_month": "none"}, http.StatusOK)
+
 	// посещаемость
 	lesson := decode[lessonResp](t, checked(t, v, c, http.MethodPost, cp("/lessons"),
 		map[string]any{"group_id": group.ID, "date": today, "start_time": "08:00"}, http.StatusCreated))
@@ -263,6 +285,24 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	checked(t, v, anon, http.MethodGet, "/api/v1/pay/"+payToken, nil, http.StatusOK)
 	checked(t, v, anon, http.MethodPost, "/api/v1/pay/"+payToken+"/start", nil, http.StatusOK)
 	checked(t, v, anon, http.MethodGet, "/api/v1/pay/"+strings.Repeat("A", 43), nil, http.StatusNotFound)
+}
+
+// specAcceptsRequest — проходит ли запрос (JSON-тело, cookie и Origin клиента) валидацию по спецификации.
+// Сам запрос не выполняется.
+func specAcceptsRequest(t *testing.T, v validator.Validator, c *client, method, path string, body any) bool {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(method, path, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", c.origin)
+	for _, ck := range c.cookies {
+		req.AddCookie(ck)
+	}
+	ok, _ := v.ValidateHttpRequest(req)
+	return ok
 }
 
 // todayIn — сегодня по Бишкеку для часов теста.

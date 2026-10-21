@@ -2,7 +2,7 @@
 // по проекту) прикладываются к отчёту Playwright; серьёзные (serious) нарушения — тоже, для разбора.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
-import { apiOf, registerCenter, seedPayLink } from './helpers'
+import { apiOf, centerDow, centerToday, registerCenter, seedPayLink } from './helpers'
 
 async function check(page: Page, info: TestInfo, name: string) {
   await page.waitForLoadState('networkidle')
@@ -26,12 +26,9 @@ test('основные экраны: нет критических наруше�
   const { centerId } = await registerCenter(page)
   const api = apiOf(page)
   const C = `/api/v1/c/${centerId}`
-  const dow = ((new Date().getDay() + 6) % 7) + 1
   const tariff = await api.post(`${C}/tariffs`, { name: 'Английский — месяц', kind: 'monthly', price: 300000 })
-  const group = await api.post(`${C}/groups`, { name: 'Английский A1', schedule: [{ dow, start: '15:00', end: '16:30' }], default_tariff_id: tariff.id })
-  const today = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const start = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-01`
+  const group = await api.post(`${C}/groups`, { name: 'Английский A1', schedule: [{ dow: centerDow(), start: '15:00', end: '16:30' }], default_tariff_id: tariff.id })
+  const start = `${centerToday().slice(0, 7)}-01`
   let firstId = ''
   for (const [i, name] of ['Асанов Бекзат', 'Бекова Айжан', 'Сыдыков Эрлан'].entries()) {
     const st = await api.post(`${C}/students`, { full_name: name, parent: { name: 'Родитель', phone: `0700 222 33${i}` } })

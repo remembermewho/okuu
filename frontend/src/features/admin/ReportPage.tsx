@@ -4,7 +4,7 @@ import { useCenter } from '@/app/center'
 import { MonthSwitcher } from '@/components/shared'
 import { Button, Card, CardHeader, ErrorState, MoneyText, PageHeader, SkeletonList, layout, useToast } from '@/components/ui'
 import { ru } from '@/i18n/ru'
-import { currentMonth, formatDate } from '@/utils/date'
+import { formatDate } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { useMonthReport, useReportExport } from './api'
 import s from './Report.module.css'
@@ -14,7 +14,7 @@ const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 export function ReportPage() {
   const c = useCenter()
   const [params, setParams] = useSearchParams()
-  const now = currentMonth()
+  const now = c.today.slice(0, 7) // текущий месяц в поясе центра
   const raw = params.get('month') ?? ''
   const month = MONTH.test(raw) && raw <= now ? raw : now
   const report = useMonthReport(c.id, month)

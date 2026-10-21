@@ -176,9 +176,10 @@ type meResp struct {
 	Name    string    `json:"name"`
 	Phone   string    `json:"phone"`
 	Centers []struct {
-		ID   uuid.UUID `json:"id"`
-		Name string    `json:"name"`
-		Role string    `json:"role"`
+		ID    uuid.UUID `json:"id"`
+		Name  string    `json:"name"`
+		Role  string    `json:"role"`
+		Today string    `json:"today"`
 	} `json:"centers"`
 }
 

@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { group, list, meOwner, meTeacher, operation, student, tariffMonth } from '@/test/fixtures'
+import { group, list, meAdmin, meOwner, meTeacher, operation, student, tariffMonth } from '@/test/fixtures'
 import { apiError, bodyOf, mockApi, renderRoute } from '@/test/utils'
 
 const C = '/api/v1/c/c1'
@@ -95,7 +95,7 @@ describe('карточка ученика', () => {
 
   it('оплату Finik может отменить только владелец', async () => {
     mockApi({
-      'GET /api/v1/me': { body: { ...meOwner, centers: [{ id: 'c1', name: 'Билим', role: 'admin' }] } },
+      'GET /api/v1/me': { body: meAdmin },
       [`GET ${C}/students/s1`]: { body: student() },
       [`GET ${C}/students/s1/ledger`]: { body: list([operation({ id: 'l9', kind: 'payment', amount: 100_000, method: 'finik' }), operation()]) },
       [`GET ${C}/students/s1/attendance`]: { body: list([]) },

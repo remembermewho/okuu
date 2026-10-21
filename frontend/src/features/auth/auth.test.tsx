@@ -1,9 +1,10 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { center } from '@/test/fixtures'
 import { apiError, bodyOf, mockApi, renderRoute, unauthorized } from '@/test/utils'
 
-const me = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [{ id: 'c1', name: 'Билим', role: 'owner' }] }
+const me = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [center('owner')] }
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -122,7 +123,7 @@ describe('защищённые маршруты', () => {
   })
 
   it('преподаватель — только «Сегодня» и «Группы»', async () => {
-    mockApi({ 'GET /api/v1/me': { body: { ...me, centers: [{ id: 'c1', name: 'Билим', role: 'teacher' }] } } })
+    mockApi({ 'GET /api/v1/me': { body: { ...me, centers: [center('teacher')] } } })
     const { router } = renderRoute('/')
     await waitFor(() => expect(router.state.location.pathname).toBe('/c/c1/today'))
     const navs = screen.getAllByRole('navigation', { name: 'Главное меню' })
@@ -133,7 +134,7 @@ describe('защищённые маршруты', () => {
   })
 
   it('преподаватель на чужом разделе — «нет доступа»', async () => {
-    mockApi({ 'GET /api/v1/me': { body: { ...me, centers: [{ id: 'c1', name: 'Билим', role: 'teacher' }] } } })
+    mockApi({ 'GET /api/v1/me': { body: { ...me, centers: [center('teacher')] } } })
     renderRoute('/c/c1/debtors')
     expect(await screen.findByText('Нет доступа')).toBeInTheDocument()
   })

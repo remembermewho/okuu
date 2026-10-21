@@ -1,7 +1,8 @@
 import { createContext, useContext } from 'react'
 import type { Role } from './permissions'
 
-export type CurrentCenter = { id: string; name: string; role: Role; centersCount: number }
+/** today — «сегодня» в часовом поясе центра (YYYY-MM-DD) из /me; освежается ответом /lessons. */
+export type CurrentCenter = { id: string; name: string; role: Role; centersCount: number; today: string }
 
 export const CenterContext = createContext<CurrentCenter | null>(null)
 

@@ -75,11 +75,22 @@ func (h *handlers) listLessons(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	today, err := h.attendance.Today(r.Context(), centerID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	out := make([]lessonDTO, 0, len(list))
 	for _, l := range list {
 		out = append(out, toLessonDTO(l, v))
 	}
-	httpx.JSON(w, http.StatusOK, listOf(out))
+	httpx.JSON(w, http.StatusOK, lessonListDTO{listDTO: listOf(out), Today: today})
+}
+
+// lessonListDTO — занятия на дату и «сегодня» в поясе центра: по нему интерфейс строит окно дат.
+type lessonListDTO struct {
+	listDTO[lessonDTO]
+	Today civil.Date `json:"today"`
 }
 
 func (h *handlers) getLessonAttendance(w http.ResponseWriter, r *http.Request) {

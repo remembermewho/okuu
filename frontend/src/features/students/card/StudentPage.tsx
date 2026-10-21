@@ -10,7 +10,7 @@ import { MonthSwitcher, StudentStatusBadge, TgBadge } from '@/components/shared'
 import { Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, ErrorState, Input, MoneyText, PageHeader, Skeleton, SkeletonList, layout, useToast } from '@/components/ui'
 import { useLedger, useReminders } from '@/features/money/api'
 import { ru } from '@/i18n/ru'
-import { currentMonth, formatDate, formatDateTime, formatDayMonth, formatMonth, todayISO } from '@/utils/date'
+import { formatDate, formatDateTime, formatDayMonth, formatMonth } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { formatSom } from '@/utils/money'
 import { formatPhone } from '@/utils/phone'
@@ -214,7 +214,7 @@ function EnrollmentsCard({ student }: { student: Student }) {
   const [adding, setAdding] = useState(false)
   const [ending, setEnding] = useState<Enrollment | null>(null)
   const [renewing, setRenewing] = useState<Enrollment | null>(null)
-  const [endDate, setEndDate] = useState(todayISO())
+  const [endDate, setEndDate] = useState(c.today)
   const end = useEndEnrollment(c.id, student.id)
   const renew = useRenewEnrollment(c.id, student.id)
   const toast = useToast()
@@ -257,7 +257,7 @@ function EnrollmentsCard({ student }: { student: Student }) {
                     {ru.student.renew}
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => (setEndDate(todayISO()), setEnding(e))}>
+                <Button size="sm" variant="ghost" onClick={() => (setEndDate(c.today), setEnding(e))}>
                   {ru.student.end}
                 </Button>
               </div>
@@ -360,7 +360,8 @@ function HistoryCard({ studentId }: { studentId: string }) {
 
 function AttendanceCard({ studentId }: { studentId: string }) {
   const c = useCenter()
-  const [month, setMonth] = useState(currentMonth())
+  const thisMonth = c.today.slice(0, 7)
+  const [month, setMonth] = useState(thisMonth)
   const att = useStudentAttendance(c.id, studentId, month)
   const items = att.data ?? []
   const count = (st: string) => items.filter((i) => i.status === st).length
@@ -368,7 +369,7 @@ function AttendanceCard({ studentId }: { studentId: string }) {
 
   return (
     <Card>
-      <CardHeader title={ru.student.attendance} actions={<MonthSwitcher month={month} onChange={setMonth} max={currentMonth()} />} />
+      <CardHeader title={ru.student.attendance} actions={<MonthSwitcher month={month} onChange={setMonth} max={thisMonth} />} />
       {att.isPending ? (
         <SkeletonList rows={3} height={40} />
       ) : att.isError ? (

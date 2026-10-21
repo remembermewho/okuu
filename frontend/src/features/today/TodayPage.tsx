@@ -9,7 +9,7 @@ import { Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, For
 import { useGroups, groupOptions } from '@/features/catalog/api'
 import { ru } from '@/i18n/ru'
 import { cx } from '@/utils/cx'
-import { addDays, formatDate, formatDayMonth, todayISO, weekdayLong } from '@/utils/date'
+import { addDays, formatDate, formatDayMonth, weekdayLong } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { useCreateLesson, useLessons, useSaveMarks, useSetLessonCancelled, type Lesson, type Mark } from './api'
 import s from './TodayPage.module.css'
@@ -27,7 +27,8 @@ const clamp = (d: string, w: { min?: string; max: string }) => (w.min && d < w.m
 export function TodayPage() {
   const c = useCenter()
   const teacher = c.role === 'teacher'
-  const today = todayISO()
+  // «Сегодня» — в поясе центра (с сервера), а не по часам браузера.
+  const today = c.today
   const win = dateWindow(teacher, today)
   const [params, setParams] = useSearchParams()
   const raw = params.get('date') ?? ''

@@ -1,15 +1,13 @@
 // Главный сценарий: центр → тариф → группа → ученик с первым месяцем → должник → оплата → не должник →
 // отмена оплаты → снова должник. Всё через интерфейс, на настоящем бэкенде.
 import { expect, test } from '@playwright/test'
-import { registerCenter } from './helpers'
-
-const pad = (n: number) => String(n).padStart(2, '0')
+import { centerToday, registerCenter } from './helpers'
 
 test('ученик с долгом: оплата убирает из должников, отмена оплаты возвращает', async ({ page }) => {
-  const now = new Date()
+  const today = centerToday()
   // Срок оплаты считается от 1-го числа: 1-го числа долг ещё не просрочен — сценарий не проверить.
-  test.skip(now.getDate() === 1, '1-го числа начисление ещё не просрочено')
-  const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
+  test.skip(today.endsWith('-01'), '1-го числа начисление ещё не просрочено')
+  const monthStart = `${today.slice(0, 7)}-01`
 
   const { centerId } = await registerCenter(page)
   // Видимое меню: нижнее на телефоне, боковое на компьютере.

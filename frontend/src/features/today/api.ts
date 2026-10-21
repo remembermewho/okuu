@@ -1,16 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, unwrap, type Schemas } from '@/api/client'
 import { qk } from '@/api/keys'
+import { meKey } from '@/app/queryClient'
 
 export type Lesson = Schemas['Lesson']
 export type LessonStudent = Lesson['students'][number]
 export type Mark = Schemas['AttendanceStatus']
 
-/** Занятия на дату (бэкенд создаёт их по расписанию при первом открытии, R11). */
+/**
+ * Занятия на дату (бэкенд создаёт их по расписанию при первом открытии, R11). Ответ несёт «сегодня»
+ * центра — им освежаем /me (вкладка могла простоять открытой за полночь).
+ */
 export function useLessons(centerId: string, date: string) {
+  const qc = useQueryClient()
   return useQuery({
     queryKey: qk.lessons(centerId, date),
-    queryFn: () => unwrap(api.GET('/api/v1/c/{centerId}/lessons', { params: { path: { centerId }, query: { date } } })),
+    queryFn: async () => {
+      const res = await unwrap(api.GET('/api/v1/c/{centerId}/lessons', { params: { path: { centerId }, query: { date } } }))
+      qc.setQueryData<Schemas['Me']>(meKey, (me) =>
+        me && me.centers.some((c) => c.id === centerId && c.today !== res.today)
+          ? { ...me, centers: me.centers.map((c) => (c.id === centerId ? { ...c, today: res.today } : c)) }
+          : me,
+      )
+      return res
+    },
     select: (d) => d.items,
   })
 }

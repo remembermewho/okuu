@@ -49,7 +49,7 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (M
 }
 
 const listMembershipsByUser = `-- name: ListMembershipsByUser :many
-SELECT m.center_id, m.role, c.name AS center_name
+SELECT m.center_id, m.role, c.name AS center_name, c.timezone
 FROM memberships m
 JOIN centers c ON c.id = m.center_id
 WHERE m.user_id = $1
@@ -60,6 +60,7 @@ type ListMembershipsByUserRow struct {
 	CenterID   uuid.UUID `json:"center_id"`
 	Role       string    `json:"role"`
 	CenterName string    `json:"center_name"`
+	Timezone   string    `json:"timezone"`
 }
 
 // Центры пользователя для GET /me.
@@ -72,7 +73,12 @@ func (q *Queries) ListMembershipsByUser(ctx context.Context, userID uuid.UUID) (
 	items := []ListMembershipsByUserRow{}
 	for rows.Next() {
 		var i ListMembershipsByUserRow
-		if err := rows.Scan(&i.CenterID, &i.Role, &i.CenterName); err != nil {
+		if err := rows.Scan(
+			&i.CenterID,
+			&i.Role,
+			&i.CenterName,
+			&i.Timezone,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
