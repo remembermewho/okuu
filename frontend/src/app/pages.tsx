@@ -1,4 +1,4 @@
-import { Building2, ChevronRight, LogOut, SearchX, UserRound } from 'lucide-react'
+import { Building2, ChevronRight, LogOut, SearchX, Shield, UserRound } from 'lucide-react'
 import { Link } from 'react-router'
 import { ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui'
 import { AuthLayout } from '@/features/auth/AuthLayout'
@@ -21,11 +21,21 @@ export function CenterPicker() {
             <span>
               {c.name}
               <br />
-              <small>{ru.roles[c.role]}</small>
+              <small>
+                {ru.roles[c.role]}
+                {c.status !== 'active' && ` · ${ru.centerStatus.badge[c.status]}`}
+              </small>
             </span>
             <ChevronRight size={18} aria-hidden="true" />
           </Link>
         ))}
+        {me.data?.is_platform_admin && (
+          <Link to="/admin" className={s.moreItem}>
+            <Shield size={20} aria-hidden="true" />
+            <span>{ru.platform.menu}</span>
+            <ChevronRight size={18} aria-hidden="true" />
+          </Link>
+        )}
       </div>
     </AuthLayout>
   )
@@ -34,6 +44,7 @@ export function CenterPicker() {
 /** «Ещё» на телефоне — разделы, не вошедшие в нижнее меню. */
 export function MorePage() {
   const c = useCenter()
+  const me = useMe()
   const signOut = useSignOut()
   return (
     <>
@@ -47,6 +58,13 @@ export function MorePage() {
               <ChevronRight size={18} aria-hidden="true" />
             </Link>
           ))}
+          {me.data?.is_platform_admin && (
+            <Link to="/admin" className={s.moreItem}>
+              <Shield size={20} aria-hidden="true" />
+              {ru.platform.menu}
+              <ChevronRight size={18} aria-hidden="true" />
+            </Link>
+          )}
           <Link to="/account" state={{ from: centerPath(c.id, 'more') }} className={s.moreItem}>
             <UserRound size={20} aria-hidden="true" />
             {ru.account.menu}

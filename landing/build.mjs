@@ -7,6 +7,7 @@
 //
 // В src/*.html (и robots.txt, sitemap.xml) {{ключ}} заменяется значением из config.json (с экранированием HTML). Неизвестный ключ —
 // ошибка сборки; значение-заглушка в [скобках] — предупреждение (на проде его быть не должно).
+// <!-- if ключ=значение -->…<!-- endif --> — блок только при этом значении (например, registration=invite).
 import { createHash } from 'node:crypto'
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -27,6 +28,7 @@ Object.assign(values, {
   registerUrl: `${config.appUrl}/register`,
   loginUrl: `${config.appUrl}/login`,
   whatsappUrl: `https://wa.me/${config.whatsapp}?text=${encodeURIComponent(config.whatsappText)}`,
+  requestUrl: `https://wa.me/${config.whatsapp}?text=${encodeURIComponent(config.whatsappRequestText)}`,
   telegramUrl: `https://t.me/${config.telegram}`,
   emailUrl: `mailto:${config.email}`,
   cssVersion: createHash('sha256').update(css).digest('hex').slice(0, 10), // styles.css?v=… — кэш навсегда
@@ -34,8 +36,18 @@ Object.assign(values, {
 
 const escape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+// registration: invite — кнопки «Оставить заявку» (WhatsApp с готовым текстом), open — «Попробовать бесплатно».
+if (!['invite', 'open'].includes(values.registration)) {
+  throw new Error(`landing/config.json: registration — invite или open, получено ${JSON.stringify(values.registration)}`)
+}
+
 function render(file) {
   const html = readFileSync(join(src, file), 'utf8')
+    // <!-- if ключ=значение -->…<!-- endif --> — блок остаётся, только если в config.json ключ = значение.
+    .replace(/<!-- if (\w+)=(\w+) -->([\s\S]*?)<!-- endif -->\n?/g, (_, key, want, body) => {
+      if (!(key in values)) throw new Error(`${file}: неизвестный ключ в <!-- if ${key}=… --> — добавьте его в landing/config.json`)
+      return values[key] === want ? body : ''
+    })
   return html.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     if (!(key in values)) throw new Error(`${file}: неизвестный ключ {{${key}}} — добавьте его в landing/config.json`)
     return escape(values[key])

@@ -16,12 +16,18 @@ function handle401(err: unknown, isMe: boolean) {
   if (err instanceof ApiError && err.status === 401 && !isMe) onUnauthorized()
 }
 
+/** Центр стал заявкой или его приостановили, пока экран открыт, — перечитать /me: CenterScope покажет экран статуса. */
+function handleCenterStatus(qc: QueryClient, err: unknown) {
+  if (err instanceof ApiError && (err.code === 'center_pending' || err.code === 'center_blocked')) void qc.invalidateQueries({ queryKey: meKey })
+}
+
 export function createQueryClient() {
   const qc: QueryClient = new QueryClient({
     queryCache: new QueryCache({
       onError: (err, query) => {
         const isMe = query.queryKey[0] === meKey[0]
         handle401(err, isMe)
+        handleCenterStatus(qc, err)
         // Нет сети — тост с «Повторить»; остальные ошибки показывает сам экран (ErrorState).
         if (err instanceof ApiError && err.code === NETWORK && query.state.data === undefined) {
           showToast({ message: ru.errors.network, tone: 'error', action: { label: ru.common.retry, onClick: () => void qc.refetchQueries({ queryKey: query.queryKey }) } })
@@ -31,6 +37,7 @@ export function createQueryClient() {
     mutationCache: new MutationCache({
       onError: (err, _vars, _ctx, mutation) => {
         handle401(err, false)
+        handleCenterStatus(qc, err)
         // Формы показывают ошибки сами (meta.silent); остальное — тостом.
         if (mutation.meta?.silent) return
         showToast({ message: errorMessage(err), tone: 'error' })

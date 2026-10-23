@@ -1,5 +1,5 @@
 import * as Menu from '@radix-ui/react-dropdown-menu'
-import { ArrowLeftRight, CircleUserRound, LogOut, MoreHorizontal, UserRound, Wallet } from 'lucide-react'
+import { ArrowLeftRight, CircleUserRound, LogOut, MoreHorizontal, Shield, UserRound, Wallet } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { Button } from '@/components/ui'
 import { useLogout, useMe } from '@/features/auth/api'
@@ -45,6 +45,12 @@ function AccountMenu() {
             <Menu.Item className={s.menuItem} onSelect={() => navigate('/centers')}>
               <ArrowLeftRight size={18} aria-hidden="true" />
               {ru.nav.switchCenter}
+            </Menu.Item>
+          )}
+          {me.data?.is_platform_admin && (
+            <Menu.Item className={s.menuItem} onSelect={() => navigate('/admin')}>
+              <Shield size={18} aria-hidden="true" />
+              {ru.platform.menu}
             </Menu.Item>
           )}
           <Menu.Item className={s.menuItem} onSelect={signOut.run}>

@@ -5,6 +5,10 @@ INSERT INTO sessions (token_hash, user_id, expires_at, user_agent)
 VALUES ($1, $2, $3, $4)
 RETURNING *;
 
+-- name: TouchLastLogin :exec
+-- Каждая новая сессия — вход: «последняя активность» центра в панели суперадмина.
+UPDATE users SET last_login_at = now() WHERE id = $1;
+
 -- name: GetSessionByTokenHash :one
 -- Просроченная сессия не возвращается, даже если ещё не удалена.
 SELECT * FROM sessions

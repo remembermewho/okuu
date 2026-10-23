@@ -65,7 +65,7 @@ func TestCenterQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Значения по умолчанию из ТЗ: F1, R2, R4.
-	if c.BillingDay != 1 || c.DueDays != 5 || c.Timezone != "Asia/Bishkek" || c.Plan != "pilot" ||
+	if c.BillingDay != 1 || c.DueDays != 5 || c.Timezone != "Asia/Bishkek" || c.Plan != "free" || c.Status != "active" ||
 		!c.RemindersOn || c.ExcusedDeducts {
 		t.Errorf("значения по умолчанию: %+v", c)
 	}

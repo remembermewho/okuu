@@ -21,6 +21,11 @@ info:
     **Данные центра** — под `/api/v1/c/{centerId}`. Пользователь не из этого центра получает
     `404 not_found` (как будто центра нет), сотрудник с неподходящей ролью — `403 forbidden`.
     Роли: `owner` (владелец), `admin`, `teacher`; нужные роли — в начале описания каждой операции.
+    Центр со статусом `pending` (заявка ждёт одобрения) отвечает на любой маршрут `/c/{centerId}`
+    `403 center_pending`, заблокированный — `403 center_blocked`; `/me` и выход работают.
+
+    **Панель суперадмина** — под `/api/v1/admin`, только для `is_platform_admin` (права выдаёт
+    консольная команда `server admin grant`). Остальным, в том числе без входа, — `404 not_found`.
 
     **Деньги** — целые тыйыны (`integer`, 1 сом = 100 тыйын), со знаком там, где сказано.
     **Даты** — `string`, формат `date` (`ГГГГ-ММ-ДД`), в часовом поясе центра; моменты времени —
@@ -63,6 +68,8 @@ tags:
     description: Занятия и посещаемость
   - name: import
     description: Импорт учеников из Excel/CSV
+  - name: admin
+    description: Панель суперадмина платформы (только агрегаты по центрам)
 
 paths:
   # ---------------------------------------------------------------- auth
@@ -76,6 +83,11 @@ paths:
         **Без входа.** Создаёт пользователя, центр и делает его владельцем (`owner`); ставит cookie сессии.
         Телефон — в любом виде (`0700 123 456`, `+996700123456`), хранится как `+996XXXXXXXXX`.
         **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+
+        Режим регистрации (`GET /auth/registration`): `invite` — только с `registration_token` из ссылки
+        `{APP_ORIGIN}/register/{токен}` (иначе `403 registration_closed`); `approval` — центр создаётся
+        со статусом `pending` и ждёт одобрения; `open` — свободно. По ссылке центр сразу активен в любом
+        режиме, ссылка одноразовая.
       requestBody:
         required: true
         content:
@@ -90,9 +102,60 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        '403': { $ref: '#/components/responses/BadOrigin' }
+        '403':
+          description: '`registration_closed` — режим `invite`, а `registration_token` нет; `bad_origin` — неверный Origin'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: '`registration_invalid` — ссылка регистрации использована, отозвана или устарела (14 дней)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '409':
           description: '`phone_taken` — телефон уже зарегистрирован'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/auth/registration:
+    get:
+      tags: [auth]
+      operationId: registrationInfo
+      summary: Как устроена регистрация центров
+      security: []
+      description: |
+        **Без входа.** Режим `REGISTRATION_MODE` и номер поддержки для кнопки WhatsApp — на странице
+        регистрации без ссылки и на экранах «Заявка на рассмотрении» и «Доступ приостановлен».
+      responses:
+        '200':
+          description: Режим и контакт поддержки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationInfo' }
+
+  /api/v1/auth/registration/{token}:
+    get:
+      tags: [auth]
+      operationId: checkRegistrationLink
+      summary: Проверить ссылку регистрации
+      security: []
+      description: '**Без входа.** Для страницы `/register/{токен}`: действует ли ссылка.'
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Ссылка действует
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                additionalProperties: false
+                properties:
+                  valid: { type: boolean, const: true }
+        '404':
+          description: '`registration_invalid` — ссылка использована, отозвана, устарела или неизвестна'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1577,6 +1640,243 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  # ---------------------------------------------------------------- admin (суперадмин платформы)
+  /api/v1/admin/centers:
+    get:
+      tags: [admin]
+      operationId: adminListCenters
+      summary: Центры платформы
+      description: |
+        **Только суперадмин** (остальным, в том числе без входа, — `404`). Поиск `q` — по названию центра,
+        имени и телефону владельца; `status` — фильтр. Заявки (`pending`) — сверху. Только агрегаты:
+        ученики, родители, операции и журналы центров в панели не видны.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/CenterStatus' } }
+      responses:
+        '200':
+          description: Центры
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCenterList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+
+  /api/v1/admin/centers/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      tags: [admin]
+      operationId: adminGetCenter
+      summary: Карточка центра
+      description: '**Только суперадмин.** Агрегаты (ученики по статусам, группы, сотрудники, родители в Telegram) и журнал платформы по центру.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCenterCard' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+    patch:
+      tags: [admin]
+      operationId: adminPatchCenter
+      summary: Тариф и «оплачено до»
+      description: |
+        **Только суперадмин.** `paid_until = null` — не задано. Просроченная оплата центр **не** блокирует —
+        только подсвечивается (`payment_overdue`). **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPatchCenterRequest' }
+      responses:
+        '200':
+          description: Обновлённая карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCenterCard' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+
+  /api/v1/admin/centers/{id}/approve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      tags: [admin]
+      operationId: adminApproveCenter
+      summary: Одобрить заявку
+      description: '**Только суперадмин.** `pending` → `active`. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Обновлённая карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCenterCard' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+        '409': { $ref: '#/components/responses/CenterStatusConflict' }
+
+  /api/v1/admin/centers/{id}/block:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      tags: [admin]
+      operationId: adminBlockCenter
+      summary: Приостановить доступ
+      description: |
+        **Только суперадмин.** `pending` или `active` → `blocked`; причина обязательна (видна только в панели).
+        Сотрудники центра получают `403 center_blocked`, бот и напоминания центра останавливаются.
+        **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              additionalProperties: false
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Обновлённая карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCenterCard' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+        '409': { $ref: '#/components/responses/CenterStatusConflict' }
+
+  /api/v1/admin/centers/{id}/unblock:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      tags: [admin]
+      operationId: adminUnblockCenter
+      summary: Вернуть доступ
+      description: '**Только суперадмин.** `blocked` → `active`. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Обновлённая карточка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminCenterCard' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+        '409': { $ref: '#/components/responses/CenterStatusConflict' }
+
+  /api/v1/admin/centers/{id}/owner-password-reset:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      tags: [admin]
+      operationId: adminOwnerPasswordReset
+      summary: Ссылка сброса пароля владельца
+      description: |
+        **Только суперадмин.** Одноразовая ссылка на 24 часа (прежние ссылки владельца перестают работать).
+        Заменяет консольную `server user reset-link` — та остаётся для аварий. **Origin:** обязателен `Origin`.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '201':
+          description: Ссылка — передайте владельцу лично
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminOwnerReset' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+        '409':
+          description: '`no_owner` — у центра нет владельца'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/admin/registration-links:
+    get:
+      tags: [admin]
+      operationId: adminListRegistrationLinks
+      summary: Ссылки регистрации центров
+      description: '**Только суперадмин.** Новые сверху; сама ссылка не хранится — только её хэш.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Ссылки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationLinkList' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+    post:
+      tags: [admin]
+      operationId: adminCreateRegistrationLink
+      summary: Создать ссылку регистрации
+      description: |
+        **Только суперадмин.** Одноразовая ссылка `{APP_ORIGIN}/register/{токен}` на 14 дней; `note` — для кого.
+        `url` есть только в этом ответе. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              additionalProperties: false
+              properties:
+                note: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '201':
+          description: Ссылка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedRegistrationLink' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+
+  /api/v1/admin/registration-links/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    delete:
+      tags: [admin]
+      operationId: adminRevokeRegistrationLink
+      summary: Отозвать ссылку регистрации
+      description: '**Только суперадмин.** Только неиспользованную. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '204': { description: Отозвана }
+        '403': { $ref: '#/components/responses/BadOrigin' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+        '409':
+          description: '`registration_link_closed` — ссылка уже использована или отозвана'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/admin/audit:
+    get:
+      tags: [admin]
+      operationId: adminListAudit
+      summary: Журнал платформы
+      description: '**Только суперадмин.** Действия суперадмина и консольных команд, новые сверху.'
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        '200':
+          description: Записи
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformAuditList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/AdminNotFound' }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1681,6 +1981,16 @@ components:
       schema: { $ref: '#/components/schemas/MonthString' }
 
   responses:
+    AdminNotFound:
+      description: '`not_found` — нет такого центра или ссылки; так же отвечают всем, кто не суперадмин (и без входа)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    CenterStatusConflict:
+      description: '`center_status_conflict` — действие не подходит к текущему статусу центра (уже одобрен, уже заблокирован…)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     BadRequest:
       description: |
         `validation` — неверное значение поля (`field` — какого); `bad_request` — тело не JSON,
@@ -1704,7 +2014,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
-      description: '`forbidden` — роль не подходит для операции; `bad_origin` — неверный Origin (изменяющие запросы)'
+      description: '`forbidden` — роль не подходит для операции; `center_pending` — заявка центра ещё не одобрена; `center_blocked` — доступ к центру приостановлен; `bad_origin` — неверный Origin (изменяющие запросы)'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1823,25 +2133,196 @@ components:
     # ---------------------------------------------------------------- auth, staff
     Me:
       type: object
-      required: [id, name, phone, centers]
+      required: [id, name, phone, centers, is_platform_admin]
       additionalProperties: false
       properties:
         id: { $ref: '#/components/schemas/UUID' }
         name: { type: string }
         phone: { type: string, examples: ['+996700123456'] }
+        is_platform_admin:
+          type: boolean
+          description: Суперадмин платформы — в интерфейсе виден раздел `/admin`
         centers:
           type: array
           items:
             type: object
-            required: [id, name, role, today]
+            required: [id, name, role, status, today]
             additionalProperties: false
             properties:
               id: { $ref: '#/components/schemas/UUID' }
               name: { type: string }
               role: { $ref: '#/components/schemas/Role' }
+              status: { $ref: '#/components/schemas/CenterStatus' }
               today:
                 $ref: '#/components/schemas/Date'
                 description: '«Сегодня» в часовом поясе центра — по нему интерфейс считает окно дат посещаемости'
+    CenterStatus:
+      type: string
+      enum: [pending, active, blocked]
+      description: '`pending` — заявка ждёт одобрения, `blocked` — доступ приостановлен; в обоих данные центра недоступны'
+    Plan:
+      type: string
+      enum: [free, start, center, network, founder]
+      description: 'Тариф сервиса: free (до 30 учеников), start (до 100), center (до 300), network (сеть), founder (первые клиенты)'
+    AdminCenter:
+      type: object
+      required: [id, name, status, blocked_reason, plan, paid_until, payment_overdue, is_demo, created_at, owner, active_students, last_activity]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/CenterStatus' }
+        blocked_reason: { type: [string, 'null'], description: 'Причина блокировки — видна только в панели' }
+        plan: { $ref: '#/components/schemas/Plan' }
+        paid_until: { $ref: '#/components/schemas/NullableDate' }
+        payment_overdue: { type: boolean, description: '«Оплачено до» прошло (по Бишкеку). Центр при этом не блокируется' }
+        is_demo: { type: boolean }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        owner:
+          type: object
+          required: [name, phone]
+          additionalProperties: false
+          properties:
+            name: { type: string }
+            phone: { type: string }
+        active_students: { type: integer }
+        last_activity:
+          type: [string, 'null']
+          format: date-time
+          description: Последний вход любого сотрудника центра; `null` — не входили
+    AdminCenterList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminCenter' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    AdminCenterCard:
+      description: Поля `AdminCenter` и агрегаты для карточки
+      type: object
+      required: [id, name, status, blocked_reason, plan, paid_until, payment_overdue, is_demo, created_at, owner, active_students, last_activity,
+                 timezone, students, groups, staff, telegram_parents, audit]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/CenterStatus' }
+        blocked_reason: { type: [string, 'null'] }
+        plan: { $ref: '#/components/schemas/Plan' }
+        paid_until: { $ref: '#/components/schemas/NullableDate' }
+        payment_overdue: { type: boolean }
+        is_demo: { type: boolean }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        owner:
+          type: object
+          required: [name, phone]
+          additionalProperties: false
+          properties:
+            name: { type: string }
+            phone: { type: string }
+        active_students: { type: integer }
+        last_activity: { type: [string, 'null'], format: date-time }
+        timezone: { type: string }
+        students:
+          type: object
+          required: [active, paused, left]
+          additionalProperties: false
+          properties:
+            active: { type: integer }
+            paused: { type: integer }
+            left: { type: integer }
+        groups: { type: integer, description: 'Активных групп' }
+        staff: { type: integer, description: 'Сотрудников, включая владельца' }
+        telegram_parents: { type: integer, description: 'Родителей, подключённых к боту' }
+        audit: { type: array, items: { $ref: '#/components/schemas/PlatformAuditEntry' } }
+    AdminPatchCenterRequest:
+      type: object
+      required: [plan, paid_until]
+      additionalProperties: false
+      properties:
+        plan: { $ref: '#/components/schemas/Plan' }
+        paid_until: { $ref: '#/components/schemas/NullableDate' }
+    AdminOwnerReset:
+      type: object
+      required: [url, user_name, expires_at]
+      additionalProperties: false
+      properties:
+        url: { type: string, examples: ['https://app.okuu.kg/reset/abc'] }
+        user_name: { type: string }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+    RegistrationLink:
+      type: object
+      required: [id, note, status, created_at, expires_at, used_at, revoked_at, center, created_by_name]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        note: { type: string, description: Для кого }
+        status: { type: string, enum: [active, used, revoked, expired] }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+        used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        center:
+          description: Центр, зарегистрированный по ссылке
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, name]
+              additionalProperties: false
+              properties:
+                id: { $ref: '#/components/schemas/UUID' }
+                name: { type: string }
+        created_by_name: { type: [string, 'null'], description: '`null` — консольная команда' }
+    RegistrationLinkList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RegistrationLink' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    IssuedRegistrationLink:
+      type: object
+      required: [id, note, url, expires_at]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        note: { type: string }
+        url: { type: string, description: 'Ссылка `{APP_ORIGIN}/register/{токен}` — только в этом ответе', examples: ['https://app.okuu.kg/register/abc'] }
+        expires_at: { $ref: '#/components/schemas/DateTime' }
+    PlatformAuditEntry:
+      type: object
+      required: [id, at, action, admin_name, center_id, center_name, details]
+      additionalProperties: false
+      properties:
+        id: { type: integer }
+        at: { $ref: '#/components/schemas/DateTime' }
+        action:
+          type: string
+          description: 'center.approve, center.block, center.unblock, center.plan, center.owner_password_reset, registration_link.create, registration_link.revoke, admin.grant, admin.revoke'
+        admin_name: { type: [string, 'null'], description: '`null` — консольная команда' }
+        center_id: { $ref: '#/components/schemas/NullableUUID' }
+        center_name: { type: [string, 'null'] }
+        details: { type: [object, 'null'], description: 'Подробности действия (причина, тариф до/после, для кого ссылка)' }
+    PlatformAuditList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/PlatformAuditEntry' } }
+        next_cursor: { $ref: '#/components/schemas/NextCursor' }
+    RegistrationInfo:
+      type: object
+      required: [mode, support_whatsapp]
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+          enum: [invite, approval, open]
+          description: '`invite` — только по ссылке, `approval` — заявка с одобрением, `open` — свободно'
+        support_whatsapp:
+          type: [string, 'null']
+          description: Номер поддержки для `https://wa.me/<номер>` (только цифры); `null` — не задан
+          examples: ['996700123456']
     RegisterRequest:
       type: object
       required: [phone, password, name, center_name]
@@ -1851,6 +2332,9 @@ components:
         password: { type: string, minLength: 8, maxLength: 128 }
         name: { type: string, minLength: 1, maxLength: 100 }
         center_name: { type: string, minLength: 1, maxLength: 100 }
+        registration_token:
+          type: string
+          description: Токен из ссылки `{APP_ORIGIN}/register/{токен}`; в режиме `invite` обязателен
     LoginRequest:
       type: object
       required: [phone, password]
@@ -1991,7 +2475,7 @@ components:
           description: 'weekly — после 7-го дня просрочки, пока долг не оплачен, напоминать раз в 7 дней (14, 21, 28…); off — дальше только вручную'
         notify_absent: { type: boolean, description: 'Сообщать родителю «не был на занятии»' }
         pay_details: { type: [string, 'null'], description: 'Реквизиты — в напоминаниях, пока нет Finik' }
-        plan: { type: string }
+        plan: { $ref: '#/components/schemas/Plan' }
         finik_connected: { type: boolean }
     PatchSettingsRequest:
       type: object

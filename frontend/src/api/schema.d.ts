@@ -18,8 +18,54 @@ export interface paths {
          * @description **Без входа.** Создаёт пользователя, центр и делает его владельцем (`owner`); ставит cookie сессии.
          *     Телефон — в любом виде (`0700 123 456`, `+996700123456`), хранится как `+996XXXXXXXXX`.
          *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         *
+         *     Режим регистрации (`GET /auth/registration`): `invite` — только с `registration_token` из ссылки
+         *     `{APP_ORIGIN}/register/{токен}` (иначе `403 registration_closed`); `approval` — центр создаётся
+         *     со статусом `pending` и ждёт одобрения; `open` — свободно. По ссылке центр сразу активен в любом
+         *     режиме, ссылка одноразовая.
          */
         post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Как устроена регистрация центров
+         * @description **Без входа.** Режим `REGISTRATION_MODE` и номер поддержки для кнопки WhatsApp — на странице
+         *     регистрации без ссылки и на экранах «Заявка на рассмотрении» и «Доступ приостановлен».
+         */
+        get: operations["registrationInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/registration/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Проверить ссылку регистрации
+         * @description **Без входа.** Для страницы `/register/{токен}`: действует ли ссылка.
+         */
+        get: operations["checkRegistrationLink"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1087,6 +1133,213 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/centers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Центры платформы
+         * @description **Только суперадмин** (остальным, в том числе без входа, — `404`). Поиск `q` — по названию центра,
+         *     имени и телефону владельца; `status` — фильтр. Заявки (`pending`) — сверху. Только агрегаты:
+         *     ученики, родители, операции и журналы центров в панели не видны.
+         */
+        get: operations["adminListCenters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/centers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Карточка центра
+         * @description **Только суперадмин.** Агрегаты (ученики по статусам, группы, сотрудники, родители в Telegram) и журнал платформы по центру.
+         */
+        get: operations["adminGetCenter"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Тариф и «оплачено до»
+         * @description **Только суперадмин.** `paid_until = null` — не задано. Просроченная оплата центр **не** блокирует —
+         *     только подсвечивается (`payment_overdue`). **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+         */
+        patch: operations["adminPatchCenter"];
+        trace?: never;
+    };
+    "/api/v1/admin/centers/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Одобрить заявку
+         * @description **Только суперадмин.** `pending` → `active`. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+         */
+        post: operations["adminApproveCenter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/centers/{id}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Приостановить доступ
+         * @description **Только суперадмин.** `pending` или `active` → `blocked`; причина обязательна (видна только в панели).
+         *     Сотрудники центра получают `403 center_blocked`, бот и напоминания центра останавливаются.
+         *     **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+         */
+        post: operations["adminBlockCenter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/centers/{id}/unblock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Вернуть доступ
+         * @description **Только суперадмин.** `blocked` → `active`. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+         */
+        post: operations["adminUnblockCenter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/centers/{id}/owner-password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ссылка сброса пароля владельца
+         * @description **Только суперадмин.** Одноразовая ссылка на 24 часа (прежние ссылки владельца перестают работать).
+         *     Заменяет консольную `server user reset-link` — та остаётся для аварий. **Origin:** обязателен `Origin`.
+         */
+        post: operations["adminOwnerPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ссылки регистрации центров
+         * @description **Только суперадмин.** Новые сверху; сама ссылка не хранится — только её хэш.
+         */
+        get: operations["adminListRegistrationLinks"];
+        put?: never;
+        /**
+         * Создать ссылку регистрации
+         * @description **Только суперадмин.** Одноразовая ссылка `{APP_ORIGIN}/register/{токен}` на 14 дней; `note` — для кого.
+         *     `url` есть только в этом ответе. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+         */
+        post: operations["adminCreateRegistrationLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Отозвать ссылку регистрации
+         * @description **Только суперадмин.** Только неиспользованную. **Origin:** обязателен заголовок `Origin` = `APP_ORIGIN`.
+         */
+        delete: operations["adminRevokeRegistrationLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Журнал платформы
+         * @description **Только суперадмин.** Действия суперадмина и консольных команд, новые сверху.
+         */
+        get: operations["adminListAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1159,19 +1412,165 @@ export interface components {
             name: string;
             /** @example +996700123456 */
             phone: string;
+            /** @description Суперадмин платформы — в интерфейсе виден раздел `/admin` */
+            is_platform_admin: boolean;
             centers: {
                 id: components["schemas"]["UUID"];
                 name: string;
                 role: components["schemas"]["Role"];
+                status: components["schemas"]["CenterStatus"];
                 /** @description «Сегодня» в часовом поясе центра — по нему интерфейс считает окно дат посещаемости */
                 today: components["schemas"]["Date"];
             }[];
+        };
+        /**
+         * @description `pending` — заявка ждёт одобрения, `blocked` — доступ приостановлен; в обоих данные центра недоступны
+         * @enum {string}
+         */
+        CenterStatus: "pending" | "active" | "blocked";
+        /**
+         * @description Тариф сервиса: free (до 30 учеников), start (до 100), center (до 300), network (сеть), founder (первые клиенты)
+         * @enum {string}
+         */
+        Plan: "free" | "start" | "center" | "network" | "founder";
+        AdminCenter: {
+            id: components["schemas"]["UUID"];
+            name: string;
+            status: components["schemas"]["CenterStatus"];
+            /** @description Причина блокировки — видна только в панели */
+            blocked_reason: string | null;
+            plan: components["schemas"]["Plan"];
+            paid_until: components["schemas"]["NullableDate"];
+            /** @description «Оплачено до» прошло (по Бишкеку). Центр при этом не блокируется */
+            payment_overdue: boolean;
+            is_demo: boolean;
+            created_at: components["schemas"]["DateTime"];
+            owner: {
+                name: string;
+                phone: string;
+            };
+            active_students: number;
+            /**
+             * Format: date-time
+             * @description Последний вход любого сотрудника центра; `null` — не входили
+             */
+            last_activity: string | null;
+        };
+        AdminCenterList: {
+            items: components["schemas"]["AdminCenter"][];
+            next_cursor: components["schemas"]["NextCursor"];
+        };
+        /** @description Поля `AdminCenter` и агрегаты для карточки */
+        AdminCenterCard: {
+            id: components["schemas"]["UUID"];
+            name: string;
+            status: components["schemas"]["CenterStatus"];
+            blocked_reason: string | null;
+            plan: components["schemas"]["Plan"];
+            paid_until: components["schemas"]["NullableDate"];
+            payment_overdue: boolean;
+            is_demo: boolean;
+            created_at: components["schemas"]["DateTime"];
+            owner: {
+                name: string;
+                phone: string;
+            };
+            active_students: number;
+            /** Format: date-time */
+            last_activity: string | null;
+            timezone: string;
+            students: {
+                active: number;
+                paused: number;
+                left: number;
+            };
+            /** @description Активных групп */
+            groups: number;
+            /** @description Сотрудников, включая владельца */
+            staff: number;
+            /** @description Родителей, подключённых к боту */
+            telegram_parents: number;
+            audit: components["schemas"]["PlatformAuditEntry"][];
+        };
+        AdminPatchCenterRequest: {
+            plan: components["schemas"]["Plan"];
+            paid_until: components["schemas"]["NullableDate"];
+        };
+        AdminOwnerReset: {
+            /** @example https://app.okuu.kg/reset/abc */
+            url: string;
+            user_name: string;
+            expires_at: components["schemas"]["DateTime"];
+        };
+        RegistrationLink: {
+            id: components["schemas"]["UUID"];
+            /** @description Для кого */
+            note: string;
+            /** @enum {string} */
+            status: "active" | "used" | "revoked" | "expired";
+            created_at: components["schemas"]["DateTime"];
+            expires_at: components["schemas"]["DateTime"];
+            /** Format: date-time */
+            used_at: string | null;
+            /** Format: date-time */
+            revoked_at: string | null;
+            /** @description Центр, зарегистрированный по ссылке */
+            center: null | {
+                id: components["schemas"]["UUID"];
+                name: string;
+            };
+            /** @description `null` — консольная команда */
+            created_by_name: string | null;
+        };
+        RegistrationLinkList: {
+            items: components["schemas"]["RegistrationLink"][];
+            next_cursor: components["schemas"]["NextCursor"];
+        };
+        IssuedRegistrationLink: {
+            id: components["schemas"]["UUID"];
+            note: string;
+            /**
+             * @description Ссылка `{APP_ORIGIN}/register/{токен}` — только в этом ответе
+             * @example https://app.okuu.kg/register/abc
+             */
+            url: string;
+            expires_at: components["schemas"]["DateTime"];
+        };
+        PlatformAuditEntry: {
+            id: number;
+            at: components["schemas"]["DateTime"];
+            /** @description center.approve, center.block, center.unblock, center.plan, center.owner_password_reset, registration_link.create, registration_link.revoke, admin.grant, admin.revoke */
+            action: string;
+            /** @description `null` — консольная команда */
+            admin_name: string | null;
+            center_id: components["schemas"]["NullableUUID"];
+            center_name: string | null;
+            /** @description Подробности действия (причина, тариф до/после, для кого ссылка) */
+            details: Record<string, never> | null;
+        };
+        PlatformAuditList: {
+            items: components["schemas"]["PlatformAuditEntry"][];
+            next_cursor: components["schemas"]["NextCursor"];
+        };
+        RegistrationInfo: {
+            /**
+             * @description `invite` — только по ссылке, `approval` — заявка с одобрением, `open` — свободно
+             * @enum {string}
+             */
+            mode: "invite" | "approval" | "open";
+            /**
+             * @description Номер поддержки для `https://wa.me/<номер>` (только цифры); `null` — не задан
+             * @example 996700123456
+             */
+            support_whatsapp: string | null;
         };
         RegisterRequest: {
             phone: components["schemas"]["Phone"];
             password: string;
             name: string;
             center_name: string;
+            /** @description Токен из ссылки `{APP_ORIGIN}/register/{токен}`; в режиме `invite` обязателен */
+            registration_token?: string;
         };
         LoginRequest: {
             phone: components["schemas"]["Phone"];
@@ -1281,7 +1680,7 @@ export interface components {
             notify_absent: boolean;
             /** @description Реквизиты — в напоминаниях, пока нет Finik */
             pay_details: string | null;
-            plan: string;
+            plan: components["schemas"]["Plan"];
             finik_connected: boolean;
         };
         PatchSettingsRequest: {
@@ -1785,6 +2184,24 @@ export interface components {
         };
     };
     responses: {
+        /** @description `not_found` — нет такого центра или ссылки; так же отвечают всем, кто не суперадмин (и без входа) */
+        AdminNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description `center_status_conflict` — действие не подходит к текущему статусу центра (уже одобрен, уже заблокирован…) */
+        CenterStatusConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /**
          * @description `validation` — неверное значение поля (`field` — какого); `bad_request` — тело не JSON,
          *     в нём лишние поля или несколько объектов
@@ -1824,7 +2241,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description `forbidden` — роль не подходит для операции; `bad_origin` — неверный Origin (изменяющие запросы) */
+        /** @description `forbidden` — роль не подходит для операции; `center_pending` — заявка центра ещё не одобрена; `center_blocked` — доступ к центру приостановлен; `bad_origin` — неверный Origin (изменяющие запросы) */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -1926,9 +2343,80 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            403: components["responses"]["BadOrigin"];
+            /** @description `registration_closed` — режим `invite`, а `registration_token` нет; `bad_origin` — неверный Origin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `registration_invalid` — ссылка регистрации использована, отозвана или устарела (14 дней) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description `phone_taken` — телефон уже зарегистрирован */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    registrationInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Режим и контакт поддержки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationInfo"];
+                };
+            };
+        };
+    };
+    checkRegistrationLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка действует */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        valid: true;
+                    };
+                };
+            };
+            /** @description `registration_invalid` — ссылка использована, отозвана, устарела или неизвестна */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3806,6 +4294,303 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    adminListCenters: {
+        parameters: {
+            query?: {
+                q?: string;
+                status?: components["schemas"]["CenterStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Центры */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCenterList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["AdminNotFound"];
+        };
+    };
+    adminGetCenter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Карточка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCenterCard"];
+                };
+            };
+            404: components["responses"]["AdminNotFound"];
+        };
+    };
+    adminPatchCenter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPatchCenterRequest"];
+            };
+        };
+        responses: {
+            /** @description Обновлённая карточка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCenterCard"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+        };
+    };
+    adminApproveCenter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Обновлённая карточка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCenterCard"];
+                };
+            };
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+            409: components["responses"]["CenterStatusConflict"];
+        };
+    };
+    adminBlockCenter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Обновлённая карточка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCenterCard"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+            409: components["responses"]["CenterStatusConflict"];
+        };
+    };
+    adminUnblockCenter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Обновлённая карточка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCenterCard"];
+                };
+            };
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+            409: components["responses"]["CenterStatusConflict"];
+        };
+    };
+    adminOwnerPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка — передайте владельцу лично */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOwnerReset"];
+                };
+            };
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+            /** @description `no_owner` — у центра нет владельца */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminListRegistrationLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationLinkList"];
+                };
+            };
+            404: components["responses"]["AdminNotFound"];
+        };
+    };
+    adminCreateRegistrationLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Ссылка */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedRegistrationLink"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+        };
+    };
+    adminRevokeRegistrationLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Отозвана */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["BadOrigin"];
+            404: components["responses"]["AdminNotFound"];
+            /** @description `registration_link_closed` — ссылка уже использована или отозвана */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adminListAudit: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Записи */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAuditList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["AdminNotFound"];
         };
     };
 }

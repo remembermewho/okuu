@@ -6,7 +6,10 @@
 //	server billing run --center=<id> [--date=YYYY-MM-DD]
 //	                        начисления billing.monthly по центру на дату (по умолчанию — сегодня в его поясе)
 //	server user reset-link --phone=<телефон>
-//	                        одноразовая ссылка сброса пароля на 24 часа (для поддержки)
+//	                        одноразовая ссылка сброса пароля на 24 часа (для поддержки и аварий)
+//	server admin grant --phone=<телефон>   выдать права суперадмина (панель /admin); revoke — снять
+//	server admin registration-link --note=<для кого>
+//	                        одноразовая ссылка регистрации центра на 14 дней (первый центр, аварии)
 //	server demo seed --phone=<телефон> --password=<пароль>
 //	                        создать демо-центр для показа (прежний демо-центр удаляется)
 //	server demo reset       пересоздать демо-центр с нуля с тем же владельцем и паролем
@@ -48,6 +51,7 @@ import (
 	"okuu/internal/parents"
 	"okuu/internal/payments"
 	"okuu/internal/payments/finik"
+	"okuu/internal/platform"
 	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
@@ -180,17 +184,23 @@ func run(logger *slog.Logger, cfg config.Config, args []string) error {
 			return errors.New("использование: server user reset-link --phone=<телефон>")
 		}
 		return userResetLink(ctx, logger, cfg, pool, args[2:])
+	case "admin":
+		if len(args) < 2 || (args[1] != "grant" && args[1] != "revoke" && args[1] != "registration-link") {
+			return errors.New("использование: server admin grant|revoke --phone=<телефон> | server admin registration-link --note=<для кого>")
+		}
+		return adminCmd(ctx, logger, cfg, pool, args[1], args[2:])
 	case "demo":
 		if len(args) < 2 || (args[1] != "seed" && args[1] != "reset") {
 			return errors.New("использование: server demo seed --phone=<телефон> --password=<пароль> | server demo reset")
 		}
 		return demoCmd(ctx, logger, pool, args[1], args[2:])
 	}
-	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing|user|demo)", cmd)
+	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing|user|admin|demo)", cmd)
 }
 
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool) error {
-	authSvc := auth.NewService(pool, auth.Options{CookieSecure: cfg.Env == "prod", Logger: logger})
+	authSvc := auth.NewService(pool, auth.Options{CookieSecure: cfg.Env == "prod", Logger: logger, RegistrationMode: cfg.RegistrationMode})
+	logger.Info("регистрация центров", "mode", cfg.RegistrationMode)
 	studentsSvc := students.NewService(pool, time.Now)
 	groupsSvc := groups.NewService(pool)
 	deps := httpapi.Deps{
@@ -206,11 +216,13 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		Settings:   settings.NewService(pool, time.Now),
 		Reports:    reports.NewService(pool, time.Now),
 		Parents:    parents.NewService(pool, cfg.Telegram.Username),
+		Platform:   platform.NewService(pool, authSvc, time.Now),
 		Pool:       pool,
 		AppOrigin:  cfg.AppOrigin,
 		Logger:     logger,
 
-		TrustedProxies: cfg.TrustedProxies,
+		TrustedProxies:  cfg.TrustedProxies,
+		SupportWhatsApp: cfg.SupportWhatsApp,
 	}
 
 	// Telegram-бот: токен уходит только в клиент; в логах — никогда.
@@ -439,6 +451,44 @@ func userResetLink(ctx context.Context, logger *slog.Logger, cfg config.Config, 
 	}
 	fmt.Printf("Ссылка для смены пароля (%s), действует до %s:\n%s\n",
 		res.UserName, res.ExpiresAt.Local().Format("02.01.2006 15:04"), httpapi.ResetURL(cfg.AppOrigin, res.Token))
+	return nil
+}
+
+// adminCmd — права суперадмина и первая ссылка регистрации. Через API права не выдаются: только здесь.
+// Каждое действие пишется в журнал платформы (platform_audit_log) как действие консоли.
+func adminCmd(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool, sub string, args []string) error {
+	fs := flag.NewFlagSet("admin "+sub, flag.ContinueOnError)
+	phoneFlag := fs.String("phone", "", "телефон пользователя (+996XXXXXXXXX или 0XXXXXXXXX)")
+	noteFlag := fs.String("note", "", "для кого ссылка регистрации (видно в панели суперадмина)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if sub != "registration-link" && strings.TrimSpace(*phoneFlag) == "" {
+		return fmt.Errorf("admin %s: укажите --phone пользователя (он должен быть зарегистрирован)", sub)
+	}
+	if err := migrateUp(ctx, logger, pool); err != nil {
+		return err
+	}
+	svc := platform.NewService(pool, auth.NewService(pool, auth.Options{Logger: logger}), time.Now)
+	switch sub {
+	case "grant", "revoke":
+		name, err := svc.SetPlatformAdmin(ctx, *phoneFlag, sub == "grant")
+		if err != nil {
+			return err
+		}
+		if sub == "grant" {
+			fmt.Printf("%s — суперадмин. После входа в приложении появится раздел «Панель платформы» (/admin).\n", name)
+		} else {
+			fmt.Printf("%s — больше не суперадмин.\n", name)
+		}
+	case "registration-link":
+		link, err := svc.CreateRegistrationLink(ctx, nil, *noteFlag)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Ссылка регистрации центра (%s), одноразовая, действует до %s:\n%s\n",
+			link.Note, link.ExpiresAt.Local().Format("02.01.2006 15:04"), httpapi.RegistrationURL(cfg.AppOrigin, link.Token))
+	}
 	return nil
 }
 

@@ -248,7 +248,7 @@ func (q *Queries) GetPaidEvent(ctx context.Context, arg GetPaidEventParams) (Get
 const listCentersForReminders = `-- name: ListCentersForReminders :many
 SELECT id, name, timezone, pay_details, (finik_creds IS NOT NULL)::bool AS finik_connected, overdue_repeat
 FROM centers
-WHERE reminders_on AND NOT is_demo -- демо-центру напоминания не шлются
+WHERE reminders_on AND NOT is_demo AND status = 'active' -- демо, заявке и заблокированному не шлются
 ORDER BY id
 `
 
@@ -291,7 +291,8 @@ func (q *Queries) ListCentersForReminders(ctx context.Context) ([]ListCentersFor
 const listOutbox = `-- name: ListOutbox :many
 SELECT o.id, o.center_id, o.kind, o.dedup_key, o.student_id, o.ref_id, o.attempts,
        (o.created_at < now() - interval '3 days')::bool AS expired,
-       c.name AS center_name, c.timezone, c.reminders_on, c.notify_absent, c.is_demo
+       c.name AS center_name, c.timezone, c.reminders_on, c.notify_absent,
+       (c.is_demo OR c.status <> 'active')::bool AS silent
 FROM notification_outbox o
 JOIN centers c ON c.id = o.center_id
 ORDER BY o.id
@@ -311,10 +312,11 @@ type ListOutboxRow struct {
 	Timezone     string    `json:"timezone"`
 	RemindersOn  bool      `json:"reminders_on"`
 	NotifyAbsent bool      `json:"notify_absent"`
-	IsDemo       bool      `json:"is_demo"`
+	Silent       bool      `json:"silent"`
 }
 
 // expired — событие старше 3 дней (по часам БД): такое уже не отправляем.
+// silent — демо-центр или центр не активен (заявка, заблокирован): уведомления не шлются.
 func (q *Queries) ListOutbox(ctx context.Context, lim int32) ([]ListOutboxRow, error) {
 	rows, err := q.db.Query(ctx, listOutbox, lim)
 	if err != nil {
@@ -337,7 +339,7 @@ func (q *Queries) ListOutbox(ctx context.Context, lim int32) ([]ListOutboxRow, e
 			&i.Timezone,
 			&i.RemindersOn,
 			&i.NotifyAbsent,
-			&i.IsDemo,
+			&i.Silent,
 		); err != nil {
 			return nil, err
 		}

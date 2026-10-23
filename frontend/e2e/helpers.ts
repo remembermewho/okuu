@@ -72,6 +72,12 @@ function psql(sql: string): string {
   return out.trim()
 }
 
+/** Права суперадмина, как их выдаёт `server admin grant` (через API их не выдать). */
+export function grantPlatformAdmin(phone: string) {
+  if (!/^0\d{9}$/.test(phone)) throw new Error('bad phone')
+  psql(`UPDATE users SET is_platform_admin = true WHERE phone = '+996${phone.slice(1)}'`)
+}
+
 /**
  * Ссылка оплаты, как её выдаёт бот (Telegram в e2e выключен): в базе — hex(sha256) токена,
  * сумма — долг ученика. Возвращает сырой токен для адреса /pay/<токен>.

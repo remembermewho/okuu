@@ -20,4 +20,10 @@ export const qk = {
   settings: (c: string) => ['c', c, 'settings'] as const,
   report: (c: string, month: string) => ['c', c, 'report', month] as const,
   audit: (c: string, f: object) => ['c', c, 'audit', f] as const,
+
+  // Панель суперадмина — всё под ['platform'].
+  platform: ['platform'] as const,
+  platformCenters: (f: object) => ['platform', 'centers', f] as const,
+  platformCenter: (id: string) => ['platform', 'center', id] as const,
+  platformLinks: ['platform', 'links'] as const,
 }

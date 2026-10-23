@@ -14,6 +14,7 @@ import (
 	"okuu/internal/importer"
 	"okuu/internal/parents"
 	"okuu/internal/payments"
+	"okuu/internal/platform"
 	"okuu/internal/reminders"
 	"okuu/internal/staff"
 	"okuu/internal/students"
@@ -33,6 +34,8 @@ var knownErrors = []struct {
 	{auth.ErrNotMember, http.StatusNotFound, "not_found", "Не найдено"},
 	{auth.ErrResetNotAllowed, http.StatusConflict, "reset_not_allowed", "Этому сотруднику пароль сбросить нельзя: он работает и в другом центре или он владелец. Обратитесь в поддержку"},
 	{auth.ErrResetInvalid, http.StatusNotFound, "reset_invalid", "Ссылка для смены пароля недействительна или устарела"},
+	{auth.ErrRegistrationClosed, http.StatusForbidden, "registration_closed", "Регистрация центров — по приглашению. Напишите нам, чтобы получить ссылку"},
+	{auth.ErrRegistrationInvalid, http.StatusNotFound, "registration_invalid", "Ссылка регистрации недействительна: она уже использована, отозвана или устарела"},
 
 	{staff.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{staff.ErrInviteInvalid, http.StatusNotFound, "invite_invalid", "Приглашение недействительно или уже использовано"},
@@ -79,6 +82,11 @@ var knownErrors = []struct {
 
 	{reminders.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{reminders.ErrTelegramOff, http.StatusConflict, "telegram_not_configured", "Telegram-бот не запущен (TELEGRAM_BOT_TOKEN)"},
+
+	{platform.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{platform.ErrStatusConflict, http.StatusConflict, "center_status_conflict", "Статус центра уже другой — обновите страницу"},
+	{platform.ErrLinkClosed, http.StatusConflict, "registration_link_closed", "Ссылка уже использована или отозвана"},
+	{platform.ErrNoOwner, http.StatusConflict, "no_owner", "У центра нет владельца — сбросить пароль некому"},
 
 	{importer.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{importer.ErrAlreadyCommitted, http.StatusConflict, "import_already_committed", "Этот импорт уже подтверждён"},

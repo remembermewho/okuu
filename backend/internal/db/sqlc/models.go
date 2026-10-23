@@ -50,6 +50,9 @@ type Center struct {
 	NotifyAbsent       bool        `json:"notify_absent"`
 	OverdueRepeat      string      `json:"overdue_repeat"`
 	IsDemo             bool        `json:"is_demo"`
+	Status             string      `json:"status"`
+	BlockedReason      *string     `json:"blocked_reason"`
+	PaidUntil          *civil.Date `json:"paid_until"`
 }
 
 type Enrollment struct {
@@ -204,6 +207,27 @@ type PaymentLink struct {
 	LedgerID          *uuid.UUID `json:"ledger_id"`
 }
 
+type PlatformAuditLog struct {
+	ID       int64      `json:"id"`
+	AdminID  *uuid.UUID `json:"admin_id"`
+	Action   string     `json:"action"`
+	CenterID *uuid.UUID `json:"center_id"`
+	Details  []byte     `json:"details"`
+	At       time.Time  `json:"at"`
+}
+
+type RegistrationLink struct {
+	ID        uuid.UUID  `json:"id"`
+	Token     string     `json:"token"`
+	Note      string     `json:"note"`
+	CreatedBy *uuid.UUID `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at"`
+	CenterID  *uuid.UUID `json:"center_id"`
+	RevokedAt *time.Time `json:"revoked_at"`
+}
+
 type Session struct {
 	TokenHash  []byte     `json:"token_hash"`
 	UserID     uuid.UUID  `json:"user_id"`
@@ -245,10 +269,12 @@ type TelegramLinkState struct {
 }
 
 type User struct {
-	ID           uuid.UUID `json:"id"`
-	Phone        string    `json:"phone"`
-	Name         string    `json:"name"`
-	PasswordHash string    `json:"password_hash"`
-	TelegramID   *int64    `json:"telegram_id"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID              uuid.UUID  `json:"id"`
+	Phone           string     `json:"phone"`
+	Name            string     `json:"name"`
+	PasswordHash    string     `json:"password_hash"`
+	TelegramID      *int64     `json:"telegram_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	IsPlatformAdmin bool       `json:"is_platform_admin"`
+	LastLoginAt     *time.Time `json:"last_login_at"`
 }

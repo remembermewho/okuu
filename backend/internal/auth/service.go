@@ -45,16 +45,19 @@ type Options struct {
 	Limiter      *Limiter         // по умолчанию LoginMaxFails за LoginWindow
 	CookieSecure bool             // Secure-флаг cookie (prod)
 	Logger       *slog.Logger
+	// RegistrationMode — invite | approval | open (REGISTRATION_MODE); пусто — open.
+	RegistrationMode string
 }
 
 // Service — регистрация, вход и сессии сотрудников.
 type Service struct {
-	pool         *pgxpool.Pool
-	q            *sqlc.Queries
-	now          func() time.Time
-	limiter      *Limiter
-	cookieSecure bool
-	logger       *slog.Logger
+	pool             *pgxpool.Pool
+	q                *sqlc.Queries
+	now              func() time.Time
+	limiter          *Limiter
+	cookieSecure     bool
+	logger           *slog.Logger
+	registrationMode string
 }
 
 // NewService создаёт сервис авторизации.
@@ -66,6 +69,11 @@ func NewService(pool *pgxpool.Pool, opt Options) *Service {
 		limiter:      opt.Limiter,
 		cookieSecure: opt.CookieSecure,
 		logger:       opt.Logger,
+
+		registrationMode: opt.RegistrationMode,
+	}
+	if s.registrationMode == "" {
+		s.registrationMode = RegistrationOpen
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -93,10 +101,18 @@ type RegisterInput struct {
 	Name       string
 	CenterName string
 	UserAgent  string
+	// Token — токен из ссылки регистрации {APP_ORIGIN}/register/{токен}; в режиме invite обязателен.
+	// По ссылке центр сразу активен и в режиме approval.
+	Token string
 }
 
 // Register создаёт пользователя, центр и членство owner в одной транзакции и сразу открывает сессию.
+// Режим invite без ссылки — ErrRegistrationClosed; ссылка недействительна — ErrRegistrationInvalid;
+// режим approval без ссылки — центр в статусе pending до одобрения суперадмином.
 func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, error) {
+	if in.Token == "" && s.registrationMode == RegistrationInvite {
+		return Session{}, ErrRegistrationClosed
+	}
 	centerName, err := validate.Name("center_name", "Название центра", in.CenterName)
 	if err != nil {
 		return Session{}, err
@@ -109,6 +125,19 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, erro
 	defer tx.Rollback(ctx)
 	q := s.q.WithTx(tx)
 
+	// Ссылка помечается использованной в той же транзакции: занятый телефон её не «сжигает».
+	var linkID *uuid.UUID
+	if in.Token != "" {
+		id, err := q.ClaimRegistrationLink(ctx, token.HashHex(in.Token))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Session{}, ErrRegistrationInvalid
+		}
+		if err != nil {
+			return Session{}, fmt.Errorf("ссылка регистрации: %w", err)
+		}
+		linkID = &id
+	}
+
 	user, err := CreateUser(ctx, tx, in.Phone, in.Name, in.Password)
 	if err != nil {
 		return Session{}, err
@@ -117,6 +146,16 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Session, erro
 	center, err := q.CreateCenter(ctx, sqlc.CreateCenterParams{Name: centerName, Phone: &user.Phone})
 	if err != nil {
 		return Session{}, fmt.Errorf("создание центра: %w", err)
+	}
+	switch {
+	case linkID != nil:
+		if err := q.SetRegistrationLinkCenter(ctx, sqlc.SetRegistrationLinkCenterParams{ID: *linkID, CenterID: &center.ID}); err != nil {
+			return Session{}, err
+		}
+	case s.registrationMode == RegistrationApproval:
+		if err := q.SetCenterStatus(ctx, sqlc.SetCenterStatusParams{ID: center.ID, Status: CenterPending}); err != nil {
+			return Session{}, err
+		}
 	}
 	if _, err := q.CreateMembership(ctx, sqlc.CreateMembershipParams{
 		UserID: user.ID, CenterID: center.ID, Role: RoleOwner,
@@ -303,6 +342,9 @@ func (s *Service) NewSession(ctx context.Context, db sqlc.DBTX, userID uuid.UUID
 		TokenHash: token.Hash(tok), UserID: userID, ExpiresAt: expires, UserAgent: ua,
 	}); err != nil {
 		return Session{}, fmt.Errorf("создание сессии: %w", err)
+	}
+	if err := sqlc.New(db).TouchLastLogin(ctx, userID); err != nil {
+		return Session{}, fmt.Errorf("время входа: %w", err)
 	}
 	return Session{Token: tok, UserID: userID, ExpiresAt: expires}, nil
 }

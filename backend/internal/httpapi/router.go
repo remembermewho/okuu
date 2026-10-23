@@ -20,6 +20,7 @@ import (
 	"okuu/internal/importer"
 	"okuu/internal/parents"
 	"okuu/internal/payments"
+	"okuu/internal/platform"
 	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
@@ -49,10 +50,14 @@ type Deps struct {
 	Parents    *parents.Service
 	Reminders  *reminders.Service
 	Payments   *payments.Service // страница оплаты; вебхук — если есть онлайн-провайдер
+	Platform   *platform.Service // панель суперадмина /admin; nil — маршрутов нет
 	PayLimiter *auth.Limiter     // лимит /pay по IP; nil — 30 запросов в минуту
 	Pool       *pgxpool.Pool     // чтение журнала действий
 	AppOrigin  string            // APP_ORIGIN: проверка Origin (CSRF) и адрес фронтенда в ссылках-приглашениях
 	Logger     *slog.Logger
+
+	// SupportWhatsApp — номер поддержки (SUPPORT_WHATSAPP) для страницы регистрации и экранов статуса центра.
+	SupportWhatsApp string
 
 	// Telegram-вебхук: маршрут есть, только если заданы оба (режим webhook).
 	Bot                   UpdateQueue
@@ -77,6 +82,7 @@ type handlers struct {
 	parents    *parents.Service
 	reminders  *reminders.Service
 	payments   *payments.Service
+	platform   *platform.Service
 	payLimiter *auth.Limiter
 	pool       *pgxpool.Pool
 	appOrigin  string
@@ -85,6 +91,7 @@ type handlers struct {
 	bot             UpdateQueue
 	tgWebhookSecret string
 	ips             *httpx.IPResolver
+	supportWhatsApp string
 }
 
 // NewRouter собирает все маршруты приложения.
@@ -97,9 +104,9 @@ func NewRouter(d Deps) http.Handler {
 	}
 	h := &handlers{
 		auth: d.Auth, staff: d.Staff, tariffs: d.Tariffs, groups: d.Groups, students: d.Students, billing: d.Billing,
-		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents, reminders: d.Reminders, payments: d.Payments, payLimiter: d.PayLimiter,
+		attendance: d.Attendance, importer: d.Importer, settings: d.Settings, reports: d.Reports, parents: d.Parents, reminders: d.Reminders, payments: d.Payments, platform: d.Platform, payLimiter: d.PayLimiter,
 		pool: d.Pool, appOrigin: d.AppOrigin, logger: d.Logger, bot: d.Bot, tgWebhookSecret: d.TelegramWebhookSecret,
-		ips: httpx.NewIPResolver(d.TrustedProxies),
+		ips: httpx.NewIPResolver(d.TrustedProxies), supportWhatsApp: d.SupportWhatsApp,
 	}
 
 	r := chi.NewRouter()
@@ -131,6 +138,9 @@ func NewRouter(d Deps) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(auth.RequireOrigin(d.AppOrigin))
 
+		// Регистрация центра: режим (invite | approval | open) и проверка ссылки регистрации — публичные.
+		r.Get("/auth/registration", h.registrationInfo)
+		r.Get("/auth/registration/{token}", h.checkRegistrationLink)
 		r.Post("/auth/register", h.register)
 		r.Post("/auth/login", h.login)
 		r.Post("/auth/logout", h.logout)
@@ -147,6 +157,25 @@ func NewRouter(d Deps) http.Handler {
 		if d.Payments != nil {
 			r.Get("/pay/{token}", h.getPayLink)
 			r.Post("/pay/{token}/start", h.startPayment)
+		}
+
+		// Панель суперадмина: только is_platform_admin, остальным (и без входа) — 404.
+		// Только агрегаты по центрам: ученики, родители, операции и журналы центров сюда не попадают.
+		if d.Platform != nil {
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(d.Auth.RequirePlatformAdmin)
+				r.Get("/centers", h.adminListCenters)
+				r.Get("/centers/{id}", h.adminGetCenter)
+				r.Patch("/centers/{id}", h.adminPatchCenter)
+				r.Post("/centers/{id}/approve", h.adminCenterAction("approve"))
+				r.Post("/centers/{id}/block", h.adminCenterAction("block"))
+				r.Post("/centers/{id}/unblock", h.adminCenterAction("unblock"))
+				r.Post("/centers/{id}/owner-password-reset", h.adminOwnerPasswordReset)
+				r.Get("/registration-links", h.adminListLinks)
+				r.Post("/registration-links", h.adminCreateLink)
+				r.Delete("/registration-links/{id}", h.adminRevokeLink)
+				r.Get("/audit", h.adminListAudit)
+			})
 		}
 
 		r.Group(func(r chi.Router) {

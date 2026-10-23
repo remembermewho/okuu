@@ -48,8 +48,40 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (M
 	return i, err
 }
 
+const getMembershipAccess = `-- name: GetMembershipAccess :one
+SELECT m.user_id, m.center_id, m.role, c.status AS center_status
+FROM memberships m
+JOIN centers c ON c.id = m.center_id
+WHERE m.user_id = $1 AND m.center_id = $2
+`
+
+type GetMembershipAccessParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	CenterID uuid.UUID `json:"center_id"`
+}
+
+type GetMembershipAccessRow struct {
+	UserID       uuid.UUID `json:"user_id"`
+	CenterID     uuid.UUID `json:"center_id"`
+	Role         string    `json:"role"`
+	CenterStatus string    `json:"center_status"`
+}
+
+// Middleware /c/{centerId}/...: членство, роль и статус центра (pending и blocked — без доступа).
+func (q *Queries) GetMembershipAccess(ctx context.Context, arg GetMembershipAccessParams) (GetMembershipAccessRow, error) {
+	row := q.db.QueryRow(ctx, getMembershipAccess, arg.UserID, arg.CenterID)
+	var i GetMembershipAccessRow
+	err := row.Scan(
+		&i.UserID,
+		&i.CenterID,
+		&i.Role,
+		&i.CenterStatus,
+	)
+	return i, err
+}
+
 const listMembershipsByUser = `-- name: ListMembershipsByUser :many
-SELECT m.center_id, m.role, c.name AS center_name, c.timezone
+SELECT m.center_id, m.role, c.name AS center_name, c.timezone, c.status AS center_status
 FROM memberships m
 JOIN centers c ON c.id = m.center_id
 WHERE m.user_id = $1
@@ -57,10 +89,11 @@ ORDER BY c.name, c.id
 `
 
 type ListMembershipsByUserRow struct {
-	CenterID   uuid.UUID `json:"center_id"`
-	Role       string    `json:"role"`
-	CenterName string    `json:"center_name"`
-	Timezone   string    `json:"timezone"`
+	CenterID     uuid.UUID `json:"center_id"`
+	Role         string    `json:"role"`
+	CenterName   string    `json:"center_name"`
+	Timezone     string    `json:"timezone"`
+	CenterStatus string    `json:"center_status"`
 }
 
 // Центры пользователя для GET /me.
@@ -78,6 +111,7 @@ func (q *Queries) ListMembershipsByUser(ctx context.Context, userID uuid.UUID) (
 			&i.Role,
 			&i.CenterName,
 			&i.Timezone,
+			&i.CenterStatus,
 		); err != nil {
 			return nil, err
 		}

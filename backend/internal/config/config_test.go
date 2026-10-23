@@ -123,11 +123,16 @@ func TestLoad(t *testing.T) {
 		{"BOT_LANGUAGES=ru,ky", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ru,ky"}, false},
 		{"BOT_LANGUAGES без ru", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ky"}, true},
 		{"BOT_LANGUAGES неизвестный", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ru,en"}, true},
+		{"prod REGISTRATION_MODE=open явно", with("REGISTRATION_MODE", "open"), false},
+		{"prod REGISTRATION_MODE=approval", with("REGISTRATION_MODE", "approval"), false},
+		{"REGISTRATION_MODE кривой", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "REGISTRATION_MODE": "closed"}, true},
+		{"SUPPORT_WHATSAPP", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "SUPPORT_WHATSAPP": "996700123456"}, false},
+		{"SUPPORT_WHATSAPP с плюсом", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "SUPPORT_WHATSAPP": "+996700123456"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY", "FINIK_ENABLED",
-				"FINIK_API_KEY", "TRUSTED_PROXIES", "ALERT_TELEGRAM_CHAT_ID", "BOT_LANGUAGES"}, telegramVars...) {
+				"FINIK_API_KEY", "TRUSTED_PROXIES", "ALERT_TELEGRAM_CHAT_ID", "BOT_LANGUAGES", "REGISTRATION_MODE", "SUPPORT_WHATSAPP"}, telegramVars...) {
 				t.Setenv(k, tt.env[k])
 			}
 			cfg, err := Load()
@@ -157,6 +162,14 @@ func TestLoad(t *testing.T) {
 			}
 			if cfg.FinikEnabled != (tt.env["FINIK_ENABLED"] == "true") {
 				t.Errorf("FinikEnabled = %v", cfg.FinikEnabled)
+			}
+			// Регистрация: по умолчанию prod — invite, локально — open; явное значение — как задано.
+			wantMode := tt.env["REGISTRATION_MODE"]
+			if wantMode == "" {
+				wantMode = map[bool]string{true: "invite", false: "open"}[tt.env["APP_ENV"] == "prod"]
+			}
+			if cfg.RegistrationMode != wantMode {
+				t.Errorf("RegistrationMode = %q, want %q", cfg.RegistrationMode, wantMode)
 			}
 			if tt.env["APP_ENV"] != "prod" && tt.env["APP_ORIGIN"] == "" && cfg.AppOrigin != devOrigin {
 				t.Errorf("AppOrigin = %q, want %q по умолчанию вне prod", cfg.AppOrigin, devOrigin)

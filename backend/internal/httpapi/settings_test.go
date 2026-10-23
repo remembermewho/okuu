@@ -43,7 +43,7 @@ func TestSettings(t *testing.T) {
 	rec := admin.do(http.MethodGet, path, nil)
 	s := decode[settingsResp](t, rec)
 	if rec.Code != http.StatusOK || s.BillingDay != 1 || s.DueDays != 5 || s.Timezone != "Asia/Bishkek" || s.ExcusedDeducts ||
-		!s.RemindersOn || s.Phone == nil || *s.Phone != "+996708200001" || s.Plan != "pilot" || !s.FinikConnected || s.BillingDayNext != nil {
+		!s.RemindersOn || s.Phone == nil || *s.Phone != "+996708200001" || s.Plan != "free" || !s.FinikConnected || s.BillingDayNext != nil {
 		t.Fatalf("настройки по умолчанию: %d %+v", rec.Code, s)
 	}
 	if strings.Contains(rec.Body.String(), "finik_creds") || strings.Contains(rec.Body.String(), "deadbeef") {

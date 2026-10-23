@@ -1,9 +1,12 @@
 import { Navigate, Outlet, useLocation, useParams } from 'react-router'
-import { Lock } from 'lucide-react'
-import { EmptyState, ErrorState, SkeletonList } from '@/components/ui'
-import { useMe } from '@/features/auth/api'
+import { Hourglass, Lock, LogOut, MessageCircle } from 'lucide-react'
+import { Button, ButtonAnchor, ButtonLink, EmptyState, ErrorState, SkeletonList } from '@/components/ui'
+import { AuthLayout } from '@/features/auth/AuthLayout'
+import { useMe, useRegistrationInfo } from '@/features/auth/api'
 import { ru } from '@/i18n/ru'
 import { errorMessage, isApiError } from '@/utils/errors'
+import { whatsappUrl } from '@/utils/whatsapp'
+import { useSignOut } from './AppLayout'
 import { CenterContext, centerPath, useCenter } from './center'
 import { canSee, homeSection, type Section } from './permissions'
 import s from './layout.module.css'
@@ -41,6 +44,7 @@ export function HomeRedirect() {
   const centers = me.data?.centers ?? []
   if (centers.length === 1 && centers[0]) return <Navigate to={centerPath(centers[0].id)} replace />
   if (centers.length > 1) return <Navigate to="/centers" replace />
+  if (me.data?.is_platform_admin) return <Navigate to="/admin" replace /> // суперадмин без своего центра
   return (
     <div className={s.fullPage}>
       <EmptyState icon={<Lock aria-hidden="true" />} title={ru.auth.noCentersTitle} text={ru.auth.noCentersText} />
@@ -48,14 +52,46 @@ export function HomeRedirect() {
   )
 }
 
-/** /c/:centerId — центр из /me; чужой центр — на главную. */
+/** /c/:centerId — центр из /me; чужой центр — на главную; заявка или приостановленный — экран статуса. */
 export function CenterScope({ children }: { children: React.ReactNode }) {
   const { centerId } = useParams()
   const me = useMe()
   const centers = me.data?.centers ?? []
   const c = centers.find((x) => x.id === centerId)
   if (!c) return <Navigate to="/" replace />
+  if (c.status !== 'active') return <CenterStatusScreen name={c.name} status={c.status} manyCenters={centers.length > 1} />
   return <CenterContext.Provider value={{ id: c.id, name: c.name, role: c.role, centersCount: centers.length, today: c.today }}>{children}</CenterContext.Provider>
+}
+
+/** «Заявка на рассмотрении» / «Доступ приостановлен»: данные центра недоступны, /me и выход работают. */
+function CenterStatusScreen({ name, status, manyCenters }: { name: string; status: 'pending' | 'blocked'; manyCenters: boolean }) {
+  const me = useMe()
+  const info = useRegistrationInfo()
+  const signOut = useSignOut()
+  const pending = status === 'pending'
+  const text = pending ? ru.centerStatus.whatsappPending(name) : ru.centerStatus.whatsappBlocked(name)
+  return (
+    <AuthLayout
+      title={pending ? ru.centerStatus.pendingTitle : ru.centerStatus.blockedTitle}
+      lead={pending ? ru.centerStatus.pendingText(name) : ru.centerStatus.blockedText(name)}
+    >
+      {pending ? <Hourglass size={40} aria-hidden="true" className={s.statusIcon} /> : <Lock size={40} aria-hidden="true" className={s.statusIcon} />}
+      <Button size="lg" block loading={me.isFetching} onClick={() => void me.refetch()}>
+        {ru.centerStatus.checkAgain}
+      </Button>
+      <ButtonAnchor href={whatsappUrl(info.data?.support_whatsapp, text)} target="_blank" rel="noopener" variant="secondary" block icon={<MessageCircle size={20} />}>
+        {ru.auth.writeWhatsApp}
+      </ButtonAnchor>
+      {manyCenters && (
+        <ButtonLink to="/centers" variant="secondary" block>
+          {ru.centerStatus.otherCenters}
+        </ButtonLink>
+      )}
+      <Button variant="ghost" block icon={<LogOut size={20} />} onClick={signOut.run}>
+        {ru.nav.logout}
+      </Button>
+    </AuthLayout>
+  )
 }
 
 /** /c/:centerId/ — первый экран по роли. */

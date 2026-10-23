@@ -59,10 +59,20 @@
         <h1 id="hero-title">{{tagline}}</h1>
         <p class="lead">Для учебных центров и частных садиков Бишкека: {{name}} считает, кто сколько должен, сам напоминает родителям в&nbsp;Telegram и&nbsp;присылает им ссылку на оплату.</p>
         <div class="actions">
+<!-- if registration=open -->
           <a class="btn btn-primary" href="{{registerUrl}}">Попробовать бесплатно</a>
           <a class="btn btn-secondary" href="{{whatsappUrl}}" rel="noopener"><svg aria-hidden="true"><use href="#i-chat"/></svg>Написать в WhatsApp</a>
+<!-- endif -->
+<!-- if registration=invite -->
+          <a class="btn btn-primary" href="{{requestUrl}}" rel="noopener"><svg aria-hidden="true"><use href="#i-chat"/></svg>Оставить заявку</a>
+<!-- endif -->
         </div>
+<!-- if registration=open -->
         <p class="note">Бесплатно до 30 учеников. Ничего не нужно устанавливать — работает в браузере и на телефоне.</p>
+<!-- endif -->
+<!-- if registration=invite -->
+        <p class="note">Заявка — в WhatsApp: пришлём ссылку для регистрации и поможем перенести учеников. Бесплатно до 30 учеников, ничего не нужно устанавливать.</p>
+<!-- endif -->
       </div>
       <div class="phone">
         <img src="/img/debtors-390.webp" width="780" height="1688" fetchpriority="high" decoding="async"
@@ -234,7 +244,12 @@
         <li><svg aria-hidden="true"><use href="#i-check"/></svg>Оплата за год — 2 месяца в подарок</li>
       </ul>
       <div class="actions price-cta">
+<!-- if registration=open -->
         <a class="btn btn-primary" href="{{registerUrl}}">Попробовать бесплатно</a>
+<!-- endif -->
+<!-- if registration=invite -->
+        <a class="btn btn-primary" href="{{requestUrl}}" rel="noopener"><svg aria-hidden="true"><use href="#i-chat"/></svg>Оставить заявку</a>
+<!-- endif -->
       </div>
     </div>
   </section>
@@ -277,11 +292,20 @@
   <section class="section cta" aria-labelledby="cta-title">
     <div class="wrap">
       <h2 id="cta-title">Попробуйте на своём центре</h2>
+
+<!-- if registration=open -->
       <p class="sub">Регистрация — минута. Покажем, как всё работает, и поможем перенести учеников.</p>
       <div class="actions">
         <a class="btn btn-primary" href="{{registerUrl}}">Попробовать бесплатно</a>
         <a class="btn btn-secondary" href="{{whatsappUrl}}" rel="noopener"><svg aria-hidden="true"><use href="#i-chat"/></svg>Написать в WhatsApp</a>
       </div>
+<!-- endif -->
+<!-- if registration=invite -->
+      <p class="sub">Оставьте заявку в WhatsApp — пришлём ссылку для регистрации, покажем, как всё работает, и поможем перенести учеников.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="{{requestUrl}}" rel="noopener"><svg aria-hidden="true"><use href="#i-chat"/></svg>Оставить заявку</a>
+      </div>
+<!-- endif -->
     </div>
   </section>
 </main>

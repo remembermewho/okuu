@@ -122,6 +122,16 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 	return i, err
 }
 
+const touchLastLogin = `-- name: TouchLastLogin :exec
+UPDATE users SET last_login_at = now() WHERE id = $1
+`
+
+// Каждая новая сессия — вход: «последняя активность» центра в панели суперадмина.
+func (q *Queries) TouchLastLogin(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchLastLogin, id)
+	return err
+}
+
 const touchSession = `-- name: TouchSession :exec
 UPDATE sessions
 SET last_seen_at = $1, expires_at = $2

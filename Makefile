@@ -4,7 +4,11 @@ SQLC_VERSION := 1.31.1
 # Git Bash/MSYS иначе переписывает "/src" в Windows-путь в аргументах docker.
 export MSYS_NO_PATHCONV := 1
 
-.PHONY: db run test test-short migrate migrate-status sqlc sqlc-diff image
+.PHONY: dev db run test test-short migrate migrate-status sqlc sqlc-diff image
+
+# Всё для разработки одной командой: база, API (:8080), приложение (:5173), лендинг (:5180); Ctrl+C — стоп.
+dev:
+	node scripts/dev.mjs
 
 db:
 	docker compose up -d db

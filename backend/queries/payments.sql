@@ -20,7 +20,8 @@ SELECT s.id, s.center_id, s.full_name, p.lang, c.name AS center_name
 FROM students s
 JOIN parents p ON p.id = s.parent_id AND p.center_id = s.center_id
 JOIN centers c ON c.id = s.center_id
-WHERE s.id = @student_id AND p.telegram_chat_id = @chat_id AND p.tg_status <> 'none' AND NOT c.is_demo;
+WHERE s.id = @student_id AND p.telegram_chat_id = @chat_id AND p.tg_status <> 'none'
+  AND NOT c.is_demo AND c.status = 'active';
 
 -- name: GetPayLink :one
 -- Ссылка для публичной страницы и старта оплаты; lock — отдельным запросом ниже.
@@ -30,7 +31,7 @@ SELECT l.id, l.center_id, l.student_id, l.amount, l.status, l.expires_at, l.prov
 FROM payment_links l
 JOIN students s ON s.id = l.student_id
 JOIN centers c ON c.id = l.center_id
-WHERE l.token = @token;
+WHERE l.token = @token AND c.status = 'active'; -- у заблокированного центра оплата по ссылке не принимается
 
 -- name: LockPayLink :one
 SELECT id, status, expires_at, provider, provider_payment_id, pay_url, qr_payload

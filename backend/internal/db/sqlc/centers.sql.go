@@ -14,7 +14,7 @@ import (
 const createCenter = `-- name: CreateCenter :one
 INSERT INTO centers (name, phone)
 VALUES ($1, $2)
-RETURNING id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo
+RETURNING id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo, status, blocked_reason, paid_until
 `
 
 type CreateCenterParams struct {
@@ -44,12 +44,15 @@ func (q *Queries) CreateCenter(ctx context.Context, arg CreateCenterParams) (Cen
 		&i.NotifyAbsent,
 		&i.OverdueRepeat,
 		&i.IsDemo,
+		&i.Status,
+		&i.BlockedReason,
+		&i.PaidUntil,
 	)
 	return i, err
 }
 
 const getCenter = `-- name: GetCenter :one
-SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo FROM centers
+SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo, status, blocked_reason, paid_until FROM centers
 WHERE id = $1
 `
 
@@ -74,6 +77,24 @@ func (q *Queries) GetCenter(ctx context.Context, id uuid.UUID) (Center, error) {
 		&i.NotifyAbsent,
 		&i.OverdueRepeat,
 		&i.IsDemo,
+		&i.Status,
+		&i.BlockedReason,
+		&i.PaidUntil,
 	)
 	return i, err
+}
+
+const setCenterStatus = `-- name: SetCenterStatus :exec
+UPDATE centers SET status = $1 WHERE id = $2
+`
+
+type SetCenterStatusParams struct {
+	Status string    `json:"status"`
+	ID     uuid.UUID `json:"id"`
+}
+
+// Заявка (REGISTRATION_MODE=approval): центр создаётся сразу в статусе pending.
+func (q *Queries) SetCenterStatus(ctx context.Context, arg SetCenterStatusParams) error {
+	_, err := q.db.Exec(ctx, setCenterStatus, arg.Status, arg.ID)
+	return err
 }

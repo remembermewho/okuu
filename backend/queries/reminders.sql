@@ -12,9 +12,11 @@ SELECT pg_notify('okuu_notify', '');
 
 -- name: ListOutbox :many
 -- expired — событие старше 3 дней (по часам БД): такое уже не отправляем.
+-- silent — демо-центр или центр не активен (заявка, заблокирован): уведомления не шлются.
 SELECT o.id, o.center_id, o.kind, o.dedup_key, o.student_id, o.ref_id, o.attempts,
        (o.created_at < now() - interval '3 days')::bool AS expired,
-       c.name AS center_name, c.timezone, c.reminders_on, c.notify_absent, c.is_demo
+       c.name AS center_name, c.timezone, c.reminders_on, c.notify_absent,
+       (c.is_demo OR c.status <> 'active')::bool AS silent
 FROM notification_outbox o
 JOIN centers c ON c.id = o.center_id
 ORDER BY o.id
@@ -68,7 +70,7 @@ UPDATE parents SET last_reminder_at = @reminded_at WHERE id = @id;
 -- name: ListCentersForReminders :many
 SELECT id, name, timezone, pay_details, (finik_creds IS NOT NULL)::bool AS finik_connected, overdue_repeat
 FROM centers
-WHERE reminders_on AND NOT is_demo -- демо-центру напоминания не шлются
+WHERE reminders_on AND NOT is_demo AND status = 'active' -- демо, заявке и заблокированному не шлются
 ORDER BY id;
 
 -- name: ListReminderStudents :many

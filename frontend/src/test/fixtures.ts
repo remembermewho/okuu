@@ -2,9 +2,15 @@ import type { Schemas } from '@/api/client'
 
 /** «Сегодня» центра в тестах — нарочно не по часам машины: интерфейс должен брать дату с сервера. */
 export const TODAY = '2026-10-19'
-export const center = (role: 'owner' | 'admin' | 'teacher', id = 'c1', name = 'Билим') => ({ id, name, role, today: TODAY })
+export const center = (role: 'owner' | 'admin' | 'teacher', id = 'c1', name = 'Билим', status: 'pending' | 'active' | 'blocked' = 'active') => ({
+  id,
+  name,
+  role,
+  status,
+  today: TODAY,
+})
 
-export const meOwner = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [center('owner')] }
+export const meOwner = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [center('owner')], is_platform_admin: false }
 export const meAdmin = { ...meOwner, centers: [center('admin')] }
 export const meTeacher = { ...meOwner, centers: [center('teacher')] }
 

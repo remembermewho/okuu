@@ -28,6 +28,7 @@ import (
 	"okuu/internal/importer"
 	"okuu/internal/parents"
 	"okuu/internal/payments"
+	"okuu/internal/platform"
 	"okuu/internal/reminders"
 	"okuu/internal/reports"
 	"okuu/internal/settings"
@@ -92,7 +93,7 @@ func newTestAPIWith(t *testing.T, setup func(api *testAPI, d *httpapi.Deps)) *te
 		Billing: billing.NewService(pool, clk.Now, nil), Attendance: attendance.NewService(pool, clk.Now),
 		Importer: importer.NewService(pool, st, gr, clk.Now),
 		Settings: settings.NewService(pool, clk.Now), Reports: reports.NewService(pool, clk.Now),
-		Parents: parents.NewService(pool, testBotUsername), Pool: pool,
+		Parents: parents.NewService(pool, testBotUsername), Pool: pool, Platform: platform.NewService(pool, svc, clk.Now),
 		Reminders: reminders.NewService(pool, nil, clk.Now, nil),                                          // без Telegram; бот — в newBotEnv
 		Payments:  payments.NewService(payments.Options{Pool: pool, AppOrigin: testOrigin, Now: clk.Now}), // только реквизиты
 		AppOrigin: testOrigin,
@@ -176,11 +177,13 @@ type meResp struct {
 	Name    string    `json:"name"`
 	Phone   string    `json:"phone"`
 	Centers []struct {
-		ID    uuid.UUID `json:"id"`
-		Name  string    `json:"name"`
-		Role  string    `json:"role"`
-		Today string    `json:"today"`
+		ID     uuid.UUID `json:"id"`
+		Name   string    `json:"name"`
+		Role   string    `json:"role"`
+		Status string    `json:"status"`
+		Today  string    `json:"today"`
 	} `json:"centers"`
+	IsPlatformAdmin bool `json:"is_platform_admin"`
 }
 
 func (c *client) register(phone, center string) meResp {

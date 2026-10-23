@@ -26,6 +26,25 @@ export function useLogin() {
   })
 }
 
+/** Режим регистрации (invite | approval | open) и номер поддержки для WhatsApp. */
+export function useRegistrationInfo() {
+  return useQuery({
+    queryKey: ['registration'],
+    queryFn: () => unwrap(api.GET('/api/v1/auth/registration')),
+    staleTime: 10 * 60_000,
+  })
+}
+
+/** Действует ли ссылка регистрации /register/:token (404 — нет). */
+export function useRegistrationLink(token: string) {
+  return useQuery({
+    queryKey: ['registration', token],
+    queryFn: () => unwrap(api.GET('/api/v1/auth/registration/{token}', { params: { path: { token } } })),
+    enabled: token !== '',
+    retry: false,
+  })
+}
+
 export function useRegister() {
   const qc = useQueryClient()
   return useMutation({

@@ -16,6 +16,10 @@ import { StudentPage } from '@/features/students/card/StudentPage'
 import { StudentsPage } from '@/features/students/StudentsPage'
 import { TariffsPage } from '@/features/tariffs/TariffsPage'
 import { PayPage } from '@/features/pay/PayPage'
+import { CenterPage as PlatformCenterPage } from '@/features/platform/CenterPage'
+import { CentersPage as PlatformCentersPage } from '@/features/platform/CentersPage'
+import { LinksPage as PlatformLinksPage } from '@/features/platform/LinksPage'
+import { PlatformLayout, RequirePlatformAdmin } from '@/features/platform/PlatformLayout'
 import { TodayPage } from '@/features/today/TodayPage'
 import { AppLayout } from './AppLayout'
 import { CenterHome, CenterScope, HomeRedirect, RequireAuth, RequireSection } from './guards'
@@ -31,6 +35,7 @@ const section = (s: Section, element: React.ReactNode): RouteObject => ({
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/register/:token', element: <RegisterPage /> },
   { path: '/invite/:token', element: <InvitePage /> },
   { path: '/pay/:token', element: <PayPage /> },
   { path: '/reset/:token', element: <ResetPasswordPage /> },
@@ -40,6 +45,20 @@ export const routes: RouteObject[] = [
       { path: '/', element: <HomeRedirect /> },
       { path: '/centers', element: <CenterPicker /> },
       { path: '/account', element: <AccountPage /> },
+      // Панель суперадмина — свой каркас; без is_platform_admin — «не найдено».
+      {
+        path: '/admin',
+        element: (
+          <RequirePlatformAdmin>
+            <PlatformLayout />
+          </RequirePlatformAdmin>
+        ),
+        children: [
+          { index: true, element: <PlatformCentersPage /> },
+          { path: 'centers/:id', element: <PlatformCenterPage /> },
+          { path: 'links', element: <PlatformLinksPage /> },
+        ],
+      },
       {
         path: '/c/:centerId',
         element: (

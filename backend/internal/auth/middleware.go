@@ -114,9 +114,39 @@ func (s *Service) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireCenter для /c/{centerId}/...: проверяет членство и роль (после RequireAuth).
+// RequirePlatformAdmin для /admin/*: только суперадмин (users.is_platform_admin). Всем остальным,
+// в том числе без входа, — 404 not_found, как будто маршрута нет: существование панели не раскрываем.
+func (s *Service) RequirePlatformAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sess, extended, err := s.Authenticate(r.Context(), SessionToken(r))
+		if errors.Is(err, ErrNoSession) {
+			notFound(w)
+			return
+		}
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		u, err := s.q.GetUserByID(r.Context(), sess.UserID)
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		if !u.IsPlatformAdmin {
+			notFound(w)
+			return
+		}
+		if extended {
+			s.SetSessionCookie(w, sess)
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userIDKey, sess.UserID)))
+	})
+}
+
+// RequireCenter для /c/{centerId}/...: проверяет членство, статус центра и роль (после RequireAuth).
 // Не член центра (или центра нет) → 404 not_found, чтобы не раскрывать существование центра;
-// член с неподходящей ролью → 403 forbidden.
+// заявка ещё не одобрена → 403 center_pending; центр заблокирован → 403 center_blocked
+// (/me и выход работают — они вне /c/); член с неподходящей ролью → 403 forbidden.
 func (s *Service) RequireCenter(roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +160,7 @@ func (s *Service) RequireCenter(roles ...string) func(http.Handler) http.Handler
 				notFound(w)
 				return
 			}
-			m, err := s.q.GetMembership(r.Context(), sqlc.GetMembershipParams{UserID: userID, CenterID: centerID})
+			a, err := s.q.GetMembershipAccess(r.Context(), sqlc.GetMembershipAccessParams{UserID: userID, CenterID: centerID})
 			if errors.Is(err, pgx.ErrNoRows) {
 				notFound(w)
 				return
@@ -139,6 +169,15 @@ func (s *Service) RequireCenter(roles ...string) func(http.Handler) http.Handler
 				s.internalError(w, r, err)
 				return
 			}
+			switch a.CenterStatus {
+			case CenterPending:
+				httpx.Error(w, http.StatusForbidden, "center_pending", "Заявка на подключение центра на рассмотрении")
+				return
+			case CenterBlocked:
+				httpx.Error(w, http.StatusForbidden, "center_blocked", "Доступ к центру приостановлен. Свяжитесь с поддержкой")
+				return
+			}
+			m := sqlc.Membership{UserID: a.UserID, CenterID: a.CenterID, Role: a.Role}
 			if !slices.Contains(roles, m.Role) {
 				httpx.Error(w, http.StatusForbidden, "forbidden", "Недостаточно прав")
 				return

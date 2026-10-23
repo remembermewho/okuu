@@ -123,3 +123,9 @@ func resetURL(appOrigin, tok string) string {
 
 // ResetURL — для команды server user reset-link.
 func ResetURL(appOrigin, tok string) string { return resetURL(appOrigin, tok) }
+
+// RegistrationURL — ссылка регистрации центра: {APP_ORIGIN}/register/<токен>
+// (панель суперадмина и команда server admin registration-link).
+func RegistrationURL(appOrigin, tok string) string {
+	return strings.TrimSuffix(appOrigin, "/") + "/register/" + tok
+}

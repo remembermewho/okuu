@@ -14,7 +14,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (phone, name, password_hash)
 VALUES ($1, $2, $3)
-RETURNING id, phone, name, password_hash, telegram_id, created_at
+RETURNING id, phone, name, password_hash, telegram_id, created_at, is_platform_admin, last_login_at
 `
 
 type CreateUserParams struct {
@@ -33,12 +33,14 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.PasswordHash,
 		&i.TelegramID,
 		&i.CreatedAt,
+		&i.IsPlatformAdmin,
+		&i.LastLoginAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, phone, name, password_hash, telegram_id, created_at FROM users
+SELECT id, phone, name, password_hash, telegram_id, created_at, is_platform_admin, last_login_at FROM users
 WHERE id = $1
 `
 
@@ -52,12 +54,14 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.PasswordHash,
 		&i.TelegramID,
 		&i.CreatedAt,
+		&i.IsPlatformAdmin,
+		&i.LastLoginAt,
 	)
 	return i, err
 }
 
 const getUserByPhone = `-- name: GetUserByPhone :one
-SELECT id, phone, name, password_hash, telegram_id, created_at FROM users
+SELECT id, phone, name, password_hash, telegram_id, created_at, is_platform_admin, last_login_at FROM users
 WHERE phone = $1
 `
 
@@ -71,6 +75,8 @@ func (q *Queries) GetUserByPhone(ctx context.Context, phone string) (User, error
 		&i.PasswordHash,
 		&i.TelegramID,
 		&i.CreatedAt,
+		&i.IsPlatformAdmin,
+		&i.LastLoginAt,
 	)
 	return i, err
 }

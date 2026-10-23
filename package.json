@@ -1,0 +1,8 @@
+{
+  "name": "okuu-dev",
+  "private": true,
+  "description": "Только запуск для разработки: npm run dev — база, API, приложение и лендинг (scripts/dev.mjs). Зависимостей нет.",
+  "scripts": {
+    "dev": "node scripts/dev.mjs"
+  }
+}

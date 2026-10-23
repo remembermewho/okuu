@@ -67,7 +67,8 @@ SELECT s.id, s.center_id, s.full_name, p.lang, c.name AS center_name
 FROM students s
 JOIN parents p ON p.id = s.parent_id AND p.center_id = s.center_id
 JOIN centers c ON c.id = s.center_id
-WHERE s.id = $1 AND p.telegram_chat_id = $2 AND p.tg_status <> 'none' AND NOT c.is_demo
+WHERE s.id = $1 AND p.telegram_chat_id = $2 AND p.tg_status <> 'none'
+  AND NOT c.is_demo AND c.status = 'active'
 `
 
 type GetChatStudentParams struct {
@@ -104,7 +105,7 @@ SELECT l.id, l.center_id, l.student_id, l.amount, l.status, l.expires_at, l.prov
 FROM payment_links l
 JOIN students s ON s.id = l.student_id
 JOIN centers c ON c.id = l.center_id
-WHERE l.token = $1
+WHERE l.token = $1 AND c.status = 'active'
 `
 
 type GetPayLinkRow struct {
@@ -257,6 +258,7 @@ func (q *Queries) ListPendingProviderLinks(ctx context.Context, provider string)
 }
 
 const lockPayLink = `-- name: LockPayLink :one
+
 SELECT id, status, expires_at, provider, provider_payment_id, pay_url, qr_payload
 FROM payment_links WHERE id = $1 FOR UPDATE
 `
@@ -271,6 +273,7 @@ type LockPayLinkRow struct {
 	QrPayload         *string   `json:"qr_payload"`
 }
 
+// у заблокированного центра оплата по ссылке не принимается
 func (q *Queries) LockPayLink(ctx context.Context, id uuid.UUID) (LockPayLinkRow, error) {
 	row := q.db.QueryRow(ctx, lockPayLink, id)
 	var i LockPayLinkRow

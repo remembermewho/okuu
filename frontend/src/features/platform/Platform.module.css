@@ -1,0 +1,334 @@
+/* Панель суперадмина: свой каркас без меню центра. Mobile-first; таблица центров на телефоне — карточки. */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgb(244 245 241 / 94%);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 6px var(--space-4);
+  min-height: 56px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 650;
+  min-width: 0;
+}
+
+.logo {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--text);
+  color: #fff;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* Подпись кнопки только на широком экране; на телефоне — иконка (aria-label у кнопки). */
+.wideOnly {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .wideOnly {
+    display: inline;
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+  overflow-x: auto;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border-bottom: 3px solid transparent;
+  color: var(--text-2);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-current='page'] {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.main {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+}
+
+.filters {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.count {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--space-2);
+}
+
+/* Таблица центров: на телефоне каждая строка — карточка с подписями (data-label). */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tbody tr:hover {
+  background: var(--bg);
+}
+
+.centerLink {
+  font-weight: 650;
+  font-size: var(--fs-md);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.centerLink:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--text-2);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.overdue {
+  color: var(--debt);
+  font-weight: 650;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: 4px;
+}
+
+@media (max-width: 767px) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .table tr {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .table td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 3px 0;
+    border: 0;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    color: var(--text-2);
+  }
+
+  .table td:first-child {
+    display: block;
+    padding-bottom: var(--space-2);
+  }
+
+  .table td:first-child::before {
+    content: none;
+  }
+}
+
+/* Карточка центра */
+.grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* На телефоне подпись над значением, с 600px — две колонки. */
+.facts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px var(--space-4);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.facts dd {
+  margin: 0 0 var(--space-2);
+  overflow-wrap: break-word;
+}
+
+@media (min-width: 600px) {
+  .facts {
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .facts dt {
+    font-size: inherit;
+  }
+
+  .facts dd {
+    margin: 0;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.note {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  margin: var(--space-3) 0 0;
+}
+
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.audit {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.audit li {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.audit li:last-child {
+  border-bottom: 0;
+}
+
+.auditMeta {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* Ссылки регистрации */
+.gap {
+  height: var(--space-4);
+}
+
+.createRow {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.links li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.links li:last-child {
+  border-bottom: 0;
+}
+
+.linkNote {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+  .filters {
+    grid-template-columns: 2fr 1fr;
+    align-items: start; /* подсказка под поиском не сдвигает поле статуса */
+  }
+
+  .createRow {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  .wide {
+    grid-column: 1 / -1;
+  }
+}

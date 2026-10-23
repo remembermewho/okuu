@@ -622,7 +622,7 @@ func (s *Service) Dispatch(ctx context.Context) (int, error) {
 	now := s.now()
 	sent := 0
 	for _, o := range rows {
-		if o.Expired || o.IsDemo { // демо-центру уведомления не шлются
+		if o.Expired || o.Silent { // демо, заявке и заблокированному центру уведомления не шлются
 			if err := s.q.DeleteOutbox(ctx, o.ID); err != nil {
 				return sent, err
 			}

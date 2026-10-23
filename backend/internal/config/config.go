@@ -39,6 +39,12 @@ type Config struct {
 	AlertChatID int64
 	// BotLanguages — языки сообщений родителям (BOT_LANGUAGES: «ru» по умолчанию или «ru,ky»).
 	BotLanguages notify.Langs
+	// RegistrationMode — invite | approval | open (REGISTRATION_MODE). По умолчанию в prod — invite,
+	// локально — open; open в prod — только если задан явно.
+	RegistrationMode string
+	// SupportWhatsApp — номер поддержки для wa.me (SUPPORT_WHATSAPP, только цифры с кодом страны):
+	// кнопка «Написать в WhatsApp» на закрытой регистрации и на экранах «заявка» и «приостановлен».
+	SupportWhatsApp string
 }
 
 // Режимы Telegram-бота.
@@ -129,6 +135,19 @@ func Load() (Config, error) {
 	}
 	if cfg.BotLanguages, err = notify.ParseLangs(os.Getenv("BOT_LANGUAGES")); err != nil {
 		errs = append(errs, fmt.Errorf("BOT_LANGUAGES: %w", err))
+	}
+	cfg.RegistrationMode = strings.ToLower(strings.TrimSpace(os.Getenv("REGISTRATION_MODE")))
+	switch {
+	case cfg.RegistrationMode == "" && cfg.Env == "prod":
+		cfg.RegistrationMode = "invite"
+	case cfg.RegistrationMode == "":
+		cfg.RegistrationMode = "open"
+	case cfg.RegistrationMode != "invite" && cfg.RegistrationMode != "approval" && cfg.RegistrationMode != "open":
+		errs = append(errs, fmt.Errorf("REGISTRATION_MODE: ожидается invite, approval или open, получено %q", cfg.RegistrationMode))
+	}
+	cfg.SupportWhatsApp = strings.TrimSpace(os.Getenv("SUPPORT_WHATSAPP"))
+	if cfg.SupportWhatsApp != "" && !isDigits(cfg.SupportWhatsApp) {
+		errs = append(errs, fmt.Errorf("SUPPORT_WHATSAPP: только цифры с кодом страны, например 996700123456, получено %q", cfg.SupportWhatsApp))
 	}
 	if cfg.Env == "prod" {
 		errs = append(errs, prodChecks(cfg)...)
@@ -281,6 +300,15 @@ func validateOrigin(origin string) error {
 		return fmt.Errorf("APP_ORIGIN: ожидается scheme://host[:port], получено %q", origin)
 	}
 	return nil
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 func getenv(name, def string) string {
