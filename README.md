@@ -70,9 +70,34 @@ npm run dev            # http://localhost:5173, /api и /webhooks проксир
 Что не проверить вручную на dev: блокировку бота (403 → `tg_status = blocked`) и лимиты Telegram удобнее
 смотреть в тестах (`backend/internal/httpapi/telegram_test.go`, `backend/internal/telegram`) — там фейковый Telegram.
 
+## Лендинг
+
+Главная страница сервиса — статический HTML и CSS без фреймворков и без JS, в [landing/](landing/):
+
+- `landing/src/index.html` — все тексты главной; `offer.html` и `privacy.html` — **черновики** оферты и политики
+  персональных данных (сверху плашка «Черновик — требует проверки юристом», для поисковиков — `noindex`);
+- `landing/config.json` — название, слоган, описание для поисковиков, адреса (`siteUrl`, `appUrl`), контакты
+  (`whatsapp`, `telegram`, `email`) и реквизиты. В HTML они стоят как `{{ключ}}`. Значения в `[скобках]` —
+  заглушки: сборка напоминает, что их пора заполнить;
+- `landing/img` — скриншоты демо-центра и картинка для соцсетей, `landing/fonts` — Golos Text (лицензия OFL).
+
+Посмотреть локально (нужен только Node 20+, `npm install` не нужен):
+
+```sh
+node landing/build.mjs --serve        # собрать в landing/dist и открыть http://localhost:5180
+```
+
+Ссылки «Попробовать бесплатно» и «Войти» ведут на `appUrl`, пока он не заполнен, — это заглушка `[APP_URL]`.
+Переснять скриншоты после изменений в приложении — `cd frontend && npm run screenshots` (демо-центр в отдельной
+базе `okuu_screens`, свой API на :8091; нужен контейнер из `make db`): картинки обновятся в `landing/img`.
+
+Выложить: заполнить `landing/config.json`, на сервере собрать (`node build.mjs` в контейнере — см. «Запуск»
+ниже) и задать `LANDING_DOMAIN` в `deploy/.env`. Caddy отдаёт `landing/dist` на `LANDING_DOMAIN`, приложение —
+на `APP_DOMAIN`. Перезапускать Caddy после пересборки не нужно.
+
 ## Деплой на VPS
 
-Один сервер (Ubuntu 22.04/24.04, 2 vCPU, 2–4 ГБ) и Docker Compose: `caddy` (HTTPS, статика фронтенда) →
+Один сервер (Ubuntu 22.04/24.04, 2 vCPU, 2–4 ГБ) и Docker Compose: `caddy` (HTTPS, статика фронтенда и лендинга) →
 `app` (API, вебхуки, фоновые задачи) → `postgres` (том `pgdata`, порт наружу не открыт). Файлы — в [deploy/](deploy/).
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) проверяет код и собирает образ; сам деплой пока ручной.
 
@@ -104,15 +129,20 @@ chmod +x deploy/backup.sh deploy/restore.sh
 | `TELEGRAM_WEBHOOK_SECRET` | `openssl rand -hex 32` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` | боевой бот у @BotFather (не тот, что для dev) |
 | `ALERT_TELEGRAM_CHAT_ID` | добавьте бота в служебную группу, напишите в ней сообщение и возьмите `chat.id` из `https://api.telegram.org/bot<токен>/getUpdates` (до запуска сервера — после он снимет updates вебхуком) |
-| `DOMAIN`, `APP_ORIGIN`, `ACME_EMAIL` | домен приложения, `https://<домен>`, e-mail для Let's Encrypt |
+| `APP_DOMAIN`, `APP_ORIGIN`, `ACME_EMAIL` | домен приложения, `https://<домен приложения>`, e-mail для Let's Encrypt |
+| `LANDING_DOMAIN` | домен лендинга (например, `okuu.kg`; приложение — `app.okuu.kg`) |
 
 Сервер в prod не стартует, если чего-то не хватает: в логе будет список — «APP_ORIGIN: в prod нужен https://»,
 «TELEGRAM_MODE: в prod только webhook», «ENCRYPTION_KEY: нужно минимум 32 байт» и т. п.
 
 ### 3. Домен
 
-DNS-запись `A` (и `AAAA`, если есть IPv6) домена → IP сервера. Порты 80 и 443 должны быть открыты:
-Caddy сам получит и будет продлевать сертификат Let's Encrypt.
+DNS-записи `A` (и `AAAA`, если есть IPv6) обоих доменов — приложения (`APP_DOMAIN`) и лендинга
+(`LANDING_DOMAIN`) — → IP сервера. Порты 80 и 443 должны быть открыты: Caddy сам получит и будет продлевать
+сертификаты Let's Encrypt.
+
+Сервер, настроенный до появления лендинга: в `deploy/.env` переименуйте `DOMAIN` в `APP_DOMAIN` и добавьте
+`LANDING_DOMAIN`, иначе compose не запустится и напишет, чего не хватает.
 
 ### 4. Запуск
 
@@ -123,9 +153,11 @@ Node на сервер ставить не нужно — собираем в к
 cd /opt/okuu
 docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine sh -c "npm ci && npm run build"
 ls frontend/dist                # index.html и assets/
+docker run --rm -v "$PWD/landing:/landing" -w /landing node:22-alpine node build.mjs   # лендинг → landing/dist
 ```
 
 Фронтенд обращается к API по тому же домену (`/api/...`), отдельных переменных окружения у него нет.
+Лендинг перед первой сборкой — заполнить `landing/config.json` (см. «Лендинг» ниже).
 
 ```sh
 docker compose -f deploy/docker-compose.prod.yml up -d --build
@@ -185,6 +217,8 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build app
 docker compose -f deploy/docker-compose.prod.yml ps        # app снова healthy
 # если менялся фронтенд — пересобрать; Caddy подхватит новые файлы без перезапуска
 docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine sh -c "npm ci && npm run build"
+# если менялся лендинг (landing/) — так же
+docker run --rm -v "$PWD/landing:/landing" -w /landing node:22-alpine node build.mjs
 ```
 
 Сборка фронтенда заменяет `frontend/dist` целиком; `index.html` отдаётся с `Cache-Control: no-cache`, файлы из
@@ -211,6 +245,32 @@ docker compose -f deploy/docker-compose.prod.yml exec app /server user reset-lin
 лично (в мессенджер на его номер). Она работает один раз; прежние неиспользованные ссылки этого человека
 перестают работать; после смены пароля все его сессии закрываются. В журнал его центров пишется
 `user.password_reset_issue` и `user.password_reset_done` (без паролей и токенов).
+
+### Демо для показа
+
+Демо-центр «Демо: учебный центр «Пример»» — чтобы показать сервис клиенту без его данных: 40 вымышленных
+учеников в 4 группах (3 тарифа, 2 преподавателя и администратор), история оплат за три прошлых месяца разными
+способами, 3 отменённые оплаты, 8 должников с разной просрочкой, 5 «ожидают оплаты», 2 ушедших, посещаемость
+за две недели (сегодня не отмечено) и журнал. Телефоны — только тестовые `+996 555 0XX XXX`.
+
+```sh
+# на сервере
+docker compose -f deploy/docker-compose.prod.yml exec app /server demo seed --phone=0555099001 --password='<пароль>'
+# локально
+cd backend && go run ./cmd/server demo seed --phone=0555099001 --password='<пароль>'
+```
+
+Вход — этим телефоном и паролем (владелец). Сотрудники демо с тем же паролем — чтобы показать другие роли:
+`0555090001` и `0555090002` — преподаватели, `0555090003` — администратор.
+После показа (или перед следующим) — `server demo reset`: демо-центр пересоздаётся с нуля с тем же владельцем
+и паролем, даты истории — от сегодняшнего дня. Повторный `demo seed` делает то же, но с новым телефоном и паролем.
+
+- Удаляются и пересоздаются только центры с флагом `is_demo`; настоящие центры и их пользователи не трогаются.
+  Телефон, который уже работает в настоящем центре, для демо не принимается (его пароль не меняем).
+- В демо-центре не работают Telegram и напоминания: бот его не видит, автонапоминания и уведомления
+  («оплата получена», «не был») не отправляются, «Напомнить» и «Пригласить в Telegram» отвечают `demo_center`.
+- Остальное работает как обычно: можно принять оплату, отметить занятие, добавить ученика — до следующего `reset`.
+- Пароль в командной строке остаётся в истории оболочки: для демо задайте отдельный пароль.
 
 ### Перед пилотом
 

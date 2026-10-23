@@ -49,6 +49,7 @@ type Center struct {
 	BillingDayNextFrom *civil.Date `json:"billing_day_next_from"`
 	NotifyAbsent       bool        `json:"notify_absent"`
 	OverdueRepeat      string      `json:"overdue_repeat"`
+	IsDemo             bool        `json:"is_demo"`
 }
 
 type Enrollment struct {

@@ -3276,7 +3276,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description `telegram_not_configured` — бот не настроен (нет TELEGRAM_BOT_USERNAME) */
+            /** @description `telegram_not_configured` — бот не настроен (нет TELEGRAM_BOT_USERNAME); `demo_center` — демо-центр, Telegram не подключается */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3478,7 +3478,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description `telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN) */
+            /** @description `telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN); `demo_center` — демо-центр, напоминания не отправляются */
             409: {
                 headers: {
                     [name: string]: unknown;

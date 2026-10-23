@@ -67,6 +67,8 @@ var knownErrors = []struct {
 
 	{parents.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{parents.ErrBotNotConfigured, http.StatusConflict, "telegram_not_configured", "Telegram-бот не настроен (TELEGRAM_BOT_USERNAME)"},
+	{parents.ErrDemoCenter, http.StatusConflict, "demo_center", "Это демо-центр: родители вымышленные, Telegram и напоминания не работают"},
+	{reminders.ErrDemoCenter, http.StatusConflict, "demo_center", "Это демо-центр: родители вымышленные, Telegram и напоминания не работают"},
 
 	{payments.ErrNotFound, http.StatusNotFound, "not_found", "Ссылка оплаты недействительна или устарела"},
 	{payments.ErrAlreadyPaid, http.StatusConflict, "already_paid", "Эта ссылка уже оплачена"},

@@ -14,7 +14,7 @@ import (
 const createCenter = `-- name: CreateCenter :one
 INSERT INTO centers (name, phone)
 VALUES ($1, $2)
-RETURNING id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat
+RETURNING id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo
 `
 
 type CreateCenterParams struct {
@@ -43,12 +43,13 @@ func (q *Queries) CreateCenter(ctx context.Context, arg CreateCenterParams) (Cen
 		&i.BillingDayNextFrom,
 		&i.NotifyAbsent,
 		&i.OverdueRepeat,
+		&i.IsDemo,
 	)
 	return i, err
 }
 
 const getCenter = `-- name: GetCenter :one
-SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat FROM centers
+SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo FROM centers
 WHERE id = $1
 `
 
@@ -72,6 +73,7 @@ func (q *Queries) GetCenter(ctx context.Context, id uuid.UUID) (Center, error) {
 		&i.BillingDayNextFrom,
 		&i.NotifyAbsent,
 		&i.OverdueRepeat,
+		&i.IsDemo,
 	)
 	return i, err
 }

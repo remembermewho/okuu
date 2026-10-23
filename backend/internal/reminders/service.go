@@ -63,6 +63,8 @@ var (
 	ErrTelegramOff = errors.New("telegram-бот не запущен")
 	// ErrNotFound — ученика из запроса нет в центре.
 	ErrNotFound = errors.New("ученик не найден")
+	// ErrDemoCenter — демо-центр: сообщения родителям (вымышленным) не отправляются.
+	ErrDemoCenter = errors.New("демо-центр: сообщения не отправляются")
 )
 
 // Service — напоминания. tg == nil — Telegram выключен: автозадача и диспетчер ничего не делают.
@@ -465,12 +467,16 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 	if err != nil {
 		return res, err
 	}
-	if s.tg == nil {
-		return res, ErrTelegramOff
-	}
 	c, err := s.q.GetCenter(ctx, centerID)
 	if err != nil {
 		return res, err
+	}
+	// Демо — первым: объясняет, почему не отправится, даже если бот и не запущен.
+	if c.IsDemo {
+		return res, ErrDemoCenter
+	}
+	if s.tg == nil {
+		return res, ErrTelegramOff
 	}
 	now := s.now()
 	today, err := civil.Today(now, c.Timezone)
@@ -616,7 +622,7 @@ func (s *Service) Dispatch(ctx context.Context) (int, error) {
 	now := s.now()
 	sent := 0
 	for _, o := range rows {
-		if o.Expired {
+		if o.Expired || o.IsDemo { // демо-центру уведомления не шлются
 			if err := s.q.DeleteOutbox(ctx, o.ID); err != nil {
 				return sent, err
 			}

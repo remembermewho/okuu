@@ -20,7 +20,7 @@ SELECT s.id, s.center_id, s.full_name, p.lang, c.name AS center_name
 FROM students s
 JOIN parents p ON p.id = s.parent_id AND p.center_id = s.center_id
 JOIN centers c ON c.id = s.center_id
-WHERE s.id = @student_id AND p.telegram_chat_id = @chat_id AND p.tg_status <> 'none';
+WHERE s.id = @student_id AND p.telegram_chat_id = @chat_id AND p.tg_status <> 'none' AND NOT c.is_demo;
 
 -- name: GetPayLink :one
 -- Ссылка для публичной страницы и старта оплаты; lock — отдельным запросом ниже.

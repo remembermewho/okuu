@@ -87,6 +87,9 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      - name: лендинг собирается (все {{ключи}} есть в landing/config.json)
+        run: node ../landing/build.mjs
+
   e2e:
     name: frontend e2e (Playwright, chromium)
     runs-on: ubuntu-latest

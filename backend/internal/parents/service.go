@@ -25,6 +25,8 @@ var (
 	ErrNotFound = errors.New("родитель не найден")
 	// ErrBotNotConfigured — не задано имя бота (TELEGRAM_BOT_USERNAME): ссылку не построить.
 	ErrBotNotConfigured = errors.New("telegram-бот не настроен")
+	// ErrDemoCenter — демо-центр: родители вымышленные, приглашения в бот не создаются.
+	ErrDemoCenter = errors.New("демо-центр: Telegram не подключается")
 )
 
 // Service — приглашения родителей.
@@ -52,9 +54,6 @@ type Invite struct {
 // CreateInvite создаёт одноразовое приглашение родителя на 30 дней. Прежние приглашения
 // продолжают действовать до использования или срока.
 func (s *Service) CreateInvite(ctx context.Context, actor, centerID, parentID uuid.UUID) (Invite, error) {
-	if s.botUsername == "" {
-		return Invite{}, ErrBotNotConfigured
-	}
 	raw, err := token.New()
 	if err != nil {
 		return Invite{}, err
@@ -68,6 +67,15 @@ func (s *Service) CreateInvite(ctx context.Context, actor, centerID, parentID uu
 		}
 		if err != nil {
 			return err
+		}
+		// Демо-центр: родители вымышленные — к боту не подключаются.
+		if c, err := q.GetCenter(ctx, centerID); err != nil {
+			return err
+		} else if c.IsDemo {
+			return ErrDemoCenter
+		}
+		if s.botUsername == "" {
+			return ErrBotNotConfigured
 		}
 		row, err := q.CreateParentInvite(ctx, sqlc.CreateParentInviteParams{
 			Token: token.HashHex(raw), CenterID: centerID, ParentID: &p.ID, CreatedBy: &actor,

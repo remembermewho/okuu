@@ -9,7 +9,7 @@ SELECT i.id AS invite_id, i.center_id, p.id AS parent_id, p.name AS parent_name,
 FROM invites i
 JOIN parents p ON p.id = i.parent_id AND p.center_id = i.center_id
 JOIN centers c ON c.id = i.center_id
-WHERE i.token = @token AND i.kind = 'parent'
+WHERE i.token = @token AND i.kind = 'parent' AND NOT c.is_demo
   AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now();
 
 -- name: GetParentInviteByID :one
@@ -66,7 +66,7 @@ RETURNING *;
 SELECT p.id, p.center_id, p.name, p.lang, p.tg_status, c.name AS center_name, c.timezone
 FROM parents p
 JOIN centers c ON c.id = p.center_id
-WHERE p.telegram_chat_id = @chat_id AND p.tg_status <> 'none'
+WHERE p.telegram_chat_id = @chat_id AND p.tg_status <> 'none' AND NOT c.is_demo -- демо-центр боту не виден
 ORDER BY c.name, c.id, p.id;
 
 -- name: SetChatLang :exec

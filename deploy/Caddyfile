@@ -1,5 +1,7 @@
-# Caddy: HTTPS (Let's Encrypt) для {$DOMAIN}; /api/* и /webhooks/* → app, остальное — статика
-# фронтенда из /srv/frontend (SPA: неизвестные пути → index.html).
+# Caddy: HTTPS (Let's Encrypt) для двух доменов.
+#   {$LANDING_DOMAIN} — лендинг: статика из /srv/landing (сборка node landing/build.mjs → landing/dist);
+#   {$APP_DOMAIN}     — приложение: /api/* и /webhooks/* → app, остальное — статика фронтенда
+#                       из /srv/frontend (SPA: неизвестные пути → index.html).
 # Журнал запросов Caddy не включаем: в путях /api/v1/pay/<токен> и /webhooks/telegram/<секрет> —
 # секреты. Свой журнал (с шаблонами маршрутов вместо путей) пишет app.
 
@@ -7,7 +9,38 @@
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
+# Лендинг: без JS, cookies и сторонних ресурсов — строгий CSP. /offer → offer.html.
+{$LANDING_DOMAIN} {
+	encode zstd gzip
+	root * /srv/landing
+	try_files {path} {path}.html
+	file_server
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		-Server
+	}
+	# Страницы — всегда свежие; styles.css (с ?v=хэш) и шрифты — навсегда; картинки — неделю
+	# (после npm run screenshots имена те же).
+	@pages not path /styles.css /fonts/* /img/* /favicon.svg
+	header @pages Cache-Control "no-cache"
+	@forever path /styles.css /fonts/*
+	header @forever Cache-Control "public, max-age=31536000, immutable"
+	@week path /img/* /favicon.svg
+	header @week Cache-Control "public, max-age=604800"
+
+	handle_errors 404 {
+		rewrite * /404.html
+		file_server
+	}
+}
+
+{$APP_DOMAIN} {
 	encode zstd gzip
 
 	header {

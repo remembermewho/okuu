@@ -7,10 +7,15 @@
 //	                        начисления billing.monthly по центру на дату (по умолчанию — сегодня в его поясе)
 //	server user reset-link --phone=<телефон>
 //	                        одноразовая ссылка сброса пароля на 24 часа (для поддержки)
+//	server demo seed --phone=<телефон> --password=<пароль>
+//	                        создать демо-центр для показа (прежний демо-центр удаляется)
+//	server demo reset       пересоздать демо-центр с нуля с тем же владельцем и паролем
+//	server demo message     текст настоящего напоминания (JSON) — для картинки бота на лендинге
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,6 +40,7 @@ import (
 	"okuu/internal/civil"
 	"okuu/internal/config"
 	"okuu/internal/db"
+	"okuu/internal/demo"
 	"okuu/internal/groups"
 	"okuu/internal/httpapi"
 	"okuu/internal/importer"
@@ -59,6 +65,14 @@ func main() {
 	// healthcheck — для HEALTHCHECK в Docker (в distroless нет curl): без БД и конфигурации.
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck())
+	}
+	// demo message — для скриншотов лендинга: настоящее напоминание в JSON (текст и кнопки), без БД и .env.
+	if len(os.Args) > 2 && os.Args[1] == "demo" && os.Args[2] == "message" {
+		today, _ := civil.Today(time.Now(), "Asia/Bishkek")
+		if err := json.NewEncoder(os.Stdout).Encode(demo.SampleReminder(today)); err != nil {
+			os.Exit(1)
+		}
+		return
 	}
 	// .env читаем только локально: в prod переменные задаёт окружение.
 	var dotenv string
@@ -166,8 +180,13 @@ func run(logger *slog.Logger, cfg config.Config, args []string) error {
 			return errors.New("использование: server user reset-link --phone=<телефон>")
 		}
 		return userResetLink(ctx, logger, cfg, pool, args[2:])
+	case "demo":
+		if len(args) < 2 || (args[1] != "seed" && args[1] != "reset") {
+			return errors.New("использование: server demo seed --phone=<телефон> --password=<пароль> | server demo reset")
+		}
+		return demoCmd(ctx, logger, pool, args[1], args[2:])
 	}
-	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing|user)", cmd)
+	return fmt.Errorf("неизвестная команда %q (serve|migrate|billing|user|demo)", cmd)
 }
 
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pgxpool.Pool) error {
@@ -420,6 +439,38 @@ func userResetLink(ctx context.Context, logger *slog.Logger, cfg config.Config, 
 	}
 	fmt.Printf("Ссылка для смены пароля (%s), действует до %s:\n%s\n",
 		res.UserName, res.ExpiresAt.Local().Format("02.01.2006 15:04"), httpapi.ResetURL(cfg.AppOrigin, res.Token))
+	return nil
+}
+
+// demoCmd — демо-центр для показа: seed создаёт (с владельцем --phone), reset пересоздаёт.
+// Удаляются только центры с is_demo; Telegram и напоминания для демо не работают.
+func demoCmd(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, sub string, args []string) error {
+	fs := flag.NewFlagSet("demo "+sub, flag.ContinueOnError)
+	phoneFlag := fs.String("phone", "", "телефон владельца демо (+996XXXXXXXXX или 0XXXXXXXXX)")
+	passwordFlag := fs.String("password", "", "пароль владельца демо (от 8 символов)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if sub == "seed" && (*phoneFlag == "" || *passwordFlag == "") {
+		return errors.New("demo seed: укажите --phone и --password владельца демо")
+	}
+	if err := migrateUp(ctx, logger, pool); err != nil {
+		return err
+	}
+	var (
+		res demo.Result
+		err error
+	)
+	if sub == "seed" {
+		res, err = demo.Seed(ctx, pool, time.Now(), *phoneFlag, *passwordFlag)
+	} else {
+		res, err = demo.Reset(ctx, pool, time.Now())
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Готово: %s (id %s).\nВход: %s и пароль владельца. Учеников %d: с просрочкой %d, ожидают оплаты %d, ушли %d.\n",
+		demo.CenterName, res.CenterID, res.OwnerPhone, res.Students, res.Overdue, res.Pending, res.Left)
 	return nil
 }
 

@@ -1139,7 +1139,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: '`telegram_not_configured` — бот не настроен (нет TELEGRAM_BOT_USERNAME)'
+          description: '`telegram_not_configured` — бот не настроен (нет TELEGRAM_BOT_USERNAME); `demo_center` — демо-центр, Telegram не подключается'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1311,7 +1311,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: '`telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN)'
+          description: '`telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN); `demo_center` — демо-центр, напоминания не отправляются'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

@@ -14,7 +14,7 @@ import (
 
 const getCenterForUpdate = `-- name: GetCenterForUpdate :one
 
-SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat FROM centers WHERE id = $1 FOR UPDATE
+SELECT id, name, phone, timezone, billing_day, due_days, excused_deducts, reminders_on, pay_details, finik_creds, plan, created_at, billing_day_next, billing_day_next_from, notify_absent, overdue_repeat, is_demo FROM centers WHERE id = $1 FOR UPDATE
 `
 
 // Настройки центра (S8). finik_creds здесь не читаются и не пишутся.
@@ -38,6 +38,7 @@ func (q *Queries) GetCenterForUpdate(ctx context.Context, id uuid.UUID) (Center,
 		&i.BillingDayNextFrom,
 		&i.NotifyAbsent,
 		&i.OverdueRepeat,
+		&i.IsDemo,
 	)
 	return i, err
 }
