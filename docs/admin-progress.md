@@ -176,6 +176,30 @@ Add one-command dev start: make dev / npm run dev
   - `Makefile`, `.env.example`, `deploy/.env.example`, `README.md`.
 - Журнал: `docs/admin-progress.md`.
 
+### Исправление: Ctrl+C на Windows спрашивал «Завершить выполнение пакетного файла [Y/N]?»
+- Причина: Vite запускался через `npm run dev` с `shell: true`, то есть через `npm.cmd`. На Ctrl+C batch-файл задаёт вопрос, а PowerShell к этому моменту уже вернул строку ввода.
+- Исправление в `scripts/dev.mjs`:
+  - все процессы запускаются напрямую, без npm, npx и `shell`: API — `go run`, приложение — `node frontend/node_modules/vite/bin/vite.js --port … --strictPort`, лендинг — `node landing/build.mjs --serve=…`. Одноразовый `npm ci` — через `node …/npm/bin/npm-cli.js`; `npm.cmd` остался запасным вариантом, если npm-cli не найден;
+  - остановка (Ctrl+C или падение процесса): `taskkill /PID <pid> /T /F` только для своих PID (на macOS и Linux — группа процессов). Затем скрипт ждёт выхода своих процессов и освобождения их портов (IPv4 и IPv6, до 25 с) и только потом пишет «все процессы остановлены» и завершается. Порты проверяются потому, что собранный `go run` сервер получает Ctrl+C сам и может выйти позже `go.exe`.
+- Проверка на Windows:
+  - `npm run dev` запускался в отдельном окне PowerShell (`npm` → `npm.ps1`), Ctrl+C — настоящее консольное событие `GenerateConsoleCtrlEvent` в это окно;
+  - порты альтернативные: :8080 занят вашим dev-сервером, его не трогал;
+  - результат: окно закрылось само (вопрос Y/N его бы подвесил), вопроса в выводе нет, `cmd.exe` после теста не осталось, :8091, :5177 и :5181 свободны;
+  - с выводом прямо в файл видна вся последовательность: «останавливаю…» → API «остановка сервера» → «все процессы остановлены»;
+  - падение одного процесса (убит лендинг) — остальные остановлены, «все процессы остановлены», порты свободны;
+  - под `npm run dev` в дереве процессов только `node` и `go`, ни одного `.cmd`.
+- Решение на проверку: в моём окружении процессы стартуют с выключенной обработкой Ctrl+C. Чтобы воспроизвести обычное окно PowerShell, в тестовом окне я включал её явно (`SetConsoleCtrlHandler(NULL, FALSE)`). В вашем окне это и так включено. Проверьте один раз руками: `npm run dev` → Ctrl+C → вопроса нет, в конце «все процессы остановлены», затем `netstat -ano | findstr ":8080 :5173 :5180"` пусто.
+
+Сообщение для коммита:
+```
+Fix dev start on Windows: no batch Y/N prompt on Ctrl+C
+
+- run Vite and the landing directly with node (no npm.cmd/npx, no shell);
+  one-time npm ci via npm-cli.js
+- on stop, taskkill /T only our own PIDs, wait until children exit and
+  their ports are free, then print «все процессы остановлены»
+```
+
 ## Итог и как проверить руками
 
 1. **Запуск.** В PowerShell в корне: `npm run dev` (или `make dev`). Дождитесь трёх адресов. Ctrl+C должен погасить всё; проверьте, что :8080, :5173 и :5180 освободились (`netstat -ano | findstr ":8080 :5173 :5180"`).
