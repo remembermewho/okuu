@@ -73,7 +73,8 @@ test('основные экраны: нет критических наруше�
   const ctx = await browser.newContext({ viewport: page.viewportSize() ?? undefined, locale: 'ru-RU' })
   const parent = await ctx.newPage()
   await parent.goto(`/pay/${token}`)
-  await expect(parent.getByText('Асанов Бекзат')).toBeVisible()
+  // Онлайн-оплата в e2e выключена (ONLINE_PAYMENTS_ENABLED=false) — страница «не подключена».
+  await expect(parent.getByRole('heading', { name: 'Онлайн-оплата не подключена' })).toBeVisible()
   await check(parent, info, 'pay')
   await ctx.close()
 })

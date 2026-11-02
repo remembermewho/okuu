@@ -154,10 +154,12 @@ func NewRouter(d Deps) http.Handler {
 		r.Post("/invites/{token}/accept", h.acceptInvite)
 
 		// Публичная страница оплаты родителя (B2): по токену из ссылки, без входа.
-		if d.Payments != nil {
-			r.Get("/pay/{token}", h.getPayLink)
-			r.Post("/pay/{token}/start", h.startPayment)
-		}
+		// Онлайн-оплата выключена (Payments == nil) — маршруты те же, но любая ссылка как неизвестная: 404.
+		r.Get("/pay/{token}", h.getPayLink)
+		r.Post("/pay/{token}/start", h.startPayment)
+
+		// Публичные настройки для фронтенда: включена ли онлайн-оплата.
+		r.Get("/config", h.publicConfig)
 
 		// Панель суперадмина: только is_platform_admin, остальным (и без входа) — 404.
 		// Только агрегаты по центрам: ученики, родители, операции и журналы центров сюда не попадают.

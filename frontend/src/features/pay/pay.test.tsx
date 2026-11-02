@@ -16,14 +16,25 @@ const link = {
   expires_at: '2026-10-21T10:00:00Z',
 }
 
+// Страница онлайн-оплаты работает только с ONLINE_PAYMENTS_ENABLED (GET /config).
+const online = { 'GET /api/v1/config': { body: { online_payments: true } } }
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.mocked(redirectTo).mockReset()
 })
 
 describe('страница оплаты', () => {
+  it('онлайн-оплата выключена — «не подключена», ссылку даже не запрашиваем', async () => {
+    const { calls } = mockApi({ 'GET /api/v1/config': { body: { online_payments: false } } })
+    renderRoute('/pay/tok')
+    expect(await screen.findByRole('heading', { name: 'Онлайн-оплата не подключена' })).toBeInTheDocument()
+    expect(screen.getByText('Онлайн-оплата не подключена, уточните способ оплаты у администратора центра.')).toBeInTheDocument()
+    expect(calls.some((r) => r.url.includes('/pay/'))).toBe(false)
+  })
+
   it('реквизиты: сумма, ученик, реквизиты и «Скопировать»; без меню и без входа', async () => {
-    const { calls } = mockApi({ 'GET /api/v1/pay/tok': { body: link } })
+    const { calls } = mockApi({ ...online, 'GET /api/v1/pay/tok': { body: link } })
     renderRoute('/pay/tok')
     expect(await screen.findByText('Асанов Бекзат')).toBeInTheDocument()
     expect(screen.getByText(/3\s000\sс/)).toBeInTheDocument()
@@ -34,7 +45,7 @@ describe('страница оплаты', () => {
   })
 
   it('онлайн: «Оплатить онлайн» — переход на страницу банка', async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApi({ ...online,
       'GET /api/v1/pay/tok': { body: { ...link, provider: 'finik', pay_details: undefined } },
       'POST /api/v1/pay/tok/start': { body: { provider: 'finik', amount: 300_000, pay_url: 'https://bank.example/pay/1' } },
     })
@@ -45,7 +56,7 @@ describe('страница оплаты', () => {
   })
 
   it('онлайн-оплата недоступна — понятное сообщение', async () => {
-    mockApi({
+    mockApi({ ...online,
       'GET /api/v1/pay/tok': { body: { ...link, provider: 'finik' } },
       'POST /api/v1/pay/tok/start': apiError(502, 'provider_unavailable', 'down'),
     })
@@ -55,16 +66,16 @@ describe('страница оплаты', () => {
   })
 
   it('оплачено', async () => {
-    mockApi({ 'GET /api/v1/pay/tok': { body: { ...link, status: 'paid' } } })
+    mockApi({ ...online, 'GET /api/v1/pay/tok': { body: { ...link, status: 'paid' } } })
     renderRoute('/pay/tok')
     expect(await screen.findByRole('heading', { name: 'Оплата получена' })).toBeInTheDocument()
   })
 
-  it('404 — ссылка устарела, запросить новую в боте', async () => {
-    mockApi({ 'GET /api/v1/pay/old': apiError(404, 'not_found', 'Не найдено'), 'GET /api/v1/me': unauthorized })
+  it('404 — ссылка устарела, уточнить способ оплаты у администратора', async () => {
+    mockApi({ ...online, 'GET /api/v1/pay/old': apiError(404, 'not_found', 'Не найдено'), 'GET /api/v1/me': unauthorized })
     const { router } = renderRoute('/pay/old')
     expect(await screen.findByRole('heading', { name: 'Ссылка устарела' })).toBeInTheDocument()
-    expect(screen.getByText(/Запросите новую ссылку в боте/)).toBeInTheDocument()
+    expect(screen.getByText(/Уточните способ оплаты у администратора/)).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/pay/old')
   })
 })

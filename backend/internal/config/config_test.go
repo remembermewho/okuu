@@ -118,8 +118,11 @@ func TestLoad(t *testing.T) {
 		{"короткий ключ", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": key16}, true},
 		{"ключ не base64", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ENCRYPTION_KEY": "!!!"}, true},
 		{"неизвестный APP_ENV", map[string]string{"APP_ENV": "staging", "DATABASE_URL": "postgres://x"}, true},
-		{"FINIK_ENABLED=true", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "FINIK_ENABLED": "true"}, false},
+		{"FINIK_ENABLED=true", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "FINIK_ENABLED": "true", "ONLINE_PAYMENTS_ENABLED": "true"}, false},
+		{"FINIK_ENABLED без онлайн-оплаты", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "FINIK_ENABLED": "true"}, true},
 		{"FINIK_ENABLED кривой", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "FINIK_ENABLED": "maybe"}, true},
+		{"ONLINE_PAYMENTS_ENABLED=true", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ONLINE_PAYMENTS_ENABLED": "true"}, false},
+		{"ONLINE_PAYMENTS_ENABLED кривой", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "ONLINE_PAYMENTS_ENABLED": "on"}, true},
 		{"BOT_LANGUAGES=ru,ky", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ru,ky"}, false},
 		{"BOT_LANGUAGES без ru", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ky"}, true},
 		{"BOT_LANGUAGES неизвестный", map[string]string{"APP_ENV": "dev", "DATABASE_URL": "postgres://x", "BOT_LANGUAGES": "ru,en"}, true},
@@ -131,7 +134,7 @@ func TestLoad(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY", "FINIK_ENABLED",
+			for _, k := range append([]string{"APP_ENV", "DATABASE_URL", "HTTP_ADDR", "APP_ORIGIN", "ENCRYPTION_KEY", "FINIK_ENABLED", "ONLINE_PAYMENTS_ENABLED",
 				"FINIK_API_KEY", "TRUSTED_PROXIES", "ALERT_TELEGRAM_CHAT_ID", "BOT_LANGUAGES", "REGISTRATION_MODE", "SUPPORT_WHATSAPP"}, telegramVars...) {
 				t.Setenv(k, tt.env[k])
 			}
@@ -159,6 +162,9 @@ func TestLoad(t *testing.T) {
 			}
 			if cfg.BotLanguages.Multi() != (tt.env["BOT_LANGUAGES"] == "ru,ky") {
 				t.Errorf("BotLanguages = %s (по умолчанию — только ru)", cfg.BotLanguages.List())
+			}
+			if cfg.OnlinePaymentsEnabled != (tt.env["ONLINE_PAYMENTS_ENABLED"] == "true") {
+				t.Errorf("OnlinePaymentsEnabled = %v (по умолчанию — выключена)", cfg.OnlinePaymentsEnabled)
 			}
 			if cfg.FinikEnabled != (tt.env["FINIK_ENABLED"] == "true") {
 				t.Errorf("FinikEnabled = %v", cfg.FinikEnabled)

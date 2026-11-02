@@ -13,7 +13,6 @@ import (
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/notify"
-	"okuu/internal/payments"
 	"okuu/internal/telegram"
 	"okuu/internal/token"
 )
@@ -23,7 +22,9 @@ const (
 	cbConsent = "consent:" // + id приглашения
 	cbLang    = "lang:"    // + ru | ky
 	cbBalance = "balance"
-	cbPay     = "pay:" // + id ученика
+	// cbPay — старые кнопки «💳 Оплатить: <ребёнок>» в уже отправленных напоминаниях (+ id ученика):
+	// теперь отвечают «Как оплатить».
+	cbPay = "pay:"
 )
 
 // maxMessageLen — запас до лимита Telegram в 4096 символов.
@@ -67,8 +68,8 @@ func (b *Bot) onText(ctx context.Context, chatID int64, m *telegram.Message) err
 		return b.start(ctx, chatID, m.From)
 	case "/balance":
 		return b.showBalance(ctx, chatID, "")
-	case "/pay":
-		return b.showPayList(ctx, chatID)
+	case "/pay": // кнопка «Как оплатить»; набранную вручную старую команду /pay понимаем так же
+		return b.showHowToPay(ctx, chatID)
 	case "/attendance":
 		return b.showAttendance(ctx, chatID, "")
 	case "/lang":
@@ -173,55 +174,15 @@ func (b *Bot) onCallback(ctx context.Context, chatID int64, cq *telegram.Callbac
 		return b.showBalance(ctx, chatID, strings.TrimPrefix(cq.Data, cbBal))
 	case strings.HasPrefix(cq.Data, cbAtt):
 		return b.showAttendance(ctx, chatID, strings.TrimPrefix(cq.Data, cbAtt))
-	case cq.Data == cbPayList:
-		return b.showPayList(ctx, chatID)
+	case cq.Data == cbHowToPay, cq.Data == cbPayList, strings.HasPrefix(cq.Data, cbPay):
+		// «Как оплатить»; старые кнопки «Оплатить» из прежних сообщений — туда же, без ошибки.
+		return b.showHowToPay(ctx, chatID)
 	case cq.Data == cbMenu:
 		return b.showMenu(ctx, chatID, &cq.From)
 	case cq.Data == cbHelp:
 		return b.showHelp(ctx, chatID, &cq.From)
-	case strings.HasPrefix(cq.Data, cbPay):
-		id, err := uuid.Parse(strings.TrimPrefix(cq.Data, cbPay))
-		if err != nil {
-			return nil
-		}
-		return b.pay(ctx, chatID, &cq.From, id)
 	}
 	return nil
-}
-
-// pay — «Оплатить» за ребёнка: ссылка оплаты на текущий долг (24 часа). Платить можно только
-// за своих детей: ученик должен быть ребёнком родителя, привязанного к этому чату.
-func (b *Bot) pay(ctx context.Context, chatID int64, from *telegram.User, studentID uuid.UUID) error {
-	st, err := b.q.GetChatStudent(ctx, sqlc.GetChatStudentParams{StudentID: studentID, ChatID: &chatID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		tx, err := b.texts(ctx, chatID, from)
-		if err != nil {
-			return err
-		}
-		return b.send(ctx, chatID, tx.NotLinked, nil)
-	}
-	if err != nil {
-		return err
-	}
-	tx := b.langs.For(st.Lang)
-	if b.payments == nil {
-		return b.send(ctx, chatID, tx.PayUnavailable, nil)
-	}
-	link, err := b.payments.CreateLink(ctx, st.CenterID, st.ID)
-	switch {
-	case errors.Is(err, payments.ErrNoDebt):
-		return b.send(ctx, chatID, tx.PayNoDebt(st.CenterName, st.FullName), &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{backRow(tx)}})
-	case err != nil:
-		b.logger.Error("telegram: ссылка оплаты не создана", "err", err)
-		return b.send(ctx, chatID, tx.PayUnavailable, nil)
-	}
-	kb := &telegram.InlineKeyboardMarkup{}
-	// Кнопка-ссылка только на https: Telegram не принимает в кнопках http и localhost (dev).
-	if strings.HasPrefix(link.URL, "https://") {
-		kb.InlineKeyboard = append(kb.InlineKeyboard, []telegram.InlineKeyboardButton{{Text: tx.PayLinkButton, URL: link.URL}})
-	}
-	kb.InlineKeyboard = append(kb.InlineKeyboard, backRow(tx))
-	return b.send(ctx, chatID, tx.PayLink(st.CenterName, st.FullName, link.Amount, link.URL), kb)
 }
 
 // consent — «Согласен»: запомнить согласие и попросить номер телефона.
@@ -484,27 +445,8 @@ func contactKeyboard(tx *notify.Texts) *telegram.ReplyKeyboardMarkup {
 	}
 }
 
-// PayChild — ребёнок с долгом: для него кнопка «Оплатить».
-type PayChild struct {
-	StudentID uuid.UUID
-	Name      string // ФИО — на кнопке целиком
-	Debt      int64
-}
-
-// DebtKeyboard — по кнопке «Оплатить» на каждого ребёнка с долгом и «Баланс и посещения».
-func DebtKeyboard(tx *notify.Texts, kids []PayChild) *telegram.InlineKeyboardMarkup {
-	kb := BalanceKeyboard(tx)
-	var rows [][]telegram.InlineKeyboardButton
-	for _, k := range kids {
-		if k.Debt > 0 {
-			rows = append(rows, []telegram.InlineKeyboardButton{{Text: tx.PayButton(k.Name, k.Debt), CallbackData: cbPay + k.StudentID.String()}})
-		}
-	}
-	kb.InlineKeyboard = append(rows, kb.InlineKeyboard...)
-	return kb
-}
-
-// BalanceKeyboard — кнопка «Баланс и посещения» (нажатие обрабатывает бот); её же ставят напоминания.
+// BalanceKeyboard — кнопка «Баланс и посещения» (нажатие обрабатывает бот); её же ставят напоминания о долге —
+// кнопок оплаты в них нет: родитель платит по реквизитам из текста и отправляет чек администратору.
 func BalanceKeyboard(tx *notify.Texts) *telegram.InlineKeyboardMarkup {
 	return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
 		{{Text: tx.BalanceButton, CallbackData: cbBalance}},

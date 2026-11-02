@@ -23,7 +23,7 @@ func balanceRU(t int64) string {
 
 // ruCommands — подсказка по командам; withLang — есть ли /lang (BOT_LANGUAGES с кыргызским).
 func ruCommands(withLang bool) string {
-	s := "Баланс — /balance\nОплатить — /pay\nПосещения — /attendance\n"
+	s := "Баланс — /balance\nПосещения — /attendance\nКак оплатить — кнопка «💳 Как оплатить» внизу\n"
 	if withLang {
 		s += "Язык — /lang\n"
 	}
@@ -33,7 +33,7 @@ func ruCommands(withLang bool) string {
 func ruLinked(withLang bool) func(center string, children []string) string {
 	return func(center string, children []string) string {
 		return fmt.Sprintf("Готово! Вы подключены к центру «%s». Сюда будут приходить напоминания об оплате: %s.\n\n"+
-			"Кнопки внизу — баланс, оплата и посещения.\n%s", center, strings.Join(children, ", "), ruCommands(withLang))
+			"Кнопки внизу — баланс, как оплатить и посещения.\n%s", center, strings.Join(children, ", "), ruCommands(withLang))
 	}
 }
 
@@ -44,11 +44,12 @@ func ruWelcome(withLang bool) func(centers []string) string {
 }
 
 func ruHelp(withLang bool) string {
-	s := "Команды:\n/balance — баланс и абонемент\n/pay — оплатить\n/attendance — посещения за месяц\n"
+	s := "Команды:\n/balance — баланс и абонемент\n/attendance — посещения за месяц\n"
 	if withLang {
 		s += "/lang — язык\n"
 	}
 	return s + "/stop — отключить уведомления\n/start — включить снова\n/help — помощь\n\n" +
+		"«💳 Как оплатить» — реквизиты центра и куда отправить чек.\n" +
 		"Подключить ещё один центр — откройте его ссылку-приглашение."
 }
 
@@ -97,15 +98,13 @@ var ru = &Texts{
 	BalanceButton: "Баланс и посещения",
 
 	MenuBalance:    "💰 Баланс",
-	MenuPay:        "💳 Оплатить",
+	MenuHowToPay:   "💳 Как оплатить",
 	MenuAttendance: "📅 Посещения",
 	MenuHelp:       "❓ Помощь",
 	MenuPrompt:     "Что показать?",
 	MenuBack:       "« Меню",
 	ChooseChild:    "Выберите ребёнка:",
 	AllChildren:    "Все дети",
-	PayChoose:      "За кого оплатить? Нажмите кнопку — бот пришлёт ссылку на оплату.",
-	PayNothing:     "Долгов нет — оплачивать нечего. 👍",
 	AttendanceHeader: func(month int) string {
 		return "Посещения в " + monthsRU[month-1] + ":"
 	},
@@ -148,20 +147,10 @@ var ru = &Texts{
 		return s
 	},
 	ReminderTotal:  func(total int64) string { return "Итого: " + Som(total) + " сом" },
-	PayDetails:     func(details string) string { return "Реквизиты для оплаты:\n" + details },
 	ReminderFooter: "Если вы уже оплатили, не обращайте внимания: администратор отметит оплату, и бот пришлёт подтверждение.",
 
-	PayButton: func(name string, debt int64) string {
-		return "💳 Оплатить: " + name + " — " + Som(debt) + " сом"
-	},
-	PayLink: func(center, child string, amount int64, url string) string {
-		return fmt.Sprintf("🏫 Центр «%s»: оплата за %s — %s сом.\nСсылка на оплату действует 24 часа:\n%s", center, child, Som(amount), url)
-	},
-	PayLinkButton: "Перейти к оплате",
-	PayNoDebt: func(center, child string) string {
-		return fmt.Sprintf("🏫 Центр «%s»: %s — долга нет, оплачивать нечего.", center, child)
-	},
-	PayUnavailable: "Не получилось подготовить оплату. Попробуйте позже или обратитесь в центр.",
+	HowToPayHeader:    "Как оплатить:",
+	PayDetailsMissing: "Уточните способ оплаты у администратора центра.",
 
 	Paid: func(center, child string, amount, balance int64) string {
 		return fmt.Sprintf("🏫 Центр «%s»: спасибо, оплата получена — %s сом (%s).\n%s", center, Som(amount), child, balanceRU(balance))

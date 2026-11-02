@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,9 +19,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"okuu/internal/httpapi"
 	"okuu/internal/notify"
 	"okuu/internal/payments"
-	"okuu/internal/telegram/telegramtest"
 	"okuu/internal/token"
 )
 
@@ -118,19 +119,20 @@ type payStartResp struct {
 	PayDetails *string `json:"pay_details"`
 }
 
-// pressPay — родитель нажимает «Оплатить» за ребёнка; возвращает токен из ссылки.
-func pressPay(t *testing.T, u *tgUser, sid uuid.UUID) string {
+// newPayLink — ссылка оплаты на долг ученика (онлайн-оплата, ONLINE_PAYMENTS_ENABLED=true). Бот её больше не
+// выдаёт — оплата пока ручная; код ссылок остаётся для Finik. Возвращает токен из ссылки.
+func newPayLink(t *testing.T, env *botEnv, centerID, sid uuid.UUID) string {
 	t.Helper()
-	m := one(t, u.press(underMessage, "pay:"+sid.String()))
-	_, tok, ok := strings.Cut(m.Text, testOrigin+"/pay/")
-	if !ok {
-		t.Fatalf("в ответе нет ссылки оплаты: %q", m.Text)
+	link, err := env.pay.CreateLink(context.Background(), centerID, sid)
+	if err != nil {
+		t.Fatalf("ссылка оплаты: %v", err)
 	}
-	return strings.TrimSpace(tok)
+	tok, ok := strings.CutPrefix(link.URL, testOrigin+"/pay/")
+	if !ok {
+		t.Fatalf("ссылка оплаты: %q", link.URL)
+	}
+	return tok
 }
-
-// underMessage — сообщение бота, под которым нажата кнопка «Оплатить» (для ответа важен только чат).
-var underMessage = telegramtest.Call{MessageID: 1}
 
 func payPage(c *client, tok string) *httptest.ResponseRecorder {
 	return c.do(http.MethodGet, "/api/v1/pay/"+tok, nil)
@@ -166,34 +168,17 @@ func ledgerPayments(t *testing.T, api *testAPI, sid uuid.UUID) []paymentRow {
 	return out
 }
 
-// Кнопка «Оплатить» в боте → ссылка на долг ребёнка → публичная страница без лишних данных.
-func TestPayFromBotManual(t *testing.T) {
+// Ссылка оплаты на долг ребёнка → публичная страница без лишних данных (онлайн-оплата включена).
+func TestPayLinkManual(t *testing.T) {
 	env := newBotEnv(t)
 	atBishkek(env.api, 10, 0)
 	c := newCatalogOn(t, env.api, "+996708300001")
 	c.patchSettings(t, map[string]any{"pay_details": "MBank: 0700 000 000"})
 	s1 := c.debtor(t, "Асанов Бакыт", "0708 300 101")
-	s2 := c.debtor(t, "Асанова Айпери", "0708 300 101")
+	c.debtor(t, "Асанова Айпери", "0708 300 101")
 	paid := c.student(t, "Асанов Без Долга", "0708 300 101", nil)
-	foreign := c.debtor(t, "Чужой Ребёнок", "0708 300 999")
-	u := env.user(t, 8300101)
-	linkDirect(t, env.api, s1.Parent.ID, u.id)
 
-	// /pay: по кнопке «Оплатить» на каждого ребёнка с долгом и «« Меню».
-	bal := one(t, u.send("/pay"))
-	want := fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s 💳 Оплатить: Асанова Айпери — 3 000 сом|pay:%s « Меню|menu]", s1.ID, s2.ID)
-	if fmt.Sprint(bal.Buttons()) != want {
-		t.Errorf("кнопки /pay:\n%v\nwant\n%s", bal.Buttons(), want)
-	}
-
-	tok := pressPay(t, u, s1.ID)
-	m := env.tg.Last(u.id)
-	if !strings.Contains(m.Text, "оплата за Асанов Бакыт — 3 000 сом") || !strings.Contains(m.Text, "24 часа") {
-		t.Errorf("ответ на «Оплатить»: %q", m.Text)
-	}
-	if fmt.Sprint(m.Buttons()) != "[« Меню|menu]" {
-		t.Errorf("на http (dev) кнопки-ссылки быть не должно: %v", m.Buttons())
-	}
+	tok := newPayLink(t, env, c.center, s1.ID)
 	var stored, provider string
 	var amount int64
 	var expires time.Time
@@ -255,12 +240,9 @@ func TestPayFromBotManual(t *testing.T) {
 		t.Errorf("reconcile: %+v %v", res, err)
 	}
 
-	// Без долга — оплачивать нечего; чужой ребёнок — не наш чат, ссылки нет.
-	if m := one(t, u.press(underMessage, "pay:"+paid.ID.String())); !strings.Contains(m.Text, "долга нет") {
-		t.Errorf("без долга: %q", m.Text)
-	}
-	if m := one(t, u.press(underMessage, "pay:"+foreign.ID.String())); m.Text != notify.For("ru").NotLinked {
-		t.Errorf("чужой ребёнок: %q", m.Text)
+	// Без долга — ссылки нет.
+	if _, err := env.pay.CreateLink(context.Background(), c.center, paid.ID); !errors.Is(err, payments.ErrNoDebt) {
+		t.Errorf("без долга: %v", err)
 	}
 	var links int
 	if err := env.api.pool.QueryRow(context.Background(), `SELECT count(*) FROM payment_links`).Scan(&links); err != nil || links != 1 {
@@ -279,7 +261,7 @@ func TestPayOnlineWebhook(t *testing.T) {
 	s := c.debtor(t, "Осмонова Мээрим", "0708 400 101")
 	u := env.user(t, 8400101)
 	linkDirect(t, env.api, s.Parent.ID, u.id)
-	tok := pressPay(t, u, s.ID)
+	tok := newPayLink(t, env, c.center, s.ID)
 	anon := env.api.client(t, "10.9.0.2")
 
 	if p := decode[payPageResp](t, payPage(anon, tok)); p.Provider != "finik" || p.PayDetails != nil {
@@ -340,7 +322,7 @@ func TestPayOnlineWebhook(t *testing.T) {
 
 	// Сумма не совпала — записываем как пришла, предупреждение в журнале.
 	c.mustOp(t, s.ID, map[string]any{"kind": "correction", "amount": -100_000, "comment": "доп. занятие"})
-	tok2 := pressPay(t, u, s.ID)
+	tok2 := newPayLink(t, env, c.center, s.ID)
 	payStart(anon, tok2)
 	if rec := env.webhook(t, fakeWebhook{"fake-2", "paid", 70_000}, false); rec.Code != http.StatusOK {
 		t.Fatalf("вебхук: %d %s", rec.Code, rec.Body)
@@ -373,12 +355,10 @@ func TestPayReconcile(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := c.debtor(t, "Исаков Нурбек", "0708 500 101")
-	u := env.user(t, 8500101)
-	linkDirect(t, env.api, s.Parent.ID, u.id)
 	anon := env.api.client(t, "10.9.0.3")
-	tok := pressPay(t, u, s.ID)
-	payStart(anon, tok)  // fake-1
-	pressPay(t, u, s.ID) // вторая ссылка — платёж не начат
+	tok := newPayLink(t, env, c.center, s.ID)
+	payStart(anon, tok)                // fake-1
+	newPayLink(t, env, c.center, s.ID) // вторая ссылка — платёж не начат
 
 	res, err := env.pay.Reconcile(context.Background())
 	if err != nil || res.Checked != 1 || res.Paid != 0 || res.Expired != 0 {
@@ -411,6 +391,40 @@ func TestPayReconcile(t *testing.T) {
 	// Повторная сверка ничего не меняет.
 	if res, _ := env.pay.Reconcile(context.Background()); res.Paid != 0 || res.Expired != 0 {
 		t.Errorf("повтор: %+v", res)
+	}
+}
+
+// ONLINE_PAYMENTS_ENABLED=false (Payments == nil): любая ссылка — тот же 404, что неизвестная, даже настоящая;
+// вебхука нет; /config сообщает фронтенду, что онлайн-оплаты нет.
+func TestOnlinePaymentsDisabled(t *testing.T) {
+	api := newTestAPIWith(t, func(_ *testAPI, d *httpapi.Deps) { d.Payments = nil })
+	c := newCatalogOn(t, api, "+996708600001")
+	s := c.debtor(t, "Касымов Тимур", "0708 600 101")
+	// Ссылка, созданная раньше (когда оплата была включена), — тоже не работает.
+	link, err := payments.NewService(payments.Options{Pool: api.pool, AppOrigin: testOrigin, Now: api.clock.Now}).CreateLink(context.Background(), c.center, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := strings.TrimPrefix(link.URL, testOrigin+"/pay/")
+	unknown, _ := token.New()
+	anon := api.client(t, "10.9.2.1")
+	want := payPage(anon, unknown)
+	assertError(t, want, http.StatusNotFound, "not_found")
+	if got := payPage(anon, real); got.Code != http.StatusNotFound || got.Body.String() != want.Body.String() {
+		t.Errorf("настоящая ссылка при выключенной оплате: %d %s", got.Code, got.Body)
+	}
+	assertError(t, payStart(anon, real), http.StatusNotFound, "not_found")
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/finik", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	api.h.ServeHTTP(w, req)
+	assertError(t, w, http.StatusNotFound, "not_found")
+
+	if cfg := decode[map[string]bool](t, anon.do(http.MethodGet, "/api/v1/config", nil)); cfg["online_payments"] {
+		t.Errorf("config: %v", cfg)
+	}
+	if cfg := decode[map[string]bool](t, newTestAPI(t).client(t, "10.9.2.2").do(http.MethodGet, "/api/v1/config", nil)); !cfg["online_payments"] {
+		t.Errorf("config при включённой оплате: %v", cfg)
 	}
 }
 

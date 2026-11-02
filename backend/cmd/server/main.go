@@ -232,14 +232,22 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		tgBot  *bot.Bot
 		sender *telegram.Sender // nil — Telegram выключен: напоминания не отправляются
 	)
-	// Оплата родителем: по умолчанию — реквизиты центра; Finik — за флагом (пока заглушка).
-	var online payments.Provider
-	if cfg.FinikEnabled {
-		online = finik.New(cfg.FinikAPIKey.Reveal())
-		logger.Warn("FINIK_ENABLED: провайдер Finik — заглушка, онлайн-оплата пока не работает")
+	// Оплата родителем — вручную: реквизиты центра в напоминании, администратор отмечает оплату.
+	// Онлайн-оплата по ссылке — только с ONLINE_PAYMENTS_ENABLED (выключена: /pay/{токен} — 404, сверки и
+	// вебхука нет); Finik — ещё и за FINIK_ENABLED (пока заглушка).
+	var paymentsSvc *payments.Service
+	if cfg.OnlinePaymentsEnabled {
+		var online payments.Provider
+		if cfg.FinikEnabled {
+			online = finik.New(cfg.FinikAPIKey.Reveal())
+			logger.Warn("FINIK_ENABLED: провайдер Finik — заглушка, онлайн-оплата пока не работает")
+		}
+		paymentsSvc = payments.NewService(payments.Options{Pool: pool, Online: online, AppOrigin: cfg.AppOrigin, Now: time.Now, Logger: logger})
+		deps.Payments = paymentsSvc
+		logger.Info("онлайн-оплата по ссылке включена (ONLINE_PAYMENTS_ENABLED)")
+	} else {
+		logger.Info("онлайн-оплата выключена: родители платят по реквизитам, оплату отмечает администратор")
 	}
-	paymentsSvc := payments.NewService(payments.Options{Pool: pool, Online: online, AppOrigin: cfg.AppOrigin, Now: time.Now, Logger: logger})
-	deps.Payments = paymentsSvc
 
 	if cfg.Telegram.Mode != config.TelegramOff {
 		tgAPI = telegram.NewClient(cfg.Telegram.Token.Reveal(), telegram.ClientOptions{})
@@ -253,7 +261,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 	alerter := alerts.New(alerts.Options{Sender: alertSender, ChatID: cfg.AlertChatID, Env: cfg.Env, Logger: logger})
 	deps.Alerts = alerter
 	if cfg.Telegram.Mode != config.TelegramOff {
-		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Payments: paymentsSvc, Alerts: alerter, Langs: cfg.BotLanguages})
+		tgBot = bot.New(bot.Options{Pool: pool, Sender: sender, Now: time.Now, Logger: logger, Alerts: alerter, Langs: cfg.BotLanguages})
 		if cfg.Telegram.Mode == config.TelegramWebhook {
 			deps.Bot = tgBot
 			deps.TelegramWebhookSecret = cfg.Telegram.WebhookSecret.Reveal()
@@ -307,10 +315,12 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 
 	// billing.monthly и reminders.auto раз в час (и сразу при старте).
 	start(func() { scheduler.Run(stopCtx, workCtx) })
-	// payments.reconcile раз в 15 минут: потерянные вебхуки, истёкшие ссылки.
-	start(func() {
-		jobs.RunReconcile(stopCtx, workCtx, pool, logger, alerter, paymentsSvc, jobs.ReconcileInterval)
-	})
+	// payments.reconcile раз в 15 минут: потерянные вебхуки, истёкшие ссылки — только с онлайн-оплатой.
+	if paymentsSvc != nil {
+		start(func() {
+			jobs.RunReconcile(stopCtx, workCtx, pool, logger, alerter, paymentsSvc, jobs.ReconcileInterval)
+		})
+	}
 	// Алерты по журналу: discount_capped, payment.amount_mismatch.
 	start(func() { alerter.WatchAudit(stopCtx, pool, time.Minute) })
 

@@ -125,6 +125,26 @@
   gap: 6px;
 }
 
+/* Строка должника: имя и сумма — сверху, «Отметить оплату» и «Напомнить» — полосой под ними. */
+.debtorRow {
+  flex-wrap: wrap;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-basis: 100%;
+}
+
+/* На телефоне кнопки делят ширину поровну — крупные цели для пальца. */
+@media (max-width: 599px) {
+  .rowActions > * {
+    flex: 1 1 0;
+  }
+}
+
 .dueIn {
   color: var(--text);
   font-size: var(--fs-sm);

@@ -109,15 +109,17 @@ func TestSeedPicture(t *testing.T) {
 	}
 }
 
-// Макет чата на лендинге — настоящее напоминание: оба ребёнка, итог, реквизиты, кнопки оплаты.
+// Макет чата на лендинге — настоящее напоминание: оба ребёнка, итог, «Как оплатить» с реквизитами демо;
+// кнопок оплаты нет — только «Баланс и посещения».
 func TestSampleReminder(t *testing.T) {
 	m := demo.SampleReminder(civil.New(2026, time.October, 22))
-	for _, want := range []string{"Центр «Пример»: 25.10 — срок оплаты", "Попов Матвей — 3 150 сом", "Итого: 6 300 сом", demo.PayDetails} {
+	for _, want := range []string{"Центр «Пример»: 25.10 — срок оплаты", "Попов Матвей — 3 150 сом", "Итого: 6 300 сом",
+		"Как оплатить:\n" + demo.PayDetails, "отправьте чек"} {
 		if !strings.Contains(m.Text, want) {
 			t.Errorf("нет %q в:\n%s", want, m.Text)
 		}
 	}
-	if len(m.Buttons) != 3 || !strings.Contains(m.Buttons[0], "Попов Матвей") {
+	if len(m.Buttons) != 1 || m.Buttons[0] != "Баланс и посещения" {
 		t.Errorf("кнопки: %q", m.Buttons)
 	}
 }

@@ -407,6 +407,28 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
   # ---------------------------------------------------------------- pay (public)
+  /api/v1/config:
+    get:
+      tags: [pay]
+      operationId: publicConfig
+      summary: Что включено на сервере
+      security: []
+      description: |
+        **Без входа.** `online_payments` — онлайн-оплата по ссылке (`ONLINE_PAYMENTS_ENABLED`). Выключена —
+        фронтенд не показывает ничего про онлайн-оплату, а страница `/pay/:token` пишет «Онлайн-оплата
+        не подключена, уточните способ оплаты у администратора».
+      responses:
+        '200':
+          description: Настройки
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [online_payments]
+                additionalProperties: false
+                properties:
+                  online_payments: { type: boolean }
+
   /api/v1/pay/{token}:
     parameters:
       - $ref: '#/components/parameters/Token'
@@ -416,8 +438,10 @@ paths:
       summary: Страница оплаты родителя
       security: []
       description: |
-        **Без входа.** Ссылка — из бота (кнопка «Оплатить»), на одного ученика, на сумму его долга,
-        действует 24 часа. Без телефонов и данных родителя. Лимит — 30 запросов в минуту с IP.
+        **Без входа.** Онлайн-оплата по ссылке — только при `ONLINE_PAYMENTS_ENABLED=true` (см. `GET /config`);
+        выключена (по умолчанию: оплата ручная, по реквизитам из настроек центра) — любая ссылка отвечает
+        `404 not_found`, как неизвестная. Ссылка — на одного ученика, на сумму его долга, действует 24 часа.
+        Без телефонов и данных родителя. Лимит — 30 запросов в минуту с IP.
       responses:
         '200':
           description: Ссылка действует (или уже оплачена — `status = paid`)

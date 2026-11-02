@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"okuu/internal/httpx"
+	"okuu/internal/payments"
 )
 
 // Публичная страница оплаты (B2): без входа, по токену из ссылки. Без телефонов, родителя и id.
@@ -49,9 +50,23 @@ func (h *handlers) payLimited(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// getPayLink — GET /api/v1/pay/{token}. Неизвестная и истёкшая ссылка — одинаково 404.
+// configDTO — GET /config: что включено на сервере (для экранов, которые от этого зависят).
+type configDTO struct {
+	OnlinePayments bool `json:"online_payments"` // ONLINE_PAYMENTS_ENABLED: оплата по ссылке и Finik
+}
+
+func (h *handlers) publicConfig(w http.ResponseWriter, r *http.Request) {
+	httpx.JSON(w, http.StatusOK, configDTO{OnlinePayments: h.payments != nil})
+}
+
+// getPayLink — GET /api/v1/pay/{token}. Неизвестная и истёкшая ссылка — одинаково 404; онлайн-оплата
+// выключена (ONLINE_PAYMENTS_ENABLED=false) — тот же 404 на любую ссылку.
 func (h *handlers) getPayLink(w http.ResponseWriter, r *http.Request) {
 	if h.payLimited(w, r) {
+		return
+	}
+	if h.payments == nil {
+		h.fail(w, r, payments.ErrNotFound)
 		return
 	}
 	l, err := h.payments.Get(r.Context(), chi.URLParam(r, "token"))
@@ -68,6 +83,10 @@ func (h *handlers) getPayLink(w http.ResponseWriter, r *http.Request) {
 // startPayment — POST /api/v1/pay/{token}/start: ссылка банка / QR или реквизиты.
 func (h *handlers) startPayment(w http.ResponseWriter, r *http.Request) {
 	if h.payLimited(w, r) {
+		return
+	}
+	if h.payments == nil {
+		h.fail(w, r, payments.ErrNotFound)
 		return
 	}
 	s, err := h.payments.Start(r.Context(), chi.URLParam(r, "token"))

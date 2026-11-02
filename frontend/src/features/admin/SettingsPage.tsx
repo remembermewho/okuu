@@ -5,6 +5,7 @@ import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import type { Schemas } from '@/api/client'
 import { useCenter } from '@/app/center'
+import { useOnlinePayments } from '@/app/config'
 import { can } from '@/app/permissions'
 import { Badge, Button, Card, CardHeader, Checkbox, ErrorState, FormError, Input, PageHeader, Select, SkeletonList, Textarea, layout, useToast } from '@/components/ui'
 import { isValidPhone, normalizePhone } from '@/utils/phone'
@@ -12,9 +13,34 @@ import { ru } from '@/i18n/ru'
 import { formatDate } from '@/utils/date'
 import { applyFieldError, errorMessage } from '@/utils/errors'
 import { usePatchSettings, useSettings, type Settings } from './api'
+import { PayDetailsBanner } from './PayDetailsBanner'
 import s from './Settings.module.css'
 
 const TIMEZONES = ['Asia/Bishkek', 'Asia/Almaty', 'Asia/Tashkent', 'Asia/Dushanbe', 'Europe/Moscow']
+
+/** Лимит реквизитов — как на сервере (pay_details до 1000 символов). */
+const PAY_DETAILS_MAX = 1000
+
+/**
+ * «Так увидит родитель в Telegram»: напоминание о долге с этими реквизитами — тот же порядок строк, что у бота
+ * (notify.DebtReminder: заголовок, ребёнок, «Как оплатить:» и текст как есть, фраза про чек), кнопка «Баланс и посещения».
+ */
+export function PayPreview({ center, details }: { center: string; details: string }) {
+  const p = ru.settings.preview
+  const text = [p.header(center), '', p.child, '', p.howToPay, details.replace(/\r\n/g, '\n').trim() || p.missing, '', p.footer].join('\n')
+  return (
+    <figure className={s.preview} aria-label={ru.settings.previewTitle}>
+      <figcaption className={s.previewTitle}>{ru.settings.previewTitle}</figcaption>
+      <div className={s.chat}>
+        <div className={s.bubble} data-testid="pay-preview">
+          {text}
+        </div>
+        <span className={s.chatButton}>{p.button}</span>
+      </div>
+      <p className={s.previewNote}>{ru.settings.previewNote}</p>
+    </figure>
+  )
+}
 
 const intIn = (min: number, max: number) =>
   z
@@ -35,7 +61,7 @@ const schema = z.object({
   reminders_on: z.boolean(),
   overdue_repeat: z.enum(['weekly', 'off']),
   notify_absent: z.boolean(),
-  pay_details: z.string().max(1000, ru.errors.tooLong(1000)),
+  pay_details: z.string().max(PAY_DETAILS_MAX, ru.errors.tooLong(PAY_DETAILS_MAX)),
 })
 type Values = z.infer<typeof schema>
 
@@ -88,6 +114,7 @@ export function SettingsPage() {
 
 function SettingsForm({ settings }: { settings: Settings }) {
   const c = useCenter()
+  const online = useOnlinePayments() // без онлайн-оплаты (ONLINE_PAYMENTS_ENABLED) про Finik не говорим
   const readOnly = !can.manageStaff(c.role)
   const patch = usePatchSettings(c.id)
   const toast = useToast()
@@ -102,6 +129,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
   } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: initial })
   const billingDay = useWatch({ control, name: 'billing_day' })
   const remindersOn = useWatch({ control, name: 'reminders_on' })
+  const payDetails = useWatch({ control, name: 'pay_details' }) ?? ''
+  const centerName = useWatch({ control, name: 'name' }) ?? ''
   const billingChanged = billingDay !== initial.billing_day
 
   const onSubmit = handleSubmit((v) => {
@@ -180,13 +209,31 @@ function SettingsForm({ settings }: { settings: Settings }) {
 
           <Card className={s.wide}>
             <CardHeader title={ru.settings.payment} />
-            <div className={layout.stack}>
-              <p className={s.finik}>
-                {ru.settings.finik}
-                {': '}
-                <Badge tone={settings.finik_connected ? 'success' : 'neutral'}>{settings.finik_connected ? ru.settings.finikOn : ru.settings.finikOff}</Badge>
-              </p>
-              <Textarea label={ru.settings.payDetails} hint={ru.settings.payDetailsHint} optional rows={4} error={errors.pay_details?.message} {...register('pay_details')} />
+            <PayDetailsBanner withLink={false} />
+            <div className={s.payGrid}>
+              <div className={layout.stackSm}>
+                {online && (
+                  <p className={s.finik}>
+                    {ru.settings.finik}
+                    {': '}
+                    <Badge tone={settings.finik_connected ? 'success' : 'neutral'}>{settings.finik_connected ? ru.settings.finikOn : ru.settings.finikOff}</Badge>
+                  </p>
+                )}
+                <Textarea
+                  label={ru.settings.payDetails}
+                  hint={ru.settings.payDetailsHint}
+                  placeholder={ru.settings.payDetailsPlaceholder}
+                  optional
+                  rows={5}
+                  maxLength={PAY_DETAILS_MAX}
+                  error={errors.pay_details?.message}
+                  {...register('pay_details')}
+                />
+                <p className={s.counter} aria-live="polite">
+                  {ru.settings.payDetailsCounter(payDetails.length, PAY_DETAILS_MAX)}
+                </p>
+              </div>
+              <PayPreview center={centerName.trim() || settings.name} details={payDetails} />
             </div>
           </Card>
         </div>

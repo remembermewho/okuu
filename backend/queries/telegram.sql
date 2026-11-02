@@ -63,7 +63,7 @@ RETURNING *;
 
 -- name: ListChatParents :many
 -- Родители, привязанные к чату, во всех центрах.
-SELECT p.id, p.center_id, p.name, p.lang, p.tg_status, c.name AS center_name, c.timezone
+SELECT p.id, p.center_id, p.name, p.lang, p.tg_status, c.name AS center_name, c.timezone, c.pay_details
 FROM parents p
 JOIN centers c ON c.id = p.center_id
 WHERE p.telegram_chat_id = @chat_id AND p.tg_status <> 'none'

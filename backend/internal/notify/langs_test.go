@@ -46,8 +46,9 @@ func TestLangsFor(t *testing.T) {
 		if strings.Contains(s, "/lang") {
 			t.Errorf("только ru: %s упоминает /lang: %s", name, s)
 		}
-		if !strings.Contains(s, "/pay") || !strings.Contains(s, "/attendance") {
-			t.Errorf("только ru: %s без /pay и /attendance: %s", name, s)
+		// Оплаты в боте нет: вместо /pay — кнопка «Как оплатить».
+		if strings.Contains(s, "/pay") || !strings.Contains(s, "Как оплатить") || !strings.Contains(s, "/attendance") {
+			t.Errorf("только ru: %s: нужны «Как оплатить» и /attendance, без /pay: %s", name, s)
 		}
 	}
 	both := MustLangs("ru,ky")

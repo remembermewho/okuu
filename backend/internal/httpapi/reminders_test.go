@@ -165,7 +165,11 @@ func TestRemindersAutoKindsAndTiming(t *testing.T) {
 		if m.Text != wantText {
 			t.Errorf("день %d:\n%s\nwant:\n%s", day, m.Text, wantText)
 		}
-		if b := m.Buttons(); fmt.Sprint(b) != fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s Баланс и посещения|balance]", s.ID) {
+		// Реквизиты — под «Как оплатить:» как есть; кнопок оплаты нет, только «Баланс и посещения».
+		if !strings.Contains(m.Text, "Как оплатить:\nMBank: 0700 000 000 (Айгуль А.)\n\nЕсли вы уже оплатили") || strings.Contains(m.Text, "Реквизиты") {
+			t.Errorf("день %d: «Как оплатить»:\n%s", day, m.Text)
+		}
+		if b := m.Buttons(); fmt.Sprint(b) != "[Баланс и посещения|balance]" {
 			t.Errorf("кнопки: %v", b)
 		}
 		rows := notificationsOf(t, env.api, s.Parent.ID)
@@ -529,10 +533,15 @@ func TestRemindersManual(t *testing.T) {
 		t.Fatalf("первый раз: %+v", r)
 	}
 	m := one(t, env.tg.Messages(chat))
-	for _, want := range []string{"напоминание об оплате", "Алиев Азамат — 3 000 сом", "Алиева Айжан — 3 000 сом", "Итого: 6 000 сом", "оплатить до"} {
+	// Реквизиты в центре не заданы — «Как оплатить: уточните у администратора»; кнопок оплаты нет.
+	for _, want := range []string{"напоминание об оплате", "Алиев Азамат — 3 000 сом", "Алиева Айжан — 3 000 сом", "Итого: 6 000 сом", "оплатить до",
+		"Как оплатить:\nУточните способ оплаты у администратора центра.", "Если вы уже оплатили"} {
 		if !strings.Contains(m.Text, want) {
 			t.Errorf("сообщение без %q:\n%s", want, m.Text)
 		}
+	}
+	if b := m.Buttons(); fmt.Sprint(b) != "[Баланс и посещения|balance]" {
+		t.Errorf("кнопки ручного напоминания: %v", b)
 	}
 	rows := notificationsOf(t, env.api, s1.Parent.ID)
 	if len(rows) != 1 || rows[0].Kind != "manual" || rows[0].CreatedBy == nil || rows[0].Key != nil || len(rows[0].Students) != 2 {

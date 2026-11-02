@@ -47,6 +47,9 @@ const env = {
   TELEGRAM_BOT_USERNAME: 'okuu_e2e_bot',
   ALERT_TELEGRAM_CHAT_ID: '',
   FINIK_ENABLED: 'false',
+  ONLINE_PAYMENTS_ENABLED: 'false', // оплата ручная: /pay/<токен> — «онлайн-оплата не подключена»
+  // Сценарии регистрируют центры через форму — свободная регистрация, что бы ни стояло в локальном .env.
+  REGISTRATION_MODE: 'open',
 }
 if (process.env.E2E_DEMO_PHONE) {
   const demo = ['demo', 'seed', `--phone=${process.env.E2E_DEMO_PHONE}`, `--password=${process.env.E2E_DEMO_PASSWORD ?? ''}`]

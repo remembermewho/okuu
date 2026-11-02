@@ -75,7 +75,7 @@ func newBotEnv(t *testing.T, langs ...notify.Langs) *botEnv {
 		env.provider = newFakeProvider()
 		env.pay = payments.NewService(payments.Options{Pool: api.pool, Online: env.provider, AppOrigin: testOrigin, Now: api.clock.Now, Logger: logger})
 		d.Payments = env.pay
-		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger, Payments: env.pay, Langs: l})
+		env.bot = bot.New(bot.Options{Pool: api.pool, Sender: sender, Now: api.clock.Now, Logger: logger, Langs: l})
 		env.rem = reminders.NewService(api.pool, sender, api.clock.Now, logger).WithLangs(l)
 		d.Reminders = env.rem
 		d.Bot = env.bot
@@ -270,7 +270,7 @@ func TestBotLinkFullScenario(t *testing.T) {
 		}
 	}
 	// Кнопку «Поделиться номером» сменяет постоянная клавиатура-меню.
-	if got := fmt.Sprint(linked.Buttons()); got != "[💰 Баланс|contact=false 💳 Оплатить|contact=false 📅 Посещения|contact=false ❓ Помощь|contact=false]" ||
+	if got := fmt.Sprint(linked.Buttons()); got != "[💰 Баланс|contact=false 💳 Как оплатить|contact=false 📅 Посещения|contact=false ❓ Помощь|contact=false]" ||
 		!strings.Contains(string(linked.Markup), `"is_persistent":true`) {
 		t.Errorf("клавиатура после привязки: %s", linked.Markup)
 	}
@@ -496,7 +496,8 @@ func TestBotBalance(t *testing.T) {
 	if strings.Contains(m.Text, "Ушедший") {
 		t.Error("ушедший без долга показан")
 	}
-	if fmt.Sprint(m.Buttons()) != fmt.Sprintf("[💳 Оплатить: Осмонова Мээрим — 3 000 сом|pay:%s « Меню|menu]", sid) {
+	// Кнопок оплаты нет: при долге — «Как оплатить» (реквизиты центра).
+	if fmt.Sprint(m.Buttons()) != "[💳 Как оплатить|howtopay « Меню|menu]" {
 		t.Errorf("кнопки баланса: %v", m.Buttons())
 	}
 	// Кнопка «Баланс и посещения» из напоминаний делает то же.
@@ -542,7 +543,7 @@ func TestBotLang(t *testing.T) {
 	}
 }
 
-// Навигация: постоянная клавиатура, /pay, /attendance, выбор ребёнка, «« Меню», подсказка на непонятный текст.
+// Навигация: постоянная клавиатура, «Как оплатить», /attendance, выбор ребёнка, «« Меню», подсказка на непонятный текст.
 func TestBotNavigation(t *testing.T) {
 	env := newBotEnv(t)
 	c := newCatalogOn(t, env.api, "+996705660001")
@@ -555,14 +556,17 @@ func TestBotNavigation(t *testing.T) {
 	linkDirect(t, env.api, debt.Parent.ID, u.id)
 	tx := env.langs.For("ru")
 
-	// /pay — только ребёнок с долгом, кнопка «Оплатить» и «« Меню».
-	payMsg := one(t, u.send("/pay"))
-	if payMsg.Text != tx.PayChoose || fmt.Sprint(payMsg.Buttons()) != fmt.Sprintf("[💳 Оплатить: Асанов Бакыт — 3 000 сом|pay:%s « Меню|menu]", debt.ID) {
-		t.Errorf("/pay: %q %v", payMsg.Text, payMsg.Buttons())
+	// «💳 Как оплатить» — реквизиты центра (не заданы — «уточните у администратора») и «« Меню».
+	howTo := "🏫 Центр «" + c.centerName(t) + "»\n" + tx.HowToPayHeader + "\n" + tx.PayDetailsMissing
+	payMsg := one(t, u.send("💳 Как оплатить"))
+	if payMsg.Text != howTo || fmt.Sprint(payMsg.Buttons()) != "[« Меню|menu]" {
+		t.Errorf("«Как оплатить»: %q %v", payMsg.Text, payMsg.Buttons())
 	}
-	// Кнопка «💳 Оплатить» постоянной клавиатуры — то же.
-	if m := one(t, u.send("💳 Оплатить")); m.Text != tx.PayChoose {
-		t.Errorf("кнопка «Оплатить»: %q", m.Text)
+	// Старая кнопка «💳 Оплатить» постоянной клавиатуры и набранная /pay — то же.
+	for _, text := range []string{"💳 Оплатить", "/pay"} {
+		if m := one(t, u.send(text)); m.Text != howTo {
+			t.Errorf("%s: %q", text, m.Text)
+		}
 	}
 
 	// /attendance — двое детей: выбор (каждый, «Все дети», «« Меню»).
@@ -595,14 +599,14 @@ func TestBotNavigation(t *testing.T) {
 
 	// «« Меню» — разделы inline-кнопками; каждая ведёт в свой раздел.
 	menu := one(t, u.press(bal, "menu"))
-	if menu.Text != tx.MenuPrompt || fmt.Sprint(menu.Buttons()) != "[💰 Баланс|bal: 💳 Оплатить|paylist 📅 Посещения|att: ❓ Помощь|help]" {
+	if menu.Text != tx.MenuPrompt || fmt.Sprint(menu.Buttons()) != "[💰 Баланс|bal: 💳 Как оплатить|howtopay 📅 Посещения|att: ❓ Помощь|help]" {
 		t.Fatalf("меню: %q %v", menu.Text, menu.Buttons())
 	}
 	if m := one(t, u.press(menu, "bal:")); m.Text != tx.ChooseChild {
 		t.Errorf("меню → баланс: %q", m.Text)
 	}
-	if m := one(t, u.press(menu, "paylist")); m.Text != tx.PayChoose {
-		t.Errorf("меню → оплатить: %q", m.Text)
+	if m := one(t, u.press(menu, "howtopay")); m.Text != howTo {
+		t.Errorf("меню → как оплатить: %q", m.Text)
 	}
 	if m := one(t, u.press(menu, "help")); m.Text != tx.Help || !strings.Contains(string(m.Markup), `"is_persistent":true`) {
 		t.Errorf("меню → помощь: %q %s", m.Text, m.Markup)
@@ -614,15 +618,15 @@ func TestBotNavigation(t *testing.T) {
 		t.Errorf("непонятный текст: %q %v", unk.Text, unk.Buttons())
 	}
 
-	// Оплатили — «оплачивать нечего».
+	// Оплатили — в балансе кнопки «Как оплатить» больше нет.
 	c.mustOp(t, debt.ID, pay(300_000))
-	if m := one(t, u.send("/pay")); m.Text != tx.PayNothing || fmt.Sprint(m.Buttons()) != "[« Меню|menu]" {
-		t.Errorf("/pay без долга: %q %v", m.Text, m.Buttons())
+	if m := one(t, u.press(one(t, u.send("/balance")), "bal:all")); strings.Contains(fmt.Sprint(m.Buttons()), "howtopay") {
+		t.Errorf("баланс без долга: %v", m.Buttons())
 	}
 
-	// Не привязан: /pay и /attendance — как получить ссылку у центра.
+	// Не привязан: «Как оплатить» и /attendance — как получить ссылку у центра.
 	stranger := env.user(t, 5660009)
-	for _, cmd := range []string{"/pay", "/attendance", "📅 Посещения"} {
+	for _, cmd := range []string{"💳 Как оплатить", "/attendance", "📅 Посещения"} {
 		if m := one(t, stranger.send(cmd)); m.Text != tx.NotLinked {
 			t.Errorf("%s без привязки: %q", cmd, m.Text)
 		}
@@ -648,10 +652,14 @@ func TestBotCommandsMenu(t *testing.T) {
 	if len(raws) != 2 {
 		t.Fatalf("setMyCommands: %d вызовов", len(raws))
 	}
-	for _, cmd := range []string{`"start"`, `"balance"`, `"pay"`, `"attendance"`, `"help"`, `"stop"`, "Оплатить", "Посещения за месяц"} {
+	for _, cmd := range []string{`"start"`, `"balance"`, `"attendance"`, `"help"`, `"stop"`, "Посещения за месяц"} {
 		if !strings.Contains(raws[0], cmd) {
 			t.Errorf("в меню нет %s: %s", cmd, raws[0])
 		}
+	}
+	// Оплаты в боте нет — и команды /pay в меню тоже.
+	if strings.Contains(raws[0], `"pay"`) || strings.Contains(raws[0], "Оплатить") {
+		t.Errorf("в меню осталась /pay: %s", raws[0])
 	}
 	if strings.Contains(raws[0], `"lang"`) || !strings.Contains(raws[1], `"lang"`) {
 		t.Errorf("/lang: ru=%s ru,ky=%s", raws[0], raws[1])

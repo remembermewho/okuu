@@ -28,26 +28,31 @@ const schema = z
   })
 type Values = z.infer<typeof schema>
 
-/**
- * Оплата / возврат / поправка. Idempotency-Key создаётся при открытии формы и живёт до её закрытия:
- * повторное нажатие или повтор после обрыва связи не создаст вторую операцию.
- */
-export function OperationDialog({
-  kind,
-  studentId,
-  balance,
-  onClose,
-}: {
+type Method = 'cash' | 'transfer' | 'card'
+
+type OperationDialogProps = {
   kind: OperationKind | null
   studentId: string
   balance: number
   onClose: () => void
-}) {
-  const open = kind !== null
-  return open ? <OperationForm kind={kind} studentId={studentId} balance={balance} onClose={onClose} /> : null
+  /** Способ оплаты по умолчанию: в карточке — наличные, в «Должниках» — перевод (родитель платит по реквизитам). */
+  defaultMethod?: Method
+  /** Подпись под заголовком (например, ФИО ученика в «Должниках»). */
+  description?: string
+  /** Свой тост после сохранения вместо стандартного. */
+  onDone?: () => void
 }
 
-function OperationForm({ kind, studentId, balance, onClose }: { kind: OperationKind; studentId: string; balance: number; onClose: () => void }) {
+/**
+ * Оплата / возврат / поправка. Idempotency-Key создаётся при открытии формы и живёт до её закрытия:
+ * повторное нажатие или повтор после обрыва связи не создаст вторую операцию.
+ * Один диалог для карточки ученика и быстрой отметки оплаты из «Должников».
+ */
+export function OperationDialog(props: OperationDialogProps) {
+  return props.kind !== null ? <OperationForm {...props} kind={props.kind} /> : null
+}
+
+function OperationForm({ kind, studentId, balance, onClose, defaultMethod = 'cash', description, onDone }: OperationDialogProps & { kind: OperationKind }) {
   const c = useCenter()
   const create = useCreateOperation(c.id, studentId)
   const toast = useToast()
@@ -57,8 +62,8 @@ function OperationForm({ kind, studentId, balance, onClose }: { kind: OperationK
   const debt = balance < 0 ? -balance : 0
 
   const defaults = useMemo<Values>(
-    () => ({ amount: kind === 'payment' && debt > 0 ? String(Math.round(debt / 100)) : '', method: 'cash', direction: 'credit', comment: '', kind }),
-    [kind, debt],
+    () => ({ amount: kind === 'payment' && debt > 0 ? String(Math.round(debt / 100)) : '', method: defaultMethod, direction: 'credit', comment: '', kind }),
+    [kind, debt, defaultMethod],
   )
   const {
     register,
@@ -79,7 +84,8 @@ function OperationForm({ kind, studentId, balance, onClose }: { kind: OperationK
       { body, key },
       {
         onSuccess: () => {
-          toast({ message: ru.operation.done[kind] ?? '', tone: 'success' })
+          if (onDone) onDone()
+          else toast({ message: ru.operation.done[kind] ?? '', tone: 'success' })
           onClose()
         },
         onError: (err) => {
@@ -94,7 +100,7 @@ function OperationForm({ kind, studentId, balance, onClose }: { kind: OperationK
       open
       onOpenChange={(o) => !o && onClose()}
       title={ru.operation.titles[kind]}
-      description={kind === 'refund' ? ru.operation.refundHint : kind === 'correction' ? ru.operation.correctionHint : undefined}
+      description={description ?? (kind === 'refund' ? ru.operation.refundHint : kind === 'correction' ? ru.operation.correctionHint : undefined)}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>

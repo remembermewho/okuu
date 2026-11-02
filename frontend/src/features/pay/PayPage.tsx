@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Clock, ExternalLink } from 'lucide-react'
+import { CheckCircle2, Clock, ExternalLink, Info } from 'lucide-react'
 import { useParams } from 'react-router'
 import { api, unwrap } from '@/api/client'
+import { useAppConfig } from '@/app/config'
 import { CopyButton } from '@/components/shared'
 import { Button, FormError, MoneyText, Skeleton } from '@/components/ui'
 import { AuthLayout } from '@/features/auth/AuthLayout'
@@ -11,11 +12,12 @@ import { errorMessage, isApiError } from '@/utils/errors'
 import { redirectTo } from '@/utils/redirect'
 import s from './PayPage.module.css'
 
-function usePayLink(token: string) {
+function usePayLink(token: string, enabled: boolean) {
   return useQuery({
     queryKey: ['pay', token],
     queryFn: () => unwrap(api.GET('/api/v1/pay/{token}', { params: { path: { token } } })),
     retry: false,
+    enabled,
   })
 }
 
@@ -26,13 +28,39 @@ function useStartPay(token: string) {
   })
 }
 
-/** B2: страница оплаты родителя — по ссылке из бота, без входа и без меню. */
+/**
+ * B2: страница оплаты родителя — по ссылке, без входа и без меню. Пока онлайн-оплата выключена
+ * (ONLINE_PAYMENTS_ENABLED=false, GET /config) — только «Онлайн-оплата не подключена»: оплата ручная.
+ */
 export function PayPage() {
   const { token = '' } = useParams()
-  const link = usePayLink(token)
+  const config = useAppConfig()
+  const online = config.data?.online_payments === true
+  const link = usePayLink(token, online)
   const start = useStartPay(token)
 
-  if (link.isPending) {
+  if (config.isError) {
+    return (
+      <AuthLayout title={ru.pay.title}>
+        <FormError>{errorMessage(config.error)}</FormError>
+        <Button block onClick={() => void config.refetch()}>
+          {ru.common.retry}
+        </Button>
+      </AuthLayout>
+    )
+  }
+  if (config.data && !online) {
+    return (
+      <AuthLayout title={ru.pay.offlineTitle}>
+        <div className={s.state}>
+          <Info size={40} aria-hidden="true" className={s.stateIcon} />
+          <p>{ru.pay.offlineText}</p>
+        </div>
+      </AuthLayout>
+    )
+  }
+
+  if (config.isPending || link.isPending) {
     return (
       <AuthLayout title={ru.pay.title}>
         <div className={s.stack} aria-busy="true" aria-label={ru.pay.loading}>

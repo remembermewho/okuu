@@ -49,15 +49,13 @@ type Texts struct {
 
 	// Меню: постоянная клавиатура внизу чата, выбор ребёнка, «« Меню».
 	MenuBalance      string
-	MenuPay          string
+	MenuHowToPay     string // «Как оплатить»: реквизиты и инструкция центра
 	MenuAttendance   string
 	MenuHelp         string
 	MenuPrompt       string
 	MenuBack         string
 	ChooseChild      string
 	AllChildren      string
-	PayChoose        string
-	PayNothing       string
 	AttendanceHeader func(month int) string
 	AttendanceChild  func(child, center string, present, absent, excused int32) string
 
@@ -68,19 +66,15 @@ type Texts struct {
 	Attendance    func(month int, present, absent, excused int32) string
 	NoChildren    string
 
-	// Напоминания о долге (R17–R18): заголовок по виду, строка на ребёнка, итог, реквизиты.
+	// Напоминания о долге (R17–R18): заголовок по виду, строка на ребёнка, итог, «Как оплатить».
 	ReminderHeader func(kind, center string, due civil.Date) string
 	ReminderChild  func(c ChildDebt) string
 	ReminderTotal  func(total int64) string
-	PayDetails     func(details string) string
 	ReminderFooter string
 
-	// Оплата по ссылке (B2): кнопка на каждого ребёнка с долгом и ответ на неё.
-	PayButton      func(student string, debt int64) string // student — ФИО целиком
-	PayLink        func(center, child string, amount int64, url string) string
-	PayLinkButton  string
-	PayNoDebt      func(center, child string) string
-	PayUnavailable string
+	// «Как оплатить»: заголовок и реквизиты центра как есть; пустые реквизиты — PayDetailsMissing.
+	HowToPayHeader    string
+	PayDetailsMissing string
 
 	// Событийные.
 	Paid       func(center, child string, amount, balance int64) string
@@ -96,8 +90,8 @@ type ChildDebt struct {
 	DaysOverdue int
 }
 
-// DebtReminder — одно сообщение родителю по центру: все дети с долгом и суммы (R18);
-// реквизиты — если центр не подключил Finik.
+// DebtReminder — одно сообщение родителю по центру: все дети с долгом и суммы (R18), затем «Как оплатить:»
+// с реквизитами и инструкцией центра как есть (родитель платит сам и отправляет чек администратору).
 func DebtReminder(tx *Texts, kind, center string, due civil.Date, children []ChildDebt, payDetails string) string {
 	lines := []string{tx.ReminderHeader(kind, center, due), ""}
 	var total int64
@@ -108,11 +102,17 @@ func DebtReminder(tx *Texts, kind, center string, due civil.Date, children []Chi
 	if len(children) > 1 {
 		lines = append(lines, tx.ReminderTotal(total))
 	}
-	if strings.TrimSpace(payDetails) != "" {
-		lines = append(lines, "", tx.PayDetails(strings.TrimSpace(payDetails)))
-	}
-	lines = append(lines, "", tx.ReminderFooter)
+	lines = append(lines, "", HowToPay(tx, payDetails), "", tx.ReminderFooter)
 	return strings.Join(lines, "\n")
+}
+
+// HowToPay — «Как оплатить:» и реквизиты центра с переносами строк как есть; пустые — «Уточните способ оплаты…».
+func HowToPay(tx *Texts, payDetails string) string {
+	d := strings.TrimSpace(strings.ReplaceAll(payDetails, "\r\n", "\n"))
+	if d == "" {
+		d = tx.PayDetailsMissing
+	}
+	return tx.HowToPayHeader + "\n" + d
 }
 
 // ddmm — «06.10».

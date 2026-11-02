@@ -1,17 +1,19 @@
-import { BellRing, CheckCircle2, Send } from 'lucide-react'
+import { BellRing, CheckCircle2, Send, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { centerPath, useCenter } from '@/app/center'
 import { StudentStatusBadge, TgBadge } from '@/components/shared'
 import shared from '@/components/shared.module.css'
-import { Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, MoneyText, PageHeader, Select, Skeleton, SkeletonList } from '@/components/ui'
+import { Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, MoneyText, PageHeader, Select, Skeleton, SkeletonList, useToast } from '@/components/ui'
+import { PayDetailsBanner } from '@/features/admin/PayDetailsBanner'
 import { groupOptions, useGroups } from '@/features/catalog/api'
+import { OperationDialog } from '@/features/students/card/OperationDialog'
 import { ru } from '@/i18n/ru'
 import { cx } from '@/utils/cx'
 import { formatDate, formatMonth } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { formatSom } from '@/utils/money'
-import { useDebtors, useReminders, type DebtorsStatus, type RemindersResult } from './api'
+import { useDebtors, useReminders, type Debtor, type DebtorsStatus, type RemindersResult } from './api'
 import s from './DebtorsPage.module.css'
 
 /** API принимает до 500 учеников в одном «Напомнить». */
@@ -31,6 +33,8 @@ export function DebtorsPage() {
   const [confirmAll, setConfirmAll] = useState(false)
   const [result, setResult] = useState<RemindersResult>()
   const [pendingId, setPendingId] = useState<string>()
+  const [paying, setPaying] = useState<Debtor>() // «Отметить оплату» — тот же диалог, что в карточке
+  const toast = useToast()
 
   const names = new Map([...(overdue.data?.items ?? []), ...(pending.data?.items ?? [])].map((d) => [d.student_id, d.full_name]))
 
@@ -70,6 +74,8 @@ export function DebtorsPage() {
           )
         }
       />
+
+      <PayDetailsBanner />
 
       <div className={s.summary}>
         {sum ? (
@@ -135,7 +141,7 @@ export function DebtorsPage() {
           <Card flush>
             <ul className={shared.list} aria-label={tab === 'overdue' ? ru.debtors.tabOverdue : ru.debtors.tabPending}>
               {list.data.items.map((d) => (
-                <li key={d.student_id} className={shared.row}>
+                <li key={d.student_id} className={cx(shared.row, s.debtorRow)}>
                   <div className={shared.rowMain}>
                     <span className={shared.rowTitle}>
                       <Link to={centerPath(c.id, `students/${d.student_id}`)} className={s.name}>
@@ -169,8 +175,13 @@ export function DebtorsPage() {
                         <span className={shared.rowMeta}>{ru.debtors.dueOn(formatDate(d.oldest_due_date))}</span>
                       </>
                     )}
+                  </div>
+                  {/* Кнопки — отдельной полосой под строкой: на телефоне не теснят сумму. */}
+                  <div className={s.rowActions}>
+                    <Button icon={<Wallet size={16} aria-hidden="true" />} onClick={() => setPaying(d)} aria-label={`${ru.debtors.markPaid}: ${d.full_name}`}>
+                      {ru.debtors.markPaid}
+                    </Button>
                     <Button
-                      size="sm"
                       variant="secondary"
                       icon={<Send size={16} aria-hidden="true" />}
                       loading={pendingId === d.student_id}
@@ -187,6 +198,19 @@ export function DebtorsPage() {
           </Card>
         )}
       </div>
+
+      {/* Сумма по умолчанию — текущий долг, способ — перевод; ключ идемпотентности — один на открытие. */}
+      <OperationDialog
+        kind={paying ? 'payment' : null}
+        studentId={paying?.student_id ?? ''}
+        balance={-(paying?.debt ?? 0)}
+        defaultMethod="transfer"
+        description={paying?.full_name}
+        onDone={() =>
+          toast({ message: paying?.parent?.tg_status === 'active' ? ru.debtors.paidNotified : ru.debtors.paidNoTelegram, tone: 'success' })
+        }
+        onClose={() => setPaying(undefined)}
+      />
 
       <ConfirmDialog
         open={confirmAll}

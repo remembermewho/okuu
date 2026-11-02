@@ -265,6 +265,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Что включено на сервере
+         * @description **Без входа.** `online_payments` — онлайн-оплата по ссылке (`ONLINE_PAYMENTS_ENABLED`). Выключена —
+         *     фронтенд не показывает ничего про онлайн-оплату, а страница `/pay/:token` пишет «Онлайн-оплата
+         *     не подключена, уточните способ оплаты у администратора».
+         */
+        get: operations["publicConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pay/{token}": {
         parameters: {
             query?: never;
@@ -277,8 +299,10 @@ export interface paths {
         };
         /**
          * Страница оплаты родителя
-         * @description **Без входа.** Ссылка — из бота (кнопка «Оплатить»), на одного ученика, на сумму его долга,
-         *     действует 24 часа. Без телефонов и данных родителя. Лимит — 30 запросов в минуту с IP.
+         * @description **Без входа.** Онлайн-оплата по ссылке — только при `ONLINE_PAYMENTS_ENABLED=true` (см. `GET /config`);
+         *     выключена (по умолчанию: оплата ручная, по реквизитам из настроек центра) — любая ссылка отвечает
+         *     `404 not_found`, как неизвестная. Ссылка — на одного ученика, на сумму его долга, действует 24 часа.
+         *     Без телефонов и данных родителя. Лимит — 30 запросов в минуту с IP.
          */
         get: operations["getPayLink"];
         put?: never;
@@ -2741,6 +2765,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    publicConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Настройки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        online_payments: boolean;
+                    };
                 };
             };
         };

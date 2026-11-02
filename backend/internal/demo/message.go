@@ -1,8 +1,6 @@
 package demo
 
 import (
-	"github.com/google/uuid"
-
 	"okuu/internal/civil"
 	"okuu/internal/notify"
 	"okuu/internal/telegram/bot"
@@ -18,7 +16,8 @@ type Message struct {
 }
 
 // SampleReminder — настоящее автонапоминание «через 3 дня срок оплаты» тем же кодом, что и рассылка
-// (notify.DebtReminder, bot.DebtKeyboard): двое детей одного родителя — в одном сообщении (R18).
+// (notify.DebtReminder, bot.BalanceKeyboard): двое детей одного родителя — в одном сообщении (R18),
+// «Как оплатить» — реквизиты и инструкция демо-центра.
 func SampleReminder(today civil.Date) Message {
 	tx := notify.For(notify.LangRU)
 	due := today.AddDays(3)
@@ -26,12 +25,8 @@ func SampleReminder(today civil.Date) Message {
 		{Name: "Попов Матвей", Debt: 315_000, Due: &due},
 		{Name: "Попова Ева", Debt: 315_000, Due: &due},
 	}
-	pay := make([]bot.PayChild, len(kids))
-	for i, k := range kids {
-		pay[i] = bot.PayChild{StudentID: uuid.New(), Name: k.Name, Debt: k.Debt}
-	}
 	m := Message{Text: notify.DebtReminder(tx, notify.KindDueSoon, SampleCenter, due, kids, PayDetails)}
-	for _, row := range bot.DebtKeyboard(tx, pay).InlineKeyboard {
+	for _, row := range bot.BalanceKeyboard(tx).InlineKeyboard {
 		for _, b := range row {
 			m.Buttons = append(m.Buttons, b.Text)
 		}

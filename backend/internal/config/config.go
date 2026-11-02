@@ -29,8 +29,11 @@ type Config struct {
 	AppOrigin     string // разрешённый Origin для изменяющих запросов (CSRF)
 	EncryptionKey []byte
 	Telegram      Telegram
-	// FinikEnabled — онлайн-оплата через Finik (FINIK_ENABLED). Пока провайдер — заглушка:
-	// без него оплата идёт по реквизитам центра.
+	// OnlinePaymentsEnabled — онлайн-оплата по ссылке (ONLINE_PAYMENTS_ENABLED, по умолчанию false).
+	// Выключена: ссылки оплаты не создаются, /pay/{токен} — 404, сверки и вебхука нет. Родители платят
+	// по реквизитам из «Настроек», администратор отмечает оплату вручную.
+	OnlinePaymentsEnabled bool
+	// FinikEnabled — провайдер Finik (FINIK_ENABLED, только вместе с ONLINE_PAYMENTS_ENABLED). Пока заглушка.
 	FinikEnabled bool
 	FinikAPIKey  Secret
 	// TrustedProxies — прокси (Caddy), от которых верим X-Forwarded-For (TRUSTED_PROXIES, CIDR через запятую).
@@ -116,12 +119,20 @@ func Load() (Config, error) {
 	if cfg.Telegram, err = loadTelegram(cfg.Env); err != nil {
 		errs = append(errs, err)
 	}
-	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("FINIK_ENABLED"))); v {
-	case "", "0", "false", "no":
-	case "1", "true", "yes":
-		cfg.FinikEnabled = true
-	default:
-		errs = append(errs, fmt.Errorf("FINIK_ENABLED: ожидается true или false, получено %q", v))
+	for _, f := range []struct {
+		name string
+		dst  *bool
+	}{{"ONLINE_PAYMENTS_ENABLED", &cfg.OnlinePaymentsEnabled}, {"FINIK_ENABLED", &cfg.FinikEnabled}} {
+		switch v := strings.ToLower(strings.TrimSpace(os.Getenv(f.name))); v {
+		case "", "0", "false", "no":
+		case "1", "true", "yes":
+			*f.dst = true
+		default:
+			errs = append(errs, fmt.Errorf("%s: ожидается true или false, получено %q", f.name, v))
+		}
+	}
+	if cfg.FinikEnabled && !cfg.OnlinePaymentsEnabled {
+		errs = append(errs, errors.New("FINIK_ENABLED=true работает только вместе с ONLINE_PAYMENTS_ENABLED=true"))
 	}
 	cfg.FinikAPIKey = Secret(strings.TrimSpace(os.Getenv("FINIK_API_KEY")))
 

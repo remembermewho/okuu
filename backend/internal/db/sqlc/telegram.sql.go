@@ -165,7 +165,7 @@ func (q *Queries) LinkParentTelegram(ctx context.Context, arg LinkParentTelegram
 }
 
 const listChatParents = `-- name: ListChatParents :many
-SELECT p.id, p.center_id, p.name, p.lang, p.tg_status, c.name AS center_name, c.timezone
+SELECT p.id, p.center_id, p.name, p.lang, p.tg_status, c.name AS center_name, c.timezone, c.pay_details
 FROM parents p
 JOIN centers c ON c.id = p.center_id
 WHERE p.telegram_chat_id = $1 AND p.tg_status <> 'none'
@@ -181,6 +181,7 @@ type ListChatParentsRow struct {
 	TgStatus   string    `json:"tg_status"`
 	CenterName string    `json:"center_name"`
 	Timezone   string    `json:"timezone"`
+	PayDetails *string   `json:"pay_details"`
 }
 
 // Родители, привязанные к чату, во всех центрах.
@@ -201,6 +202,7 @@ func (q *Queries) ListChatParents(ctx context.Context, chatID *int64) ([]ListCha
 			&i.TgStatus,
 			&i.CenterName,
 			&i.Timezone,
+			&i.PayDetails,
 		); err != nil {
 			return nil, err
 		}

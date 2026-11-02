@@ -37,6 +37,74 @@
   margin-top: 2px;
 }
 
+/* Реквизиты и предпросмотр: на телефоне друг под другом, на широком — рядом. */
+.payGrid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 900px) {
+  .payGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.counter {
+  margin: 0;
+  text-align: right;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.preview {
+  margin: 0;
+}
+
+.previewTitle {
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.previewNote {
+  margin: var(--space-2) 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* Макет чата: фон и пузырь сообщения бота. */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: #dce6dd;
+}
+
+.bubble {
+  max-width: 100%;
+  padding: 10px 12px;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--card);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chatButton {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgb(23 32 27 / 62%); /* белый текст ≈ 5:1 */
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: center;
+}
+
 .plan,
 .finik {
   margin: 0;

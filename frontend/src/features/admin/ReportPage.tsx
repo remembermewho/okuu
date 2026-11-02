@@ -1,6 +1,7 @@
 import { Download } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useCenter } from '@/app/center'
+import { useOnlinePayments } from '@/app/config'
 import { MonthSwitcher } from '@/components/shared'
 import { Button, Card, CardHeader, ErrorState, MoneyText, PageHeader, SkeletonList, layout, useToast } from '@/components/ui'
 import { ru } from '@/i18n/ru'
@@ -13,6 +14,7 @@ const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 
 export function ReportPage() {
   const c = useCenter()
+  const online = useOnlinePayments()
   const [params, setParams] = useSearchParams()
   const now = c.today.slice(0, 7) // текущий месяц в поясе центра
   const raw = params.get('month') ?? ''
@@ -66,7 +68,8 @@ export function ReportPage() {
           <Card className={s.wide}>
             <CardHeader title={ru.report.byMethod} />
             <dl className={s.list}>
-              {(['cash', 'transfer', 'card', 'finik'] as const).map((m) => (
+              {/* «Онлайн (Finik)» — только с онлайн-оплатой или если такие оплаты уже были. */}
+              {(['cash', 'transfer', 'card', 'finik'] as const).filter((m) => m !== 'finik' || online || r.collected.finik > 0).map((m) => (
                 <div key={m} className={s.line}>
                   <dt>{ru.report.methods[m]}</dt>
                   <dd>

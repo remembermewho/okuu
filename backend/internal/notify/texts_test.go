@@ -1,9 +1,13 @@
 package notify
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"okuu/internal/civil"
 )
 
 func TestSom(t *testing.T) {
@@ -26,6 +30,26 @@ func TestPluralRU(t *testing.T) {
 		12: "занятий", 14: "занятий", 21: "занятие", 22: "занятия", 25: "занятий", 101: "занятие", 111: "занятий"} {
 		if got := pluralRU(n, "занятие", "занятия", "занятий"); got != want {
 			t.Errorf("%d → %q, want %q", n, got, want)
+		}
+	}
+}
+
+// Предпросмотр напоминания в «Настройках» (frontend/src/i18n/ru.ts, settings.preview) повторяет тексты бота —
+// дословно, иначе владелец увидит не то, что получит родитель.
+func TestFrontendPreviewMatchesBot(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "frontend", "src", "i18n", "ru.ts"))
+	if err != nil {
+		t.Skipf("нет фронтенда рядом: %v", err)
+	}
+	for name, s := range map[string]string{
+		"ReminderFooter":    ru.ReminderFooter,
+		"HowToPayHeader":    ru.HowToPayHeader,
+		"PayDetailsMissing": ru.PayDetailsMissing,
+		"BalanceButton":     ru.BalanceButton,
+		"ReminderHeader":    strings.ReplaceAll(ru.ReminderHeader(KindManual, "X", civil.Date{}), "«X»", "«${center}»"),
+	} {
+		if !strings.Contains(string(src), "'"+s+"'") && !strings.Contains(string(src), "`"+s+"`") {
+			t.Errorf("%s бота нет в settings.preview (ru.ts): %q", name, s)
 		}
 	}
 }
@@ -63,6 +87,13 @@ func TestTextsComplete(t *testing.T) {
 		if s := tx.Attendance(10, 6, 1, 0); !strings.Contains(s, "6") {
 			t.Errorf("%s: посещения = %q", lang, s)
 		}
+	}
+	// «Как оплатить»: реквизиты как есть (с переносами), пустые — «уточните у администратора».
+	if got := HowToPay(ru, " MBank: 0700\r\nЧек — в WhatsApp \n"); got != "Как оплатить:\nMBank: 0700\nЧек — в WhatsApp" {
+		t.Errorf("HowToPay = %q", got)
+	}
+	if got := HowToPay(ru, "  "); got != "Как оплатить:\nУточните способ оплаты у администратора центра." {
+		t.Errorf("HowToPay без реквизитов = %q", got)
 	}
 	if For("en") != For(LangRU) {
 		t.Error("неизвестный язык — русский")

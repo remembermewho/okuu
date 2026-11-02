@@ -15,7 +15,7 @@ var monthsKY = [...]string{"Январь", "Февраль", "Март", "Апр
 	"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"}
 
 // kyCommands — подсказка по командам (кыргызский бывает только с /lang: BOT_LANGUAGES=ru,ky).
-const kyCommands = "Баланс — /balance\nТөлөө — /pay\nКатышуу — /attendance\nТил — /lang\nБилдирүүлөрдү өчүрүү — /stop"
+const kyCommands = "Баланс — /balance\nКатышуу — /attendance\nКантип төлөө — төмөндөгү «💳 Кантип төлөө» баскычы\nТил — /lang\nБилдирүүлөрдү өчүрүү — /stop"
 
 func balanceKY(t int64) string {
 	switch {
@@ -66,8 +66,9 @@ var ky = &Texts{
 	Resumed: func(centers []string) string {
 		return fmt.Sprintf("Билдирүүлөр кайра күйгүзүлдү: %s.", quoted(centers))
 	},
-	Help: "Буйруктар:\n/balance — баланс жана абонемент\n/pay — төлөө\n/attendance — айдагы катышуу\n/lang — тил\n" +
+	Help: "Буйруктар:\n/balance — баланс жана абонемент\n/attendance — айдагы катышуу\n/lang — тил\n" +
 		"/stop — билдирүүлөрдү өчүрүү\n/start — кайра күйгүзүү\n/help — жардам\n\n" +
+		"«💳 Кантип төлөө» — борбордун реквизиттери жана чекти кайда жөнөтүү.\n" +
 		"Дагы бир борборго туташуу үчүн анын чакыруу шилтемесин ачыңыз.",
 	Stopped: func(centers []string) string {
 		return fmt.Sprintf("Билдирүүлөр өчүрүлдү: %s. Кайра күйгүзүү — /start.", quoted(centers))
@@ -79,15 +80,13 @@ var ky = &Texts{
 	BalanceButton: "Баланс жана катышуу",
 
 	MenuBalance:    "💰 Баланс",
-	MenuPay:        "💳 Төлөө",
+	MenuHowToPay:   "💳 Кантип төлөө",
 	MenuAttendance: "📅 Катышуу",
 	MenuHelp:       "❓ Жардам",
 	MenuPrompt:     "Эмнени көрсөтөйүн?",
 	MenuBack:       "« Меню",
 	ChooseChild:    "Баланы тандаңыз:",
 	AllChildren:    "Бардык балдар",
-	PayChoose:      "Ким үчүн төлөйсүз? Баскычты басыңыз — бот төлөм шилтемесин жөнөтөт.",
-	PayNothing:     "Карыз жок — төлөөнүн кереги жок. 👍",
 	AttendanceHeader: func(month int) string {
 		return monthsKY[month-1] + " айындагы катышуу:"
 	},
@@ -131,20 +130,10 @@ var ky = &Texts{
 		return s
 	},
 	ReminderTotal:  func(total int64) string { return "Жалпы: " + Som(total) + " сом" },
-	PayDetails:     func(details string) string { return "Төлөм реквизиттери:\n" + details },
 	ReminderFooter: "Эгер төлөп койгон болсоңуз, көңүл бурбаңыз: администратор төлөмдү белгилейт, бот ырастоо жөнөтөт.",
 
-	PayButton: func(name string, debt int64) string {
-		return "💳 Төлөө: " + name + " — " + Som(debt) + " сом"
-	},
-	PayLink: func(center, child string, amount int64, url string) string {
-		return fmt.Sprintf("🏫 «%s» борбору: %s үчүн төлөм — %s сом.\nТөлөм шилтемеси 24 саат жарактуу:\n%s", center, child, Som(amount), url)
-	},
-	PayLinkButton: "Төлөөгө өтүү",
-	PayNoDebt: func(center, child string) string {
-		return fmt.Sprintf("🏫 «%s» борбору: %s боюнча карыз жок — төлөөнүн кереги жок.", center, child)
-	},
-	PayUnavailable: "Төлөмдү даярдоо мүмкүн болбоду. Кийинчерээк аракет кылыңыз же борборго кайрылыңыз.",
+	HowToPayHeader:    "Кантип төлөө:",
+	PayDetailsMissing: "Төлөө ыкмасын борбордун администраторунан тактаңыз.",
 
 	Paid: func(center, child string, amount, balance int64) string {
 		return fmt.Sprintf("🏫 «%s» борбору: рахмат, төлөм алынды — %s сом (%s).\n%s", center, Som(amount), child, balanceKY(balance))

@@ -13,25 +13,30 @@ import (
 	"okuu/internal/telegram"
 )
 
-// Навигация: постоянная клавиатура «Баланс · Оплатить · Посещения · Помощь», меню команд (setMyCommands),
+// Навигация: постоянная клавиатура «Баланс · Как оплатить · Посещения · Помощь», меню команд (setMyCommands),
 // выбор ребёнка, если детей несколько, и кнопка «« Меню» в ответах.
 
 // Данные inline-кнопок навигации.
 const (
-	cbMenu    = "menu"
-	cbBal     = "bal:" // + id ученика | all
-	cbAtt     = "att:" // + id ученика | all
-	cbPayList = "paylist"
-	cbHelp    = "help"
-	allKids   = "all"
+	cbMenu     = "menu"
+	cbBal      = "bal:" // + id ученика | all
+	cbAtt      = "att:" // + id ученика | all
+	cbHowToPay = "howtopay"
+	cbPayList  = "paylist" // старая кнопка «Оплатить» в «« Меню» — теперь «Как оплатить»
+	cbHelp     = "help"
+	allKids    = "all"
 )
 
+// legacyPayLabels — подписи прежней кнопки «Оплатить» постоянной клавиатуры: у родителей она остаётся,
+// пока бот не пришлёт новую клавиатуру, — понимаем её как «Как оплатить».
+var legacyPayLabels = []string{"💳 Оплатить", "💳 Төлөө"}
+
 // Commands — команды в меню бота (кнопка «Меню» у поля ввода), с русскими описаниями.
+// /pay нет: оплаты в боте нет, «Как оплатить» — кнопка постоянной клавиатуры.
 func Commands(l notify.Langs) []telegram.BotCommand {
 	cmds := []telegram.BotCommand{
 		{Command: "start", Description: "Подключиться или включить уведомления"},
 		{Command: "balance", Description: "Баланс и абонемент"},
-		{Command: "pay", Description: "Оплатить"},
 		{Command: "attendance", Description: "Посещения за месяц"},
 		{Command: "help", Description: "Помощь"},
 		{Command: "stop", Description: "Отключить уведомления"},
@@ -51,7 +56,7 @@ func SetupCommands(ctx context.Context, api telegram.API, l notify.Langs) error 
 func MenuKeyboard(tx *notify.Texts) *telegram.ReplyKeyboardMarkup {
 	return &telegram.ReplyKeyboardMarkup{
 		Keyboard: [][]telegram.KeyboardButton{
-			{{Text: tx.MenuBalance}, {Text: tx.MenuPay}},
+			{{Text: tx.MenuBalance}, {Text: tx.MenuHowToPay}},
 			{{Text: tx.MenuAttendance}, {Text: tx.MenuHelp}},
 		},
 		IsPersistent: true, ResizeKeyboard: true,
@@ -66,12 +71,17 @@ func menuAction(text string) string {
 		switch text {
 		case tx.MenuBalance:
 			return "/balance"
-		case tx.MenuPay:
-			return "/pay"
+		case tx.MenuHowToPay:
+			return "/pay" // внутреннее имя «Как оплатить»
 		case tx.MenuAttendance:
 			return "/attendance"
 		case tx.MenuHelp:
 			return "/help"
+		}
+	}
+	for _, l := range legacyPayLabels {
+		if text == l {
+			return "/pay"
 		}
 	}
 	return ""
@@ -84,7 +94,7 @@ func backRow(tx *notify.Texts) []telegram.InlineKeyboardButton {
 // menuInline — «« Меню»: те же разделы inline-кнопками под сообщением.
 func menuInline(tx *notify.Texts) *telegram.InlineKeyboardMarkup {
 	return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
-		{{Text: tx.MenuBalance, CallbackData: cbBal}, {Text: tx.MenuPay, CallbackData: cbPayList}},
+		{{Text: tx.MenuBalance, CallbackData: cbBal}, {Text: tx.MenuHowToPay, CallbackData: cbHowToPay}},
 		{{Text: tx.MenuAttendance, CallbackData: cbAtt}, {Text: tx.MenuHelp, CallbackData: cbHelp}},
 	}}
 }
@@ -189,10 +199,10 @@ func (b *Bot) showBalance(ctx context.Context, chatID int64, target string) erro
 }
 
 // sendBalance — баланс, абонементы и посещения по центрам; одно сообщение, а если не влезает — по центрам.
-// Под последним — «Оплатить» на каждого показанного ребёнка с долгом и «« Меню».
+// Под последним — «Как оплатить», если есть долг, и «« Меню».
 func (b *Bot) sendBalance(ctx context.Context, chatID int64, tx *notify.Texts, all, shown []kid) error {
 	var blocks []string
-	var debtors []PayChild
+	debt := false
 	byCenter := map[uuid.UUID][]kid{}
 	for _, k := range shown {
 		byCenter[k.CenterID] = append(byCenter[k.CenterID], k)
@@ -215,9 +225,7 @@ func (b *Bot) sendBalance(ctx context.Context, chatID int64, tx *notify.Texts, a
 		lines := []string{tx.BalanceCenter(p.CenterName)}
 		for _, k := range ks {
 			lines = append(lines, "", "👤 "+k.Name, tx.Balance(k.Balance))
-			if k.Balance < 0 {
-				debtors = append(debtors, PayChild{StudentID: k.ID, Name: k.Name, Debt: -k.Balance})
-			}
+			debt = debt || k.Balance < 0
 			for _, pk := range k.Packages {
 				if pk.LessonsLeft != nil {
 					lines = append(lines, tx.Package(pk.Group, *pk.LessonsLeft))
@@ -230,7 +238,10 @@ func (b *Bot) sendBalance(ctx context.Context, chatID int64, tx *notify.Texts, a
 		}
 		blocks = append(blocks, strings.Join(lines, "\n"))
 	}
-	kb := payButtons(tx, debtors)
+	kb := &telegram.InlineKeyboardMarkup{}
+	if debt {
+		kb.InlineKeyboard = append(kb.InlineKeyboard, []telegram.InlineKeyboardButton{{Text: tx.MenuHowToPay, CallbackData: cbHowToPay}})
+	}
 	kb.InlineKeyboard = append(kb.InlineKeyboard, backRow(tx))
 	return b.sendChunks(ctx, chatID, blocks, kb)
 }
@@ -264,27 +275,32 @@ func (b *Bot) showAttendance(ctx context.Context, chatID int64, target string) e
 	return b.send(ctx, chatID, strings.Join(lines, "\n"), &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{backRow(tx)}})
 }
 
-// showPayList — /pay и «Оплатить»: дети с долгом, кнопка «Оплатить» на каждого; долга нет — «оплачивать нечего».
-func (b *Bot) showPayList(ctx context.Context, chatID int64) error {
-	kids, tx, linked, err := b.chatKids(ctx, chatID)
+// showHowToPay — «Как оплатить»: реквизиты и инструкция центра (pay_details) как есть, блок на каждый центр чата
+// с его названием; пустые реквизиты — «Уточните способ оплаты у администратора центра». Сюда же — старые
+// кнопки «Оплатить» и набранная вручную /pay.
+func (b *Bot) showHowToPay(ctx context.Context, chatID int64) error {
+	parents, err := b.q.ListChatParents(ctx, &chatID)
 	if err != nil {
 		return err
 	}
-	if !linked {
-		return b.send(ctx, chatID, tx.NotLinked, nil)
+	if len(parents) == 0 {
+		return b.send(ctx, chatID, b.langs.For("").NotLinked, nil)
 	}
-	var debtors []PayChild
-	for _, k := range kids {
-		if k.Balance < 0 {
-			debtors = append(debtors, PayChild{StudentID: k.ID, Name: k.Name, Debt: -k.Balance})
+	tx := b.langs.For(parents[0].Lang)
+	var blocks []string
+	seen := map[uuid.UUID]bool{}
+	for _, p := range parents {
+		if seen[p.CenterID] {
+			continue
 		}
+		seen[p.CenterID] = true
+		details := ""
+		if p.PayDetails != nil {
+			details = *p.PayDetails
+		}
+		blocks = append(blocks, tx.BalanceCenter(p.CenterName)+"\n"+notify.HowToPay(tx, details))
 	}
-	kb := payButtons(tx, debtors)
-	kb.InlineKeyboard = append(kb.InlineKeyboard, backRow(tx))
-	if len(debtors) == 0 {
-		return b.send(ctx, chatID, tx.PayNothing, kb)
-	}
-	return b.send(ctx, chatID, tx.PayChoose, kb)
+	return b.sendChunks(ctx, chatID, blocks, &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{backRow(tx)}})
 }
 
 // showMenu — «« Меню»: разделы inline-кнопками (постоянная клавиатура тоже остаётся).
@@ -322,17 +338,6 @@ func (b *Bot) linkedTexts(ctx context.Context, chatID int64, from *telegram.User
 	}
 	tx, err := b.texts(ctx, chatID, from)
 	return tx, false, err
-}
-
-// payButtons — «Оплатить» на каждого ребёнка с долгом.
-func payButtons(tx *notify.Texts, kids []PayChild) *telegram.InlineKeyboardMarkup {
-	kb := &telegram.InlineKeyboardMarkup{}
-	for _, k := range kids {
-		if k.Debt > 0 {
-			kb.InlineKeyboard = append(kb.InlineKeyboard, []telegram.InlineKeyboardButton{{Text: tx.PayButton(k.Name, k.Debt), CallbackData: cbPay + k.StudentID.String()}})
-		}
-	}
-	return kb
 }
 
 // sendChunks — блоки одним сообщением, а если не влезает — несколькими; клавиатура — под последним.
