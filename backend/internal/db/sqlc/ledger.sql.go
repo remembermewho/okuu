@@ -359,6 +359,62 @@ func (q *Queries) ListCentersForBilling(ctx context.Context) ([]ListCentersForBi
 	return items, nil
 }
 
+const listChargesAfterPeriod = `-- name: ListChargesAfterPeriod :many
+SELECT id, center_id, student_id, enrollment_id, kind, amount, period, due_date, list_price, discount, method, external_id, comment, created_by, created_at, cancelled_at, cancelled_by, cancel_reason, idempotency_key FROM ledger
+WHERE center_id = $1 AND student_id = $2 AND kind = 'charge' AND cancelled_at IS NULL
+  AND period > $3::date
+ORDER BY period, id
+FOR UPDATE
+`
+
+type ListChargesAfterPeriodParams struct {
+	CenterID  uuid.UUID  `json:"center_id"`
+	StudentID uuid.UUID  `json:"student_id"`
+	After     civil.Date `json:"after"`
+}
+
+// Неотменённые начисления ученика за месяцы позже @after (1-е число месяца последнего дня):
+// уход с «отменить начисления за месяцы после последнего дня».
+func (q *Queries) ListChargesAfterPeriod(ctx context.Context, arg ListChargesAfterPeriodParams) ([]Ledger, error) {
+	rows, err := q.db.Query(ctx, listChargesAfterPeriod, arg.CenterID, arg.StudentID, arg.After)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Ledger{}
+	for rows.Next() {
+		var i Ledger
+		if err := rows.Scan(
+			&i.ID,
+			&i.CenterID,
+			&i.StudentID,
+			&i.EnrollmentID,
+			&i.Kind,
+			&i.Amount,
+			&i.Period,
+			&i.DueDate,
+			&i.ListPrice,
+			&i.Discount,
+			&i.Method,
+			&i.ExternalID,
+			&i.Comment,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.CancelledAt,
+			&i.CancelledBy,
+			&i.CancelReason,
+			&i.IdempotencyKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDebtCandidates = `-- name: ListDebtCandidates :many
 SELECT s.id, s.full_name, s.status,
        p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,

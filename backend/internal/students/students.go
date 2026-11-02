@@ -236,29 +236,41 @@ type ListFilter struct {
 	Cursor   string
 }
 
-// List — ученики по алфавиту с балансом; nextCursor == "" — страница последняя.
-func (s *Service) List(ctx context.Context, centerID uuid.UUID, f ListFilter) (items []ListItem, nextCursor string, err error) {
+// Page — страница списка учеников: Total — всего под фильтрами (на всех страницах).
+type Page struct {
+	Items      []ListItem
+	NextCursor string // "" — страница последняя
+	Total      int64
+}
+
+// List — ученики по алфавиту с балансом.
+func (s *Service) List(ctx context.Context, centerID uuid.UUID, f ListFilter) (Page, error) {
+	items, next, total, err := s.list(ctx, centerID, f)
+	return Page{Items: items, NextCursor: next, Total: total}, err
+}
+
+func (s *Service) list(ctx context.Context, centerID uuid.UUID, f ListFilter) (items []ListItem, nextCursor string, total int64, err error) {
 	p := sqlc.ListStudentsParams{CenterID: centerID, GroupID: f.GroupID, HideLeft: f.HideLeft && f.Status == ""}
 	switch f.Status {
 	case "":
 	case StatusActive, StatusPaused, StatusLeft:
 		p.Status = &f.Status
 	default:
-		return nil, "", validate.Errorf("status", "Статус — active, paused или left")
+		return nil, "", 0, validate.Errorf("status", "Статус — active, paused или left")
 	}
 	switch f.Tg {
 	case "":
 	case "none", "active", "stopped", "blocked":
 		p.Tg = &f.Tg
 	default:
-		return nil, "", validate.Errorf("tg", "tg — none, active, stopped или blocked")
+		return nil, "", 0, validate.Errorf("tg", "tg — none, active, stopped или blocked")
 	}
 	limit := f.Limit
 	if limit == 0 {
 		limit = DefaultLimit
 	}
 	if limit < 1 || limit > MaxLimit {
-		return nil, "", validate.Errorf("limit", "limit — от 1 до %d", MaxLimit)
+		return nil, "", 0, validate.Errorf("limit", "limit — от 1 до %d", MaxLimit)
 	}
 	p.Lim = int32(limit + 1) // +1 — узнать, есть ли следующая страница
 	if q := strings.TrimSpace(f.Q); q != "" {
@@ -272,14 +284,19 @@ func (s *Service) List(ctx context.Context, centerID uuid.UUID, f ListFilter) (i
 	if f.Cursor != "" {
 		c, err := decodeCursor(f.Cursor)
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, err
 		}
 		p.AfterName, p.AfterID = &c.Name, &c.ID
 	}
 
 	rows, err := s.q.ListStudents(ctx, p)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
+	}
+	// Всего под фильтрами (без курсора) — подпись «38 учеников» вместо «30+».
+	if total, err = s.q.CountStudents(ctx, sqlc.CountStudentsParams{CenterID: centerID, Status: p.Status, HideLeft: p.HideLeft,
+		Tg: p.Tg, GroupID: p.GroupID, NameQ: p.NameQ, PhoneQ: p.PhoneQ}); err != nil {
+		return nil, "", 0, err
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -295,11 +312,11 @@ func (s *Service) List(ctx context.Context, centerID uuid.UUID, f ListFilter) (i
 			Balance:  r.Balance,
 		}
 		if err := json.Unmarshal(r.Groups, &it.Groups); err != nil {
-			return nil, "", fmt.Errorf("группы ученика %s: %w", r.ID, err)
+			return nil, "", 0, fmt.Errorf("группы ученика %s: %w", r.ID, err)
 		}
 		items = append(items, it)
 	}
-	return items, nextCursor, nil
+	return items, nextCursor, total, nil
 }
 
 // ParentPatch — изменение родителя ученика (и всех его детей: родитель общий).
@@ -317,7 +334,13 @@ type Patch struct {
 	Parent    *ParentPatch
 	// LeftDate — последний день занятий; только вместе со Status = left (без него — сегодня).
 	LeftDate *civil.Date
+	// CancelFutureCharges — при уходе отменить неотменённые начисления за месяцы после месяца последнего дня
+	// (обычная отмена с причиной LeftCancelReason и записью в журнал); только вместе со Status = left.
+	CancelFutureCharges bool
 }
+
+// LeftCancelReason — причина отмены начислений за месяцы после ухода.
+const LeftCancelReason = "ученик ушёл"
 
 // MaxLeftAhead — дату ухода можно поставить не дальше сегодня + столько дней.
 const MaxLeftAhead = 30
@@ -388,6 +411,9 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 		if p.LeftDate != nil && !leaving {
 			return validate.Errorf("left_date", "Дата ухода — только вместе с переводом в «ушёл»")
 		}
+		if p.CancelFutureCharges && !leaving {
+			return validate.Errorf("cancel_future_charges", "Отмена начислений — только вместе с переводом в «ушёл»")
+		}
 		var leftAt *time.Time
 		if leaving {
 			leftDate := today
@@ -415,6 +441,11 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 					return err
 				}
 			}
+			if p.CancelFutureCharges {
+				if err := cancelChargesAfter(ctx, tx, q, actor, centerID, id, leftDate.FirstOfMonth()); err != nil {
+					return err
+				}
+			}
 		}
 
 		after := studentSnapshot(next)
@@ -436,6 +467,29 @@ func (s *Service) Update(ctx context.Context, actor, centerID, id uuid.UUID, p P
 		return Student{}, err
 	}
 	return s.Get(ctx, centerID, id)
+}
+
+// cancelChargesAfter — уход: начисления за месяцы позже after (месяц последнего дня) отменяются обычной
+// отменой (R15) с причиной «ученик ушёл» и записью ledger.cancel в журнал, как кнопка «Отменить».
+func cancelChargesAfter(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, actor, centerID, studentID uuid.UUID, after civil.Date) error {
+	rows, err := q.ListChargesAfterPeriod(ctx, sqlc.ListChargesAfterPeriodParams{CenterID: centerID, StudentID: studentID, After: after})
+	if err != nil {
+		return err
+	}
+	reason := LeftCancelReason
+	for _, cur := range rows {
+		if _, err := q.CancelOperation(ctx, sqlc.CancelOperationParams{CenterID: centerID, ID: cur.ID, CancelledBy: &actor, CancelReason: &reason}); err != nil {
+			return err
+		}
+		if err := audit.Record(ctx, tx, audit.Entry{
+			CenterID: centerID, UserID: &actor, Action: audit.LedgerCancel, Entity: "ledger", EntityID: &cur.ID,
+			Before: map[string]any{"cancelled": false, "kind": cur.Kind, "amount": cur.Amount, "student_id": cur.StudentID},
+			After:  map[string]any{"cancelled": true, "reason": reason},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkLeftDate — последний день занятий: не раньше начала самой поздней активной записи (иначе запись

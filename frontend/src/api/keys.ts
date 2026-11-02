@@ -7,6 +7,7 @@ export const qk = {
   student: (c: string, id: string) => ['c', c, 'students', 'one', id] as const,
   studentList: (c: string, f: object) => ['c', c, 'students', 'list', f] as const,
   studentAttendance: (c: string, id: string, month: string) => ['c', c, 'students', 'attendance', id, month] as const,
+  parentLookup: (c: string, phone: string) => ['c', c, 'students', 'parent-lookup', phone] as const,
   ledger: (c: string, id?: string) => (id ? (['c', c, 'ledger', id] as const) : (['c', c, 'ledger'] as const)),
   debtors: (c: string, group?: string, status?: string) =>
     group === undefined ? (['c', c, 'debtors'] as const) : (['c', c, 'debtors', group, status ?? 'overdue'] as const),

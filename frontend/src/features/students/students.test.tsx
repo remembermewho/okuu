@@ -129,6 +129,29 @@ describe('карточка ученика', () => {
     expect(within(dialog).getByLabelText('Текст сообщения')).toHaveValue('Саламатсызбы!')
   })
 
+  it('пригласить родителя — бот только на русском: текст один, без выбора языка', async () => {
+    cardApi({
+      [`POST ${C}/parents/p1/invite`]: {
+        status: 201,
+        body: {
+          id: 'i1',
+          bot_url: 'https://t.me/okuu_bot?start=abc',
+          expires_at: '2026-10-27T10:00:00Z',
+          texts: { ru: 'Здравствуйте! Подключитесь' },
+          lang: 'ru',
+          whatsapp_url: 'https://wa.me/996700111222?text=x',
+          tg_status: 'invited',
+        },
+      },
+    })
+    renderRoute('/c/c1/students/s1')
+    await userEvent.click(await screen.findByRole('button', { name: 'Отправить новую ссылку' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Текст сообщения')).toHaveValue('Здравствуйте! Подключитесь')
+    expect(within(dialog).queryByRole('button', { name: 'Кыргызча' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Русский' })).not.toBeInTheDocument()
+  })
+
   it('напомнить о долге — причина, если не отправлено', async () => {
     cardApi({ [`POST ${C}/reminders`]: { body: { sent: 0, messages: 0, skipped: [{ student_id: 's1', reason: 'rate_limited' }] } } })
     renderRoute('/c/c1/students/s1')

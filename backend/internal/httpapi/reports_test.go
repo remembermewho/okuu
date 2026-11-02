@@ -155,6 +155,40 @@ func TestMonthReport(t *testing.T) {
 	assertError(t, admin.do(http.MethodGet, centerPath(f.c.center, "/reports/month/export.xlsx"), nil), http.StatusForbidden, "forbidden")
 }
 
+// Начисления за следующий месяц, сделанные заранее (billing run на 01 следующего месяца — запуском
+// сегодня), в «Долг на конец месяца» текущего не входят; абонемент со сроком позже конца месяца — тоже.
+func TestMonthReportDebtEndExcludesNextMonth(t *testing.T) {
+	c := newCatalog(t, "+996708010001")
+	s := c.student(t, "Асанов Бакыт", "0708 010 101", nil)
+	c.enroll(t, s.ID, map[string]any{"group_id": c.group.ID, "start_date": c.today.FirstOfMonth().String(), "first_month": "full"})
+	report := func() reportResp {
+		t.Helper()
+		rec := c.owner.do(http.MethodGet, centerPath(c.center, "/reports/month?m="+c.today.String()[:7]), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("report: %d %s", rec.Code, rec.Body)
+		}
+		return decode[reportResp](t, rec)
+	}
+	before := report()
+	if before.DebtEnd != 300_000 || before.DebtorsEnd != 1 {
+		t.Fatalf("до начисления: debt_end=%d debtors=%d", before.DebtEnd, before.DebtorsEnd)
+	}
+	next := c.today.FirstOfMonth().AddMonths(1)
+	if res := runMonthly(t, c, next); res.Charged != 1 {
+		t.Fatalf("billing run на %s: %+v", next, res)
+	}
+	// Начисление «за следующий месяц» создано сейчас, но в долг на конец этого месяца не входит.
+	if after := report(); after.DebtEnd != before.DebtEnd || after.DebtorsEnd != 1 {
+		t.Errorf("после billing run на %s: debt_end=%d (было %d), debtors=%d", next, after.DebtEnd, before.DebtEnd, after.DebtorsEnd)
+	}
+	// Ученик только с начислением за следующий месяц — не должник на конец этого.
+	s2 := c.student(t, "Бекова Айжан", "0708 010 102", nil)
+	c.enroll(t, s2.ID, map[string]any{"group_id": c.group.ID, "start_date": next.String(), "first_month": "full"})
+	if after := report(); after.DebtEnd != before.DebtEnd || after.DebtorsEnd != 1 {
+		t.Errorf("запись со следующего месяца: debt_end=%d, debtors=%d", after.DebtEnd, after.DebtorsEnd)
+	}
+}
+
 func TestMonthReportXLSX(t *testing.T) {
 	f := newReportFixture(t)
 	rec := f.c.owner.do(http.MethodGet, centerPath(f.c.center, "/reports/month/export.xlsx?m="+f.m2.String()[:7]), nil)
@@ -179,7 +213,8 @@ func TestMonthReportXLSX(t *testing.T) {
 		}
 	}
 	for label, want := range map[string]string{
-		"Месяц": f.m2.String()[:7], "Начислено, сом": "13000", "Собрано всего, сом": "2800", "  Finik": "300",
+		"Месяц": f.m2.String()[:7], "Начислено, сом": "13000", "Поступило оплат (до вычета возвратов), сом": "2800", "  Finik": "300",
+		"Собрано (за вычетом возвратов), сом": "2700",
 		"Возвраты, сом": "100", "Поправки (± к балансу), сом": "-150", "Долг на конец месяца, сом": "15450",
 		"Должников на конец месяца": "4", "Пришло": "2", "Ушло": "1",
 	} {

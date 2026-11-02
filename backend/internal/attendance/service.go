@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"okuu/internal/audit"
+	"okuu/internal/billing"
 	"okuu/internal/civil"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/groups"
@@ -72,7 +73,7 @@ type StudentMark struct {
 	FullName    string
 	Mark        *string // nil — не отмечен
 	LessonsLeft *int32  // только для абонемента
-	HasDebt     bool    // баланс < 0; преподавателю не отдаётся
+	HasDebt     bool    // должник (R14: долг, срок прошёл); ожидающие оплаты — false; преподавателю не отдаётся
 }
 
 // Lesson — занятие с учениками.
@@ -458,9 +459,30 @@ func (s *Service) withStudents(ctx context.Context, q *sqlc.Queries, centerID uu
 	if err != nil {
 		return Lesson{}, err
 	}
+	// Бейдж «долг» — только у должников (срок прошёл), как во вкладке «Просрочено»; у ожидающих оплаты — нет.
+	var withDebt []uuid.UUID
+	for _, st := range rows {
+		if st.Balance < 0 {
+			withDebt = append(withDebt, st.StudentID)
+		}
+	}
+	var overdue map[uuid.UUID]bool
+	if len(withDebt) > 0 {
+		c, err := q.GetCenter(ctx, centerID)
+		if err != nil {
+			return Lesson{}, err
+		}
+		today, err := civil.Today(s.now(), c.Timezone)
+		if err != nil {
+			return Lesson{}, err
+		}
+		if overdue, err = billing.Overdue(ctx, q, centerID, c.Timezone, today, withDebt); err != nil {
+			return Lesson{}, err
+		}
+	}
 	l.Students = make([]StudentMark, 0, len(rows))
 	for _, st := range rows {
-		m := StudentMark{StudentID: st.StudentID, FullName: st.FullName, Mark: st.Mark, HasDebt: st.Balance < 0}
+		m := StudentMark{StudentID: st.StudentID, FullName: st.FullName, Mark: st.Mark, HasDebt: overdue[st.StudentID]}
 		if st.TariffKind == "package" {
 			m.LessonsLeft = st.LessonsLeft
 		}

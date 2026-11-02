@@ -19,12 +19,18 @@ WHERE center_id = @center_id AND cancelled_at IS NULL;
 -- name: ReportDebtorsAt :many
 -- Отрицательные балансы на момент @to_at: операции, созданные до него, без отменённых
 -- (статус отмены — текущий: отменённую позже операцию считаем отменённой и в прошлом).
+-- Списания — только за этот месяц и раньше: начисление с периодом — period ≤ @period_end, без периода
+-- (абонемент, поправка, возврат) — срок (due_date) ≤ @period_end; начисления за следующие месяцы,
+-- сделанные заранее, в долг на конец месяца не входят.
 SELECT s.id, s.full_name, s.status, p.name AS parent_name, p.phone AS parent_phone, b.balance
 FROM students s
 LEFT JOIN parents p ON p.id = s.parent_id
 CROSS JOIN LATERAL (
   SELECT COALESCE(sum(l.amount), 0)::bigint AS balance FROM ledger l
   WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL AND l.created_at < @to_at::timestamptz
+    AND (l.amount >= 0
+      OR (l.period IS NOT NULL AND l.period <= @period_end::date)
+      OR (l.period IS NULL AND (l.due_date IS NULL OR l.due_date <= @period_end::date)))
 ) b
 WHERE s.center_id = @center_id AND b.balance < 0
 ORDER BY b.balance, s.full_name, s.id;

@@ -246,6 +246,66 @@ func (q *Queries) ListParentChildNames(ctx context.Context, arg ListParentChildN
 	return items, nil
 }
 
+const listParentChildrenMarks = `-- name: ListParentChildrenMarks :many
+SELECT a.student_id, ls.date, ls.start_time, g.id AS group_id, g.name AS group_name, a.status
+FROM attendance a
+JOIN lessons ls ON ls.id = a.lesson_id
+JOIN groups g ON g.id = ls.group_id
+JOIN students s ON s.id = a.student_id AND s.center_id = ls.center_id
+WHERE ls.center_id = $1 AND s.parent_id = $2 AND NOT ls.cancelled
+  AND ls.date BETWEEN $3 AND $4
+ORDER BY ls.date, ls.start_time, g.name, g.id
+`
+
+type ListParentChildrenMarksParams struct {
+	CenterID uuid.UUID  `json:"center_id"`
+	ParentID *uuid.UUID `json:"parent_id"`
+	FromDate civil.Date `json:"from_date"`
+	ToDate   civil.Date `json:"to_date"`
+}
+
+type ListParentChildrenMarksRow struct {
+	StudentID uuid.UUID       `json:"student_id"`
+	Date      civil.Date      `json:"date"`
+	StartTime civil.TimeOfDay `json:"start_time"`
+	GroupID   uuid.UUID       `json:"group_id"`
+	GroupName string          `json:"group_name"`
+	Status    string          `json:"status"`
+}
+
+// Отметки детей родителя за [from, to] для «Посещения»: дата, группа, отметка; без отменённых занятий.
+func (q *Queries) ListParentChildrenMarks(ctx context.Context, arg ListParentChildrenMarksParams) ([]ListParentChildrenMarksRow, error) {
+	rows, err := q.db.Query(ctx, listParentChildrenMarks,
+		arg.CenterID,
+		arg.ParentID,
+		arg.FromDate,
+		arg.ToDate,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListParentChildrenMarksRow{}
+	for rows.Next() {
+		var i ListParentChildrenMarksRow
+		if err := rows.Scan(
+			&i.StudentID,
+			&i.Date,
+			&i.StartTime,
+			&i.GroupID,
+			&i.GroupName,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listParentChildrenSummary = `-- name: ListParentChildrenSummary :many
 SELECT s.id, s.full_name, s.status,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l

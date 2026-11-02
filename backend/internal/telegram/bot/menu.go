@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"okuu/internal/civil"
+	"okuu/internal/db/sqlc"
 	"okuu/internal/notify"
 	"okuu/internal/telegram"
 )
@@ -111,6 +112,15 @@ type kid struct {
 	Absent   int32
 	Excused  int32
 	Packages []packageInfo
+	Marks    []mark // отметки за месяц по датам
+}
+
+// mark — отметка посещаемости для «Посещения».
+type mark struct {
+	Date    civil.Date
+	GroupID uuid.UUID
+	Group   string
+	Status  string
 }
 
 // chatKids — дети всех родителей чата (по центрам). Ушедшие без долга не показываются.
@@ -126,9 +136,18 @@ func (b *Bot) chatKids(ctx context.Context, chatID int64) (kids []kid, tx *notif
 		if err != nil {
 			return nil, nil, true, err
 		}
-		rows, err := b.q.ListParentChildrenSummary(ctx, summaryParams(p.CenterID, p.ID, today))
+		sp := summaryParams(p.CenterID, p.ID, today)
+		rows, err := b.q.ListParentChildrenSummary(ctx, sp)
 		if err != nil {
 			return nil, nil, true, err
+		}
+		markRows, err := b.q.ListParentChildrenMarks(ctx, sqlc.ListParentChildrenMarksParams{CenterID: sp.CenterID, ParentID: sp.ParentID, FromDate: sp.FromDate, ToDate: sp.ToDate})
+		if err != nil {
+			return nil, nil, true, err
+		}
+		marks := map[uuid.UUID][]mark{}
+		for _, m := range markRows {
+			marks[m.StudentID] = append(marks[m.StudentID], mark{Date: m.Date, GroupID: m.GroupID, Group: m.GroupName, Status: m.Status})
 		}
 		for _, r := range rows {
 			if r.Status == "left" && r.Balance == 0 {
@@ -139,7 +158,7 @@ func (b *Bot) chatKids(ctx context.Context, chatID int64) (kids []kid, tx *notif
 				return nil, nil, true, fmt.Errorf("абонементы ученика %s: %w", r.ID, err)
 			}
 			kids = append(kids, kid{ID: r.ID, Name: r.FullName, CenterID: p.CenterID, Center: p.CenterName, Month: int(today.Month()),
-				Balance: r.Balance, Present: r.Present, Absent: r.Absent, Excused: r.Excused, Packages: pkgs})
+				Balance: r.Balance, Present: r.Present, Absent: r.Absent, Excused: r.Excused, Packages: pkgs, Marks: marks[r.ID]})
 		}
 	}
 	return kids, tx, true, nil
@@ -268,11 +287,29 @@ func (b *Bot) showAttendance(ctx context.Context, chatID int64, target string) e
 	if shown == nil {
 		return b.send(ctx, chatID, tx.ChooseChild, chooseKeyboard(tx, kids, cbAtt))
 	}
-	lines := []string{tx.AttendanceHeader(shown[0].Month)}
+	blocks := []string{tx.AttendanceHeader(shown[0].Month)}
 	for _, k := range shown {
-		lines = append(lines, "", tx.AttendanceChild(k.Name, k.Center, k.Present, k.Absent, k.Excused))
+		blocks = append(blocks, attendanceBlock(tx, k))
 	}
-	return b.send(ctx, chatID, strings.Join(lines, "\n"), &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{backRow(tx)}})
+	return b.sendChunks(ctx, chatID, blocks, &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{backRow(tx)}})
+}
+
+// attendanceBlock — ребёнок: счётчики за месяц и под ними даты («02.11 — по уважительной»); группа
+// в строке — только если за месяц отметки в нескольких группах.
+func attendanceBlock(tx *notify.Texts, k kid) string {
+	lines := []string{tx.AttendanceChild(k.Name, k.Center, k.Present, k.Absent, k.Excused)}
+	groups := map[uuid.UUID]bool{}
+	for _, m := range k.Marks {
+		groups[m.GroupID] = true
+	}
+	for _, m := range k.Marks {
+		group := ""
+		if len(groups) > 1 {
+			group = m.Group
+		}
+		lines = append(lines, tx.AttendanceMark(m.Date, m.Status, group))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // showHowToPay — «Как оплатить»: реквизиты и инструкция центра (pay_details) как есть, блок на каждый центр чата

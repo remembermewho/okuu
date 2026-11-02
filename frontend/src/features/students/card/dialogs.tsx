@@ -73,7 +73,9 @@ export function CancelOperationDialog({ ledgerId, onClose }: { ledgerId: string 
 export function InviteParentDialog({ invite, onClose }: { invite: Schemas['ParentInvite'] | null; onClose: () => void }) {
   const [lang, setLang] = useState<'ru' | 'ky'>('ru')
   if (!invite) return null
-  const text = invite.texts[lang]
+  // Языки — те, на которых говорит бот (BOT_LANGUAGES): только русский — переключателя нет.
+  const langs = (['ru', 'ky'] as const).filter((l) => invite.texts[l] !== undefined)
+  const text = invite.texts[lang] ?? invite.texts.ru
   return (
     <Dialog
       open
@@ -90,13 +92,15 @@ export function InviteParentDialog({ invite, onClose }: { invite: Schemas['Paren
             {ru.student.whatsapp}
           </ButtonAnchor>
         </div>
-        <div className={s.langSwitch} role="group" aria-label={ru.student.inviteLangLabel}>
-          {(['ru', 'ky'] as const).map((l) => (
-            <Button key={l} size="sm" variant={lang === l ? 'primary' : 'secondary'} aria-pressed={lang === l} onClick={() => setLang(l)}>
-              {ru.student.inviteLang[l]}
-            </Button>
-          ))}
-        </div>
+        {langs.length > 1 && (
+          <div className={s.langSwitch} role="group" aria-label={ru.student.inviteLangLabel}>
+            {langs.map((l) => (
+              <Button key={l} size="sm" variant={lang === l ? 'primary' : 'secondary'} aria-pressed={lang === l} onClick={() => setLang(l)}>
+                {ru.student.inviteLang[l]}
+              </Button>
+            ))}
+          </div>
+        )}
         <Textarea label={ru.student.inviteText} value={text} readOnly rows={5} />
         <CopyButton text={text} label={ru.student.copyText} />
       </div>
@@ -106,8 +110,8 @@ export function InviteParentDialog({ invite, onClose }: { invite: Schemas['Paren
 
 const enrollSchema = z.object({ enroll: enrollFields })
 
-/** Записать ученика в группу (из карточки). */
-export function EnrollDialog({ studentId, open, onClose }: { studentId: string; open: boolean; onClose: () => void }) {
+/** Записать ученика в группу (из карточки); суммы в подсказках — со скидкой ученика. */
+export function EnrollDialog({ studentId, discount, open, onClose }: { studentId: string; discount?: Schemas['Discount'] | null; open: boolean; onClose: () => void }) {
   const c = useCenter()
   const groups = useGroups(c.id)
   const tariffs = useTariffs(c.id)
@@ -163,7 +167,7 @@ export function EnrollDialog({ studentId, open, onClose }: { studentId: string; 
     >
       <FormProvider {...form}>
         <form id="enroll-form" className={layout.stack} onSubmit={onSubmit} noValidate>
-          <EnrollFields groups={groups.data ?? []} tariffs={tariffs.data ?? []} />
+          <EnrollFields groups={groups.data ?? []} tariffs={tariffs.data ?? []} discount={discount} />
           <FormError>{formError}</FormError>
         </form>
       </FormProvider>

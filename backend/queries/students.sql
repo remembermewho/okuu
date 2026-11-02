@@ -34,6 +34,22 @@ SET full_name = @full_name, birth_date = @birth_date, status = @status,
 WHERE center_id = @center_id AND id = @id
 RETURNING *;
 
+-- name: CountStudents :one
+-- Сколько всего учеников под теми же фильтрами, что ListStudents (без курсора) — «38 учеников», а не «30+».
+SELECT count(*)::bigint
+FROM students s
+LEFT JOIN parents p ON p.id = s.parent_id
+WHERE s.center_id = @center_id
+  AND (sqlc.narg(status)::text IS NULL OR s.status = sqlc.narg(status)::text)
+  AND (NOT sqlc.arg(hide_left)::boolean OR s.status <> 'left')
+  AND (sqlc.narg(tg)::text IS NULL OR COALESCE(p.tg_status, 'none') = sqlc.narg(tg)::text)
+  AND (sqlc.narg(group_id)::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM enrollments e
+        WHERE e.student_id = s.id AND e.group_id = sqlc.narg(group_id)::uuid AND e.end_date IS NULL))
+  AND (sqlc.narg(name_q)::text IS NULL
+       OR s.full_name ILIKE sqlc.narg(name_q)::text
+       OR (sqlc.narg(phone_q)::text IS NOT NULL AND p.phone LIKE sqlc.narg(phone_q)::text));
+
 -- name: ListStudents :many
 -- Фильтры: NULL — не фильтровать. name_q/phone_q — готовые шаблоны LIKE (экранированы в коде).
 -- Пагинация по ключу (full_name, id): after_* — последняя строка предыдущей страницы.

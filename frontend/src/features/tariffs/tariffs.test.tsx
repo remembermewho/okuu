@@ -15,7 +15,8 @@ describe('тарифы', () => {
     mockApi({ 'GET /api/v1/me': { body: meAdmin }, [`GET ${C}/tariffs`]: { body: list([tariffMonth, tariffPackage]) } })
     renderRoute('/c/c1/tariffs')
     expect(await screen.findByText('Абонемент · за 8 занятий')).toBeInTheDocument()
-    expect(screen.getByText('В месяц · в месяц')).toBeInTheDocument()
+    expect(screen.getByText('В месяц')).toBeInTheDocument()
+    expect(screen.queryByText(/в месяц · в месяц/i)).not.toBeInTheDocument()
     expect(screen.getByText(/2\s400\sс/)).toBeInTheDocument()
   })
 

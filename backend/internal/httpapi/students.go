@@ -107,6 +107,8 @@ type patchStudentRequest struct {
 		Phone optional.Field[string] `json:"phone"`
 	} `json:"parent"`
 	LeftDate *civil.Date `json:"left_date"` // последний день занятий, только со status = left
+	// CancelFutureCharges — отменить начисления за месяцы после месяца последнего дня (только со status = left).
+	CancelFutureCharges bool `json:"cancel_future_charges"`
 }
 
 type enrollRequest struct {
@@ -150,13 +152,13 @@ func (h *handlers) listStudents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m, _ := auth.MembershipFrom(r.Context())
-	items, next, err := h.students.List(r.Context(), m.CenterID, f)
+	page, err := h.students.List(r.Context(), m.CenterID, f)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	out := make([]studentListItemDTO, 0, len(items))
-	for _, it := range items {
+	out := make([]studentListItemDTO, 0, len(page.Items))
+	for _, it := range page.Items {
 		groups := make([]refDTO, 0, len(it.Groups))
 		for _, g := range it.Groups {
 			groups = append(groups, refDTO{ID: g.ID, Name: g.Name})
@@ -166,7 +168,13 @@ func (h *handlers) listStudents(w http.ResponseWriter, r *http.Request) {
 			Parent: toParentDTO(it.Parent), Groups: groups, Balance: it.Balance,
 		})
 	}
-	httpx.JSON(w, http.StatusOK, pageOf(out, next))
+	httpx.JSON(w, http.StatusOK, studentPageDTO{listDTO: pageOf(out, page.NextCursor), Total: page.Total})
+}
+
+// studentPageDTO — страница учеников и total — сколько всего под фильтрами.
+type studentPageDTO struct {
+	listDTO[studentListItemDTO]
+	Total int64 `json:"total"`
 }
 
 func (h *handlers) createStudent(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +219,8 @@ func (h *handlers) patchStudent(w http.ResponseWriter, r *http.Request) {
 		badJSON(w)
 		return
 	}
-	p := students.Patch{FullName: req.FullName, BirthDate: req.BirthDate, Status: req.Status, Discount: req.Discount, LeftDate: req.LeftDate}
+	p := students.Patch{FullName: req.FullName, BirthDate: req.BirthDate, Status: req.Status, Discount: req.Discount, LeftDate: req.LeftDate,
+		CancelFutureCharges: req.CancelFutureCharges}
 	if req.Parent != nil {
 		p.Parent = &students.ParentPatch{Name: req.Parent.Name, Phone: req.Parent.Phone}
 	}

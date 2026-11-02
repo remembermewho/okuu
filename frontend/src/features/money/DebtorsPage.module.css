@@ -1,12 +1,14 @@
+/* Четыре итога: на телефоне 2×2, на широком экране — в ряд. */
 .summary {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
 
-@media (min-width: 640px) {
+@media (min-width: 900px) {
   .summary {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -22,9 +24,16 @@
 }
 
 .statValue {
-  font-size: var(--fs-2xl);
+  font-size: var(--fs-xl);
   font-weight: 700;
   line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 640px) {
+  .statValue {
+    font-size: var(--fs-2xl);
+  }
 }
 
 .statDebt {

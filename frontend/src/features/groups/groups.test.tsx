@@ -30,7 +30,7 @@ describe('расписание', () => {
 
   it('проверка: время заполнено и конец позже начала', () => {
     expect(checkSchedule([{ dow: 1, start: '15:00', end: '16:00' }])).toEqual({})
-    expect(checkSchedule([{ dow: 1, start: '', end: '16:00' }, { dow: 2, start: '16:00', end: '15:00' }])).toEqual({ 0: 'Заполните поле', 1: 'Конец позже начала' })
+    expect(checkSchedule([{ dow: 1, start: '', end: '16:00' }, { dow: 2, start: '16:00', end: '15:00' }])).toEqual({ 0: 'Заполните поле', 1: 'Конец должен быть позже начала' })
   })
 })
 
@@ -98,7 +98,7 @@ describe('группы', () => {
     await userEvent.type(within(dialog).getByLabelText('Вт: начало'), '16:00')
     await userEvent.type(within(dialog).getByLabelText('Вт: конец'), '15:00')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Создать' }))
-    expect(await within(dialog).findByText('Конец позже начала')).toBeInTheDocument()
+    expect(await within(dialog).findByText('Конец должен быть позже начала')).toBeInTheDocument()
     expect(calls.some((r) => r.method === 'POST')).toBe(false)
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить: Вт' }))

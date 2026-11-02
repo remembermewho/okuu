@@ -250,6 +250,9 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	checked(t, v, c, http.MethodPatch, cp("/students/"+st.ID.String()), map[string]any{"birth_date": "2015-03-01", "discount": nil}, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/students/"+uuid.NewString()), nil, http.StatusNotFound)
 	checked(t, v, c, http.MethodPost, cp("/students"), map[string]any{"full_name": "", "parent": map[string]string{"name": "x", "phone": "1"}}, http.StatusBadRequest)
+	checked(t, v, c, http.MethodGet, cp("/parents/lookup?phone=0709+500+101"), nil, http.StatusOK)
+	checked(t, v, c, http.MethodGet, cp("/parents/lookup?phone=0709500199"), nil, http.StatusOK)
+	checked(t, v, c, http.MethodGet, cp("/parents/lookup?phone=1"), nil, http.StatusBadRequest)
 
 	// деньги
 	c.headers = map[string]string{"Idempotency-Key": uuid.NewString()}

@@ -34,6 +34,9 @@ func TestPluralRU(t *testing.T) {
 	}
 }
 
+// previewDue — срок в примере предпросмотра (settings.preview.child): 05.11.
+var previewDue = civil.New(2026, 11, 5)
+
 // Предпросмотр напоминания в «Настройках» (frontend/src/i18n/ru.ts, settings.preview) повторяет тексты бота —
 // дословно, иначе владелец увидит не то, что получит родитель.
 func TestFrontendPreviewMatchesBot(t *testing.T) {
@@ -47,6 +50,7 @@ func TestFrontendPreviewMatchesBot(t *testing.T) {
 		"PayDetailsMissing": ru.PayDetailsMissing,
 		"BalanceButton":     ru.BalanceButton,
 		"ReminderHeader":    strings.ReplaceAll(ru.ReminderHeader(KindManual, "X", civil.Date{}), "«X»", "«${center}»"),
+		"ReminderChild":     ru.ReminderChild(ChildDebt{Name: "Асанов Бакыт", Debt: 350_000, Due: &previewDue}),
 	} {
 		if !strings.Contains(string(src), "'"+s+"'") && !strings.Contains(string(src), "`"+s+"`") {
 			t.Errorf("%s бота нет в settings.preview (ru.ts): %q", name, s)

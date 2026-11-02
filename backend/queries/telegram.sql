@@ -80,6 +80,17 @@ UPDATE parents SET tg_status = @status
 WHERE telegram_chat_id = @chat_id AND tg_status = ANY(@from_statuses::text[])
 RETURNING id, center_id;
 
+-- name: ListParentChildrenMarks :many
+-- Отметки детей родителя за [from, to] для «Посещения»: дата, группа, отметка; без отменённых занятий.
+SELECT a.student_id, ls.date, ls.start_time, g.id AS group_id, g.name AS group_name, a.status
+FROM attendance a
+JOIN lessons ls ON ls.id = a.lesson_id
+JOIN groups g ON g.id = ls.group_id
+JOIN students s ON s.id = a.student_id AND s.center_id = ls.center_id
+WHERE ls.center_id = @center_id AND s.parent_id = @parent_id AND NOT ls.cancelled
+  AND ls.date BETWEEN @from_date AND @to_date
+ORDER BY ls.date, ls.start_time, g.name, g.id;
+
 -- name: ListParentChildrenSummary :many
 -- Дети родителя для /balance: баланс (R13), посещения за [from, to] без отменённых занятий,
 -- активные абонементы с остатком.

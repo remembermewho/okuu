@@ -82,10 +82,10 @@ export function TariffsPage() {
                     {t.name}
                     {t.archived && <Badge>{ru.common.archived}</Badge>}
                   </span>
+                  {/* «В месяц» или «Абонемент · за 8 занятий» — без повтора «в месяц · в месяц». */}
                   <span className={shared.rowMeta}>
                     {ru.tariffs.kinds[t.kind]}
-                    {' · '}
-                    {t.kind === 'package' && t.lessons_count ? ru.tariffs.perPackage(t.lessons_count) : ru.tariffs.perMonth}
+                    {t.kind === 'package' && t.lessons_count ? ` · ${ru.tariffs.perPackage(t.lessons_count)}` : ''}
                   </span>
                 </div>
                 <MoneyText tyiyn={t.price} className={shared.amount} />

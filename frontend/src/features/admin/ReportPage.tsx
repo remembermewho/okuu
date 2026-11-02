@@ -2,7 +2,7 @@ import { Download } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { useCenter } from '@/app/center'
 import { useOnlinePayments } from '@/app/config'
-import { MonthSwitcher } from '@/components/shared'
+import { InfoTip, MonthSwitcher } from '@/components/shared'
 import { Button, Card, CardHeader, ErrorState, MoneyText, PageHeader, SkeletonList, layout, useToast } from '@/components/ui'
 import { ru } from '@/i18n/ru'
 import { formatDate } from '@/utils/date'
@@ -55,8 +55,12 @@ export function ReportPage() {
             <MoneyText tyiyn={r.charged} className={s.value} />
           </Card>
           <Card className={s.big}>
-            <span className={layout.muted}>{ru.report.collected}</span>
-            <MoneyText tyiyn={r.collected.total} className={s.value} />
+            <span className={layout.muted}>
+              {ru.report.collected}
+              <InfoTip label={ru.common.collectedTip} text={ru.common.collectedDef} />
+            </span>
+            <MoneyText tyiyn={r.collected_net} className={s.value} />
+            <span className={s.note}>{ru.report.collectedNote}</span>
           </Card>
           <Card className={`${s.big} ${r.debt_end > 0 ? s.debt : ''}`}>
             <span className={layout.muted}>{ru.report.debtEnd}</span>
@@ -77,6 +81,12 @@ export function ReportPage() {
                   </dd>
                 </div>
               ))}
+              <div className={`${s.line} ${s.total}`}>
+                <dt>{ru.report.paidIn}</dt>
+                <dd>
+                  <MoneyText tyiyn={r.collected.total} />
+                </dd>
+              </div>
               <div className={s.line}>
                 <dt>{ru.report.refunds}</dt>
                 <dd>

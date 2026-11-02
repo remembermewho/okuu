@@ -18,6 +18,8 @@ import (
 
 // DebtEndNote — как считается долг на конец месяца (показывается в отчёте).
 const DebtEndNote = "Сумма отрицательных балансов учеников по операциям, созданным до конца месяца. " +
+	"Начисления за следующие месяцы (их делают заранее) не входят: учитываются начисления за этот месяц и раньше, " +
+	"абонементы и поправки — со сроком не позже конца месяца. " +
 	"Отменённые операции не учитываются — даже если их отменили уже после конца месяца."
 
 // Collected — оплаты месяца по способам.
@@ -101,7 +103,7 @@ func (s *Service) Month(ctx context.Context, centerID uuid.UUID, month civil.Dat
 	if err != nil {
 		return Report{}, err
 	}
-	debtors, err := s.q.ReportDebtorsAt(ctx, sqlc.ReportDebtorsAtParams{CenterID: centerID, ToAt: b.to})
+	debtors, err := s.q.ReportDebtorsAt(ctx, sqlc.ReportDebtorsAtParams{CenterID: centerID, ToAt: b.to, PeriodEnd: b.periodEnd})
 	if err != nil {
 		return Report{}, err
 	}
@@ -142,7 +144,7 @@ func (s *Service) ExportXLSX(ctx context.Context, centerID uuid.UUID, month civi
 	if err != nil {
 		return nil, err
 	}
-	debtors, err := s.q.ReportDebtorsAt(ctx, sqlc.ReportDebtorsAtParams{CenterID: centerID, ToAt: b.to})
+	debtors, err := s.q.ReportDebtorsAt(ctx, sqlc.ReportDebtorsAtParams{CenterID: centerID, ToAt: b.to, PeriodEnd: b.periodEnd})
 	if err != nil {
 		return nil, err
 	}
@@ -168,13 +170,13 @@ func (s *Service) ExportXLSX(ctx context.Context, centerID uuid.UUID, month civi
 	}{
 		{"Месяц", r.Month, false},
 		{"Начислено, сом", som(r.Charged), true},
-		{"Собрано всего, сом", som(r.Collected.Total), true},
+		{"Поступило оплат (до вычета возвратов), сом", som(r.Collected.Total), true},
 		{"  наличные", som(r.Collected.Cash), true},
 		{"  перевод", som(r.Collected.Transfer), true},
 		{"  карта", som(r.Collected.Card), true},
 		{"  Finik", som(r.Collected.Finik), true},
 		{"Возвраты, сом", som(r.Refunds), true},
-		{"Собрано за вычетом возвратов, сом", som(r.CollectedNet), true},
+		{"Собрано (за вычетом возвратов), сом", som(r.CollectedNet), true},
 		{"Поправки (± к балансу), сом", som(r.Corrections), true},
 		{"Долг на конец месяца, сом", som(r.DebtEnd), true},
 		{"Должников на конец месяца", r.DebtorsEnd, false},

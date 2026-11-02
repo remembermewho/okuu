@@ -98,14 +98,18 @@ LEFT JOIN parents p ON p.id = s.parent_id
 CROSS JOIN LATERAL (
   SELECT COALESCE(sum(l.amount), 0)::bigint AS balance FROM ledger l
   WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL AND l.created_at < $1::timestamptz
+    AND (l.amount >= 0
+      OR (l.period IS NOT NULL AND l.period <= $2::date)
+      OR (l.period IS NULL AND (l.due_date IS NULL OR l.due_date <= $2::date)))
 ) b
-WHERE s.center_id = $2 AND b.balance < 0
+WHERE s.center_id = $3 AND b.balance < 0
 ORDER BY b.balance, s.full_name, s.id
 `
 
 type ReportDebtorsAtParams struct {
-	ToAt     time.Time `json:"to_at"`
-	CenterID uuid.UUID `json:"center_id"`
+	ToAt      time.Time  `json:"to_at"`
+	PeriodEnd civil.Date `json:"period_end"`
+	CenterID  uuid.UUID  `json:"center_id"`
 }
 
 type ReportDebtorsAtRow struct {
@@ -119,8 +123,11 @@ type ReportDebtorsAtRow struct {
 
 // Отрицательные балансы на момент @to_at: операции, созданные до него, без отменённых
 // (статус отмены — текущий: отменённую позже операцию считаем отменённой и в прошлом).
+// Списания — только за этот месяц и раньше: начисление с периодом — period ≤ @period_end, без периода
+// (абонемент, поправка, возврат) — срок (due_date) ≤ @period_end; начисления за следующие месяцы,
+// сделанные заранее, в долг на конец месяца не входят.
 func (q *Queries) ReportDebtorsAt(ctx context.Context, arg ReportDebtorsAtParams) ([]ReportDebtorsAtRow, error) {
-	rows, err := q.db.Query(ctx, reportDebtorsAt, arg.ToAt, arg.CenterID)
+	rows, err := q.db.Query(ctx, reportDebtorsAt, arg.ToAt, arg.PeriodEnd, arg.CenterID)
 	if err != nil {
 		return nil, err
 	}

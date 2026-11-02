@@ -111,6 +111,13 @@ var ru = &Texts{
 	AttendanceChild: func(child, center string, present, absent, excused int32) string {
 		return fmt.Sprintf("👤 %s (%s)\nбыл %d, не был %d, по уважительной %d", child, center, present, absent, excused)
 	},
+	AttendanceMark: func(date civil.Date, status, group string) string {
+		label := map[string]string{MarkPresent: "был", MarkAbsent: "не был", MarkExcused: "по уважительной"}[status]
+		if group != "" {
+			label += " (" + group + ")"
+		}
+		return ddmm(date) + " — " + label
+	},
 
 	BalanceCenter: func(center string) string { return "🏫 Центр «" + center + "»" },
 	Balance:       balanceRU,
@@ -141,8 +148,10 @@ var ru = &Texts{
 		switch {
 		case c.DaysOverdue > 0:
 			s += fmt.Sprintf(", просрочено на %d %s", c.DaysOverdue, pluralRU(int64(c.DaysOverdue), "день", "дня", "дней"))
+		case c.DueToday:
+			s += ", срок сегодня"
 		case c.Due != nil:
-			s += ", оплатить до " + ddmm(*c.Due)
+			s += ", срок до " + ddmm(*c.Due)
 		}
 		return s
 	},
@@ -152,8 +161,16 @@ var ru = &Texts{
 	HowToPayHeader:    "Как оплатить:",
 	PayDetailsMissing: "Уточните способ оплаты у администратора центра.",
 
-	Paid: func(center, child string, amount, balance int64) string {
-		return fmt.Sprintf("🏫 Центр «%s»: спасибо, оплата получена — %s сом (%s).\n%s", center, Som(amount), child, balanceRU(balance))
+	Paid: func(center, child string, amount, balance int64, others []ChildDebt) string {
+		head := fmt.Sprintf("Оплата получена: %s сом — %s. Спасибо!", Som(amount), child)
+		if acc, ok := AccusativeRU(child); ok {
+			head = fmt.Sprintf("Оплата получена: %s сом за %s. Спасибо!", Som(amount), acc)
+		}
+		bal := balanceRU(balance)
+		if balance == 0 && len(others) > 0 {
+			bal = "Баланс: 0 сом" // «долгов нет» — только если не должен никто из детей
+		}
+		return paidMessage("🏫 Центр «"+center+"»", head, bal, "Ещё к оплате", "Итого к оплате", balance, others)
 	},
 	PackageLow: func(center, child, group string) string {
 		return fmt.Sprintf("🏫 Центр «%s»: у ученика %s в абонементе (%s) осталось 1 занятие. Пора продлить абонемент.", center, child, group)

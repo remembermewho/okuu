@@ -576,7 +576,8 @@ func TestBotNavigation(t *testing.T) {
 	}
 	att := one(t, u.press(choose, callbackData(t, choose, "Асанова Айпери")))
 	month := int(c.today.Month())
-	wantOne := tx.AttendanceHeader(month) + "\n\n" + tx.AttendanceChild("Асанова Айпери", c.centerName(t), 0, 1, 0)
+	wantOne := tx.AttendanceHeader(month) + "\n\n" + tx.AttendanceChild("Асанова Айпери", c.centerName(t), 0, 1, 0) +
+		"\n" + tx.AttendanceMark(c.today, "absent", "")
 	if att.Text != wantOne || fmt.Sprint(att.Buttons()) != "[« Меню|menu]" {
 		t.Errorf("посещения ребёнка:\n%s\n%v", att.Text, att.Buttons())
 	}
@@ -932,7 +933,7 @@ func TestParentInviteEndpoint(t *testing.T) {
 			t.Errorf("текст %s: %s", lang, text)
 		}
 	}
-	if len(inv.Texts) != 2 || inv.Texts["ru"] == inv.Texts["ky"] {
+	if len(inv.Texts) != 1 || inv.Texts["ru"] == "" { // бот только на русском — и приглашение (TestParentInviteLangs)
 		t.Errorf("тексты: %v", inv.Texts)
 	}
 	wa, err := url.Parse(inv.WhatsAppURL)

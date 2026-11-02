@@ -1,3 +1,22 @@
+/* InfoTip: 44×44 для пальца, но в строке подписи — как значок */
+.tip {
+  margin: -12px -10px -12px -6px;
+  vertical-align: middle;
+  color: var(--text-2);
+}
+
+.tipText {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.tipText[hidden] {
+  display: none;
+}
+
 .month {
   display: inline-flex;
   align-items: center;

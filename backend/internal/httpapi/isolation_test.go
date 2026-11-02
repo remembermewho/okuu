@@ -49,6 +49,7 @@ var isolationCases = map[string]any{
 	},
 	"POST /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/end":   nil,
 	"POST /api/v1/c/{centerId}/students/{studentId}/enrollments/{enrollmentId}/renew": nil,
+	"GET /api/v1/c/{centerId}/parents/lookup":                                         nil,
 	"POST /api/v1/c/{centerId}/parents/{parentId}/invite":                             nil,
 
 	// Деньги. Idempotency-Key клиент чужого центра шлёт всегда (см. тест).

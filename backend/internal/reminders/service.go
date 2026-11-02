@@ -176,8 +176,39 @@ func (s *Service) loadDebts(ctx context.Context, centerID uuid.UUID, tz string, 
 	return out, nil
 }
 
-func childDebt(name string, d billing.Debt) notify.ChildDebt {
-	return notify.ChildDebt{Name: name, Debt: d.Debt, Due: d.OldestDue, DaysOverdue: d.DaysOverdue}
+func childDebt(name string, d billing.Debt, today civil.Date) notify.ChildDebt {
+	return notify.ChildDebt{Name: name, Debt: d.Debt, Due: d.OldestDue, DaysOverdue: d.DaysOverdue,
+		DueToday: d.DaysOverdue == 0 && d.OldestDue != nil && *d.OldestDue == today}
+}
+
+// siblingDebts — остальные дети родителей с долгом (кроме уже попавших в сообщение): в напоминании
+// и в «оплата получена» родитель видит все свои долги в центре. Кому и когда слать, они не меняют.
+func (s *Service) siblingDebts(ctx context.Context, centerID uuid.UUID, tz string, today civil.Date, parents []uuid.UUID, skip map[uuid.UUID]bool) (map[uuid.UUID][]notify.ChildDebt, error) {
+	out := map[uuid.UUID][]notify.ChildDebt{}
+	if len(parents) == 0 {
+		return out, nil
+	}
+	rows, err := s.q.ListReminderStudents(ctx, sqlc.ListReminderStudentsParams{CenterID: centerID, ParentIds: parents, OnlyDebt: true})
+	if err != nil {
+		return nil, err
+	}
+	var ids []uuid.UUID
+	for _, r := range rows {
+		if !skip[r.ID] {
+			ids = append(ids, r.ID)
+		}
+	}
+	debts, err := s.loadDebts(ctx, centerID, tz, today, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if skip[r.ID] || r.ParentID == nil {
+			continue
+		}
+		out[*r.ParentID] = append(out[*r.ParentID], childDebt(r.FullName, debts[r.ID].debt, today))
+	}
+	return out, nil
 }
 
 // payDetails — «Как оплатить» в сообщении о долге: реквизиты и инструкция центра; пусто — notify подставит
@@ -341,7 +372,7 @@ func (s *Service) autoCenter(ctx context.Context, c sqlc.ListCentersForReminders
 			order = append(order, r.parentID)
 		}
 		d := debts[row.ID]
-		g.children = append(g.children, childDebt(row.FullName, d.debt))
+		g.children = append(g.children, childDebt(row.FullName, d.debt, today))
 		g.students = append(g.students, row.ID)
 		// Срабатывают сроки начислений; возвраты и поправки (в том числе начальный долг
 		// из импорта) автоматически не напоминаются — только вручную.
@@ -547,7 +578,7 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 				byParent[cd.r.parentID] = g
 				groups = append(groups, g)
 			}
-			g.children = append(g.children, childDebt(cd.row.FullName, debts[cd.row.ID].debt))
+			g.children = append(g.children, childDebt(cd.row.FullName, debts[cd.row.ID].debt, today))
 			g.students = append(g.students, cd.row.ID)
 		}
 		for _, g := range groups {
@@ -562,6 +593,24 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 	})
 	if err != nil {
 		return res, err
+	}
+
+	// «Напомнить» по одному ученику — в сообщении и остальные дети родителя с долгом. В student_ids
+	// (лимит «раз в час») они не попадают: о них не напоминали, их только показали.
+	var pids []uuid.UUID
+	inMsg := map[uuid.UUID]bool{}
+	for _, g := range groups {
+		pids = append(pids, g.r.parentID)
+		for _, id := range g.students {
+			inMsg[id] = true
+		}
+	}
+	more, err := s.siblingDebts(ctx, centerID, c.Timezone, today, pids, inMsg)
+	if err != nil {
+		return res, err
+	}
+	for _, g := range groups {
+		g.children = append(g.children, more[g.r.parentID]...)
 	}
 
 	details := payDetails(c.PayDetails)
@@ -683,8 +732,20 @@ func (s *Service) eventMessage(ctx context.Context, o sqlc.ListOutboxRow) (recip
 			return recipient{}, "", nil, false, err
 		}
 		r, ok := recipientOf(ev.ParentID, &ev.ParentTgStatus, ev.ParentChatID, &ev.ParentLang)
+		if !ok {
+			return r, "", nil, false, nil
+		}
+		// Другие дети этого родителя в центре с долгом — «Ещё к оплате»; «долгов нет» — только если не должен никто.
+		today, err := civil.Today(s.now(), o.Timezone)
+		if err != nil {
+			return recipient{}, "", nil, false, err
+		}
+		others, err := s.siblingDebts(ctx, o.CenterID, o.Timezone, today, []uuid.UUID{r.parentID}, map[uuid.UUID]bool{o.StudentID: true})
+		if err != nil {
+			return recipient{}, "", nil, false, err
+		}
 		tx := s.langs.For(r.lang)
-		return r, tx.Paid(o.CenterName, ev.FullName, ev.Amount, ev.Balance), bot.BalanceKeyboard(tx), ok, nil
+		return r, tx.Paid(o.CenterName, ev.FullName, ev.Amount, ev.Balance, notify.SortDebts(others[r.parentID])), bot.BalanceKeyboard(tx), true, nil
 
 	case notify.KindPackageLow:
 		if !o.RemindersOn {

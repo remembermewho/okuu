@@ -93,6 +93,13 @@ var ky = &Texts{
 	AttendanceChild: func(child, center string, present, absent, excused int32) string {
 		return fmt.Sprintf("👤 %s (%s)\nкелди %d, келген жок %d, жүйөлүү себеп менен %d", child, center, present, absent, excused)
 	},
+	AttendanceMark: func(date civil.Date, status, group string) string {
+		label := map[string]string{MarkPresent: "келди", MarkAbsent: "келген жок", MarkExcused: "жүйөлүү себеп менен"}[status]
+		if group != "" {
+			label += " (" + group + ")"
+		}
+		return ddmm(date) + " — " + label
+	},
 
 	BalanceCenter: func(center string) string { return "🏫 «" + center + "» борбору" },
 	Balance:       balanceKY,
@@ -124,8 +131,10 @@ var ky = &Texts{
 		switch {
 		case c.DaysOverdue > 0:
 			s += fmt.Sprintf(", %d күн кечикти", c.DaysOverdue)
+		case c.DueToday:
+			s += ", мөөнөтү бүгүн"
 		case c.Due != nil:
-			s += ", " + ddmm(*c.Due) + " чейин төлөө керек"
+			s += ", мөөнөтү " + ddmm(*c.Due) + " чейин"
 		}
 		return s
 	},
@@ -135,8 +144,13 @@ var ky = &Texts{
 	HowToPayHeader:    "Кантип төлөө:",
 	PayDetailsMissing: "Төлөө ыкмасын борбордун администраторунан тактаңыз.",
 
-	Paid: func(center, child string, amount, balance int64) string {
-		return fmt.Sprintf("🏫 «%s» борбору: рахмат, төлөм алынды — %s сом (%s).\n%s", center, Som(amount), child, balanceKY(balance))
+	Paid: func(center, child string, amount, balance int64, others []ChildDebt) string {
+		bal := balanceKY(balance)
+		if balance == 0 && len(others) > 0 {
+			bal = "Баланс: 0 сом"
+		}
+		head := fmt.Sprintf("Төлөм алынды: %s сом — %s. Рахмат!", Som(amount), child)
+		return paidMessage("🏫 «"+center+"» борбору", head, bal, "Дагы төлөө керек", "Жалпы төлөө керек", balance, others)
 	},
 	PackageLow: func(center, child, group string) string {
 		return fmt.Sprintf("🏫 «%s» борбору: %s — абонементте (%s) 1 сабак калды. Абонементти узартуу убагы келди.", center, child, group)

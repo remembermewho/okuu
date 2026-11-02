@@ -1203,6 +1203,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/v1/c/{centerId}/parents/lookup:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [students]
+      operationId: lookupParent
+      summary: Найти родителя по телефону
+      description: |
+        **Роли:** owner, admin. Форма ученика: есть ли в центре родитель с этим телефоном — тогда новый
+        ученик будет у него («Родитель найден: Гульнара (дети: Айдана Токтосунова)»). Не найден — `parent: null`.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: phone
+          in: query
+          required: true
+          description: Телефон в любом принятом виде (`0700 123 456`, `+996700123456`)
+          schema: { type: string }
+      responses:
+        '200':
+          description: Родитель или null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParentLookup' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/c/{centerId}/parents/{parentId}/invite:
     parameters:
       - $ref: '#/components/parameters/CenterId'
@@ -1213,7 +1241,7 @@ paths:
       summary: Пригласить родителя в Telegram-бот
       description: |
         **Роли:** owner, admin. Одноразовая ссылка на бота (30 дней) и готовый текст для WhatsApp
-        на русском и кыргызском; `whatsapp_url` — на языке родителя.
+        на языках бота (`BOT_LANGUAGES`: русский, кыргызский — если включён); `whatsapp_url` — на языке родителя.
         **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
       security: [{ cookieAuth: [] }]
       responses:
@@ -2749,11 +2777,12 @@ components:
         balance: { $ref: '#/components/schemas/Money' }
     StudentList:
       type: object
-      required: [items, next_cursor]
+      required: [items, next_cursor, total]
       additionalProperties: false
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/StudentListItem' } }
         next_cursor: { $ref: '#/components/schemas/NextCursor' }
+        total: { type: integer, format: int64, description: 'Сколько всего учеников под этими фильтрами (на всех страницах)' }
     CreateStudentRequest:
       type: object
       required: [full_name, parent]
@@ -2782,6 +2811,13 @@ components:
             Последний день занятий — только вместе с `status = left` (без него — сегодня). Не раньше начала самой
             поздней активной записи и не позже сегодня + 30 дней. Активные записи закрываются этой датой
             (`end_date`), на занятиях после неё ученика нет.
+        cancel_future_charges:
+          type: boolean
+          default: false
+          description: |
+            Только вместе с `status = left`. Отменить неотменённые начисления за месяцы после месяца
+            последнего дня (`period` > месяц `left_date`) — обычная отмена с причиной «ученик ушёл»,
+            каждая — `ledger.cancel` в журнале. Без `status = left` — `400 validation` (поле `cancel_future_charges`).
         discount: { $ref: '#/components/schemas/NullableDiscount' }
         parent:
           type: object
@@ -2826,6 +2862,24 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/Charge' }
             - { type: 'null' }
+    ParentLookup:
+      type: object
+      required: [parent]
+      additionalProperties: false
+      properties:
+        parent:
+          oneOf:
+            - type: object
+              required: [id, name, children]
+              additionalProperties: false
+              properties:
+                id: { $ref: '#/components/schemas/UUID' }
+                name: { type: string }
+                children:
+                  type: array
+                  description: ФИО учеников родителя, кроме ушедших
+                  items: { type: string }
+            - type: 'null'
     ParentInvite:
       type: object
       required: [id, bot_url, expires_at, texts, lang, whatsapp_url, tg_status]
@@ -2836,12 +2890,16 @@ components:
         expires_at: { $ref: '#/components/schemas/DateTime' }
         texts:
           type: object
-          required: [ru, ky]
+          description: Текст приглашения для WhatsApp — только на языках бота (BOT_LANGUAGES); ru есть всегда, ky — если включён.
+          required: [ru]
           additionalProperties: false
           properties:
             ru: { type: string }
             ky: { type: string }
-        lang: { type: string, enum: [ru, ky] }
+        lang:
+          type: string
+          enum: [ru, ky]
+          description: Язык приглашения в whatsapp_url — язык родителя, если он включён в боте, иначе ru.
         whatsapp_url: { type: string, format: uri }
         tg_status: { $ref: '#/components/schemas/TgStatus' }
 
@@ -3015,7 +3073,7 @@ components:
                   - { type: 'null' }
                 description: null — не отмечен
               lessons_left: { type: [integer, 'null'], description: 'Только у абонемента' }
-              has_debt: { type: boolean, description: 'Только для owner и admin' }
+              has_debt: { type: boolean, description: 'Только для owner и admin. Должник: долг и срок прошёл (как «Просрочено» в должниках); срок сегодня или позже — false' }
     LessonList:
       type: object
       required: [items, next_cursor, today]

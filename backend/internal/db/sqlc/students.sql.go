@@ -13,6 +13,48 @@ import (
 	"okuu/internal/civil"
 )
 
+const countStudents = `-- name: CountStudents :one
+SELECT count(*)::bigint
+FROM students s
+LEFT JOIN parents p ON p.id = s.parent_id
+WHERE s.center_id = $1
+  AND ($2::text IS NULL OR s.status = $2::text)
+  AND (NOT $3::boolean OR s.status <> 'left')
+  AND ($4::text IS NULL OR COALESCE(p.tg_status, 'none') = $4::text)
+  AND ($5::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM enrollments e
+        WHERE e.student_id = s.id AND e.group_id = $5::uuid AND e.end_date IS NULL))
+  AND ($6::text IS NULL
+       OR s.full_name ILIKE $6::text
+       OR ($7::text IS NOT NULL AND p.phone LIKE $7::text))
+`
+
+type CountStudentsParams struct {
+	CenterID uuid.UUID  `json:"center_id"`
+	Status   *string    `json:"status"`
+	HideLeft bool       `json:"hide_left"`
+	Tg       *string    `json:"tg"`
+	GroupID  *uuid.UUID `json:"group_id"`
+	NameQ    *string    `json:"name_q"`
+	PhoneQ   *string    `json:"phone_q"`
+}
+
+// Сколько всего учеников под теми же фильтрами, что ListStudents (без курсора) — «38 учеников», а не «30+».
+func (q *Queries) CountStudents(ctx context.Context, arg CountStudentsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countStudents,
+		arg.CenterID,
+		arg.Status,
+		arg.HideLeft,
+		arg.Tg,
+		arg.GroupID,
+		arg.NameQ,
+		arg.PhoneQ,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createStudent = `-- name: CreateStudent :one
 
 INSERT INTO students (center_id, parent_id, full_name, birth_date, discount_kind, discount_value)

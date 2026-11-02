@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { z } from 'zod'
@@ -12,13 +12,16 @@ import { ru } from '@/i18n/ru'
 import { applyFieldError, errorMessage } from '@/utils/errors'
 import { formatSom, parseSom } from '@/utils/money'
 import { normalizePhone } from '@/utils/phone'
-import { useCreateStudent, useEnroll } from './api'
+import { useCreateStudent, useEnroll, useParentLookup } from './api'
+
+type FoundParent = NonNullable<Schemas['ParentLookup']['parent']>
+
 import { checkEnroll, effectiveTariff, emptyEnroll, enrollBody, EnrollFields, enrollFields } from './enroll'
 
 const base = z.object({
   full_name: nameField(),
   birth_date: z.string(),
-  parent_name: nameField(),
+  parent_name: z.string(), // обязательно, если родителя с этим телефоном ещё нет (superRefine)
   parent_phone: phoneField,
   discount_kind: z.enum(['none', 'fixed', 'percent']),
   discount_value: z.string(),
@@ -64,10 +67,20 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
   const toast = useToast()
   const navigate = useNavigate()
   const [formError, setFormError] = useState<string>()
+  // Существующий родитель: телефон ищем после ухода из поля (с задержкой), подсказка — только если найден.
+  const [lookupPhone, setLookupPhone] = useState<string | null>(null)
+  const lookup = useParentLookup(c.id, lookupPhone)
+  const lookupTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(lookupTimer.current), [])
+  const foundRef = useRef<FoundParent | null>(null)
 
   const schema = useMemo(
     () =>
       base.superRefine((v, ctx) => {
+        if (!foundRef.current) {
+          const name = nameField().safeParse(v.parent_name)
+          if (!name.success) ctx.addIssue({ code: 'custom', path: ['parent_name'], message: name.error.issues[0]?.message ?? ru.errors.required })
+        }
         const t = v.with_enroll ? effectiveTariff(v.enroll, groups.data ?? [], tariffs.data ?? []) : undefined
         checkDiscount(v.discount_kind, v.discount_value, ctx, ['discount_value'], t)
         if (v.with_enroll) checkEnroll(v.enroll, groups.data ?? [], tariffs.data ?? [], ctx, ['enroll'])
@@ -93,16 +106,37 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
     control,
     handleSubmit,
     setError,
+    setValue,
+    getValues,
+    clearErrors,
     reset,
     formState: { errors },
   } = form
   const discountKind = useWatch({ control, name: 'discount_kind' })
+  const discountValue = useWatch({ control, name: 'discount_value' })
   const withEnroll = useWatch({ control, name: 'with_enroll' })
+  const phoneNow = useWatch({ control, name: 'parent_phone' })
+  // Найденный родитель действует, пока телефон в поле — тот же, что искали.
+  const found = lookupPhone !== null && normalizePhone(phoneNow) === lookupPhone ? (lookup.data?.parent ?? null) : null
+  foundRef.current = found
+  useEffect(() => {
+    if (!found) return
+    if (!getValues('parent_name').trim()) setValue('parent_name', found.name)
+    clearErrors('parent_name')
+  }, [found, getValues, setValue, clearErrors])
+  const phoneInput = register('parent_phone')
+  const onPhoneBlur: typeof phoneInput.onBlur = (e) => {
+    const phone = normalizePhone(e.target.value)
+    clearTimeout(lookupTimer.current)
+    lookupTimer.current = setTimeout(() => setLookupPhone(phone), 300)
+    return phoneInput.onBlur(e)
+  }
 
   const close = (o: boolean) => {
     if (!o) {
       reset()
       setFormError(undefined)
+      setLookupPhone(null)
     }
     onOpenChange(o)
   }
@@ -114,7 +148,7 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
       st = await create.mutateAsync({
         full_name: v.full_name,
         birth_date: v.birth_date || null,
-        parent: { name: v.parent_name, phone: normalizePhone(v.parent_phone) ?? v.parent_phone },
+        parent: { name: v.parent_name.trim() || (found?.name ?? ''), phone: normalizePhone(v.parent_phone) ?? v.parent_phone },
         discount: discountBody(v.discount_kind, v.discount_value),
       })
     } catch (err) {
@@ -163,14 +197,22 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
           <div className={`${layout.formGrid} ${layout.formGrid2}`}>
             <Input label={ru.studentForm.fullName} hint={ru.studentForm.fullNameHint} error={errors.full_name?.message} {...register('full_name')} />
             <Input label={ru.studentForm.birthDate} type="date" optional error={errors.birth_date?.message} {...register('birth_date')} />
-            <Input label={ru.studentForm.parentName} autoComplete="off" error={errors.parent_name?.message} {...register('parent_name')} />
+            <Input
+              label={ru.studentForm.parentName}
+              autoComplete="off"
+              optional={found !== null}
+              hint={found ? ru.studentForm.parentNameFound : undefined}
+              error={errors.parent_name?.message}
+              {...register('parent_name')}
+            />
             <Input
               label={ru.studentForm.parentPhone}
               type="tel"
               inputMode="tel"
-              hint={ru.studentForm.parentPhoneHint}
+              hint={found ? ru.studentForm.parentFound(found.name, found.children) : undefined}
               error={errors.parent_phone?.message}
-              {...register('parent_phone')}
+              {...phoneInput}
+              onBlur={onPhoneBlur}
             />
             <Select
               label={ru.studentForm.discountKind}
@@ -195,7 +237,7 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
               <Checkbox label={ru.studentForm.enroll} hint={ru.studentForm.enrollHint} checked={field.value} onChange={(e) => field.onChange(e.target.checked)} />
             )}
           />
-          {withEnroll && <EnrollFields groups={groups.data ?? []} tariffs={tariffs.data ?? []} />}
+          {withEnroll && <EnrollFields groups={groups.data ?? []} tariffs={tariffs.data ?? []} discount={discountBody(discountKind, discountValue)} />}
           <FormError>{formError}</FormError>
         </form>
       </FormProvider>

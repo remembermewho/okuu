@@ -377,6 +377,7 @@ func TestTeacherAttendanceRules(t *testing.T) {
 	debtor := c.student(t, "Должник", "+996706500101", nil) // начисление за месяц — баланс < 0
 	c.enroll(t, debtor.ID, map[string]any{"group_id": own.ID, "start_date": c.today.AddDays(-8).String(), "first_month": "full"})
 	c.enroll(t, debtor.ID, map[string]any{"group_id": foreign.ID, "start_date": c.today.String(), "first_month": "none"})
+	setDue(t, c, debtor.ID, c.today.AddDays(-1)) // срок прошёл — должник (бейдж «долг» у владельца)
 	outsider := c.student(t, "Не из группы", "+996706500102", nil)
 
 	at := func(g groupResp, days int) lessonResp {

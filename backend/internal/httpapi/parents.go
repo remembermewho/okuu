@@ -49,6 +49,35 @@ func (h *handlers) createParentInvite(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type parentLookupDTO struct {
+	Parent *foundParentDTO `json:"parent"` // null — родителя с таким телефоном в центре нет
+}
+
+type foundParentDTO struct {
+	ID       uuid.UUID `json:"id"`
+	Name     string    `json:"name"`
+	Children []string  `json:"children"`
+}
+
+// lookupParent — GET /c/{id}/parents/lookup?phone=: есть ли в центре родитель с этим телефоном
+// (форма ученика: «Родитель найден: …», имя подставляется).
+func (h *handlers) lookupParent(w http.ResponseWriter, r *http.Request) {
+	m, _ := auth.MembershipFrom(r.Context())
+	found, err := h.parents.Lookup(r.Context(), m.CenterID, r.URL.Query().Get("phone"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	var out parentLookupDTO
+	if found != nil {
+		out.Parent = &foundParentDTO{ID: found.ID, Name: found.Name, Children: found.Children}
+		if out.Parent.Children == nil {
+			out.Parent.Children = []string{}
+		}
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
 // webhookEnqueueTimeout — сколько вебхук ждёт места в очереди; дальше 503 и Telegram повторит.
 const webhookEnqueueTimeout = 5 * time.Second
 

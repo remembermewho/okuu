@@ -18,6 +18,22 @@ export type EnrollValues = z.infer<typeof enrollFields>
 
 export const emptyEnroll = (today: string): EnrollValues => ({ group_id: '', tariff_id: '', start_date: today, first_month: 'full', manual_amount: '' })
 
+type Discount = Schemas['Discount']
+
+/** Сумма начисления со скидкой ученика — как на бэкенде (R6): процент — вниз до тыйына, фиксированная — не больше цены. */
+export function discountedPrice(price: number, d?: Discount | null): number {
+  if (!d || !Number.isFinite(d.value) || d.value <= 0) return price
+  if (d.kind === 'fixed') return price - Math.min(d.value, price)
+  return price - Math.floor((price * Math.min(d.value, 100)) / 100)
+}
+
+/** «3 150 с (скидка 10%)» или просто «3 500 с» без скидки. */
+export function priceWithDiscount(price: number, d?: Discount | null): string {
+  const amount = formatSom(discountedPrice(price, d))
+  if (!d || !Number.isFinite(d.value) || d.value <= 0) return amount
+  return ru.studentForm.withDiscount(amount, d.kind === 'percent' ? `${Math.min(d.value, 100)}%` : formatSom(d.value))
+}
+
 /** Тариф записи: выбранный или тариф группы по умолчанию. */
 export function effectiveTariff(v: EnrollValues, groups: Group[] = [], tariffs: Tariff[] = []): Tariff | undefined {
   const id = v.tariff_id || groups.find((g) => g.id === v.group_id)?.default_tariff_id
@@ -48,8 +64,8 @@ export function enrollBody(v: EnrollValues, groups: Group[], tariffs: Tariff[]):
 
 type FormWithEnroll = { enroll: EnrollValues }
 
-/** Группа, тариф, дата начала и «за текущий месяц» (R5). */
-export function EnrollFields({ groups, tariffs }: { groups: Group[]; tariffs: Tariff[] }) {
+/** Группа, тариф, дата начала и «за текущий месяц» (R5); суммы — со скидкой ученика (discount). */
+export function EnrollFields({ groups, tariffs, discount }: { groups: Group[]; tariffs: Tariff[]; discount?: Discount | null }) {
   const {
     register,
     control,
@@ -76,7 +92,7 @@ export function EnrollFields({ groups, tariffs }: { groups: Group[]; tariffs: Ta
         {...register('enroll.tariff_id')}
       />
       <Input label={ru.studentForm.startDate} type="date" error={e?.start_date?.message} {...register('enroll.start_date')} />
-      {t?.kind === 'package' && <p className={layout.muted}>{ru.studentForm.packageNote(t.lessons_count, formatSom(t.price))}</p>}
+      {t?.kind === 'package' && <p className={layout.muted}>{ru.studentForm.packageNote(t.lessons_count, priceWithDiscount(t.price, discount))}</p>}
       {t?.kind === 'monthly' && (
         <>
           <Controller
@@ -91,7 +107,7 @@ export function EnrollFields({ groups, tariffs }: { groups: Group[]; tariffs: Ta
                 options={(['full', 'manual', 'none'] as const).map((k) => ({
                   value: k,
                   label: ru.studentForm.firstMonthOptions[k],
-                  hint: k === 'full' ? formatSom(t.price) : undefined,
+                  hint: k === 'full' ? priceWithDiscount(t.price, discount) : undefined,
                 }))}
               />
             )}

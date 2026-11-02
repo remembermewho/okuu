@@ -362,14 +362,16 @@ CROSS JOIN LATERAL (
 ) b
 WHERE s.center_id = $1
   AND ($2::uuid[] IS NULL OR s.id = ANY($2::uuid[]))
-  AND (NOT $3::bool OR b.balance < 0)
+  AND ($3::uuid[] IS NULL OR s.parent_id = ANY($3::uuid[]))
+  AND (NOT $4::bool OR b.balance < 0)
 ORDER BY s.full_name, s.id
 `
 
 type ListReminderStudentsParams struct {
-	CenterID uuid.UUID   `json:"center_id"`
-	Ids      []uuid.UUID `json:"ids"`
-	OnlyDebt bool        `json:"only_debt"`
+	CenterID  uuid.UUID   `json:"center_id"`
+	Ids       []uuid.UUID `json:"ids"`
+	ParentIds []uuid.UUID `json:"parent_ids"`
+	OnlyDebt  bool        `json:"only_debt"`
 }
 
 type ListReminderStudentsRow struct {
@@ -382,9 +384,15 @@ type ListReminderStudentsRow struct {
 	Balance        int64      `json:"balance"`
 }
 
-// Ученики центра с балансом и родителем. ids NULL — все; only_debt — только с отрицательным балансом.
+// Ученики центра с балансом и родителем. ids NULL — все; parent_ids — только дети этих родителей
+// (все долги родителя в сообщении); only_debt — только с отрицательным балансом.
 func (q *Queries) ListReminderStudents(ctx context.Context, arg ListReminderStudentsParams) ([]ListReminderStudentsRow, error) {
-	rows, err := q.db.Query(ctx, listReminderStudents, arg.CenterID, arg.Ids, arg.OnlyDebt)
+	rows, err := q.db.Query(ctx, listReminderStudents,
+		arg.CenterID,
+		arg.Ids,
+		arg.ParentIds,
+		arg.OnlyDebt,
+	)
 	if err != nil {
 		return nil, err
 	}

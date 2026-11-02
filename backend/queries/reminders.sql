@@ -74,7 +74,8 @@ WHERE reminders_on AND NOT is_demo AND status = 'active' -- демо, заявк
 ORDER BY id;
 
 -- name: ListReminderStudents :many
--- Ученики центра с балансом и родителем. ids NULL — все; only_debt — только с отрицательным балансом.
+-- Ученики центра с балансом и родителем. ids NULL — все; parent_ids — только дети этих родителей
+-- (все долги родителя в сообщении); only_debt — только с отрицательным балансом.
 SELECT s.id, s.full_name, s.parent_id, p.tg_status AS parent_tg_status, p.telegram_chat_id AS parent_chat_id,
        p.lang AS parent_lang, b.balance
 FROM students s
@@ -85,6 +86,7 @@ CROSS JOIN LATERAL (
 ) b
 WHERE s.center_id = @center_id
   AND (sqlc.narg(ids)::uuid[] IS NULL OR s.id = ANY(sqlc.narg(ids)::uuid[]))
+  AND (sqlc.narg(parent_ids)::uuid[] IS NULL OR s.parent_id = ANY(sqlc.narg(parent_ids)::uuid[]))
   AND (NOT @only_debt::bool OR b.balance < 0)
 ORDER BY s.full_name, s.id;
 

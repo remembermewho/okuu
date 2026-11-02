@@ -215,7 +215,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config, pool *pg
 		Importer:   importer.NewService(pool, studentsSvc, groupsSvc, time.Now),
 		Settings:   settings.NewService(pool, time.Now),
 		Reports:    reports.NewService(pool, time.Now),
-		Parents:    parents.NewService(pool, cfg.Telegram.Username),
+		Parents:    parents.NewService(pool, cfg.Telegram.Username).WithLangs(cfg.BotLanguages),
 		Platform:   platform.NewService(pool, authSvc, time.Now),
 		Pool:       pool,
 		AppOrigin:  cfg.AppOrigin,

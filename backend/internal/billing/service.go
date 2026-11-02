@@ -416,6 +416,31 @@ func (s *Service) Debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 	return overdue, sum, nil
 }
 
+// Overdue — кто из учеников ids должник по R14 (долг и срок прошёл), как во вкладке «Просрочено»;
+// у ожидающих оплаты (срок сегодня или позже) — false. tz — пояс центра, today — сегодня в нём.
+func Overdue(ctx context.Context, q *sqlc.Queries, centerID uuid.UUID, tz string, today civil.Date, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
+	out := map[uuid.UUID]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := q.ListActiveOperations(ctx, sqlc.ListActiveOperationsParams{CenterID: centerID, StudentIds: ids})
+	if err != nil {
+		return nil, err
+	}
+	ops := map[uuid.UUID][]Op{}
+	for _, r := range rows {
+		on, err := civil.DateIn(r.CreatedAt, tz)
+		if err != nil {
+			return nil, err
+		}
+		ops[r.StudentID] = append(ops[r.StudentID], Op{ID: r.ID, Kind: r.Kind, Amount: r.Amount, DueDate: r.DueDate, CreatedAt: r.CreatedAt, CreatedOn: on})
+	}
+	for _, id := range ids {
+		out[id] = ComputeDebt(ops[id], today).IsDebtor
+	}
+	return out, nil
+}
+
 // debtors — должники (просрочено) и ожидающие оплаты (отрицательный баланс, срок не наступил).
 func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid.UUID, today civil.Date, tz string) (overdue, pending []Debtor, err error) {
 	overdue, pending = []Debtor{}, []Debtor{}

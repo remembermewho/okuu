@@ -160,7 +160,7 @@ func TestRemindersAutoKindsAndTiming(t *testing.T) {
 		m := msgs[len(msgs)-1]
 		overdue := max(0, day-5)
 		wantText := notify.DebtReminder(notify.For("ru"), kind, c.centerName(t), due,
-			[]notify.ChildDebt{{Name: "Асанов Бакыт", Debt: 300_000, Due: &due, DaysOverdue: overdue}},
+			[]notify.ChildDebt{{Name: "Асанов Бакыт", Debt: 300_000, Due: &due, DaysOverdue: overdue, DueToday: day == 5}},
 			"MBank: 0700 000 000 (Айгуль А.)")
 		if m.Text != wantText {
 			t.Errorf("день %d:\n%s\nwant:\n%s", day, m.Text, wantText)
@@ -534,7 +534,7 @@ func TestRemindersManual(t *testing.T) {
 	}
 	m := one(t, env.tg.Messages(chat))
 	// Реквизиты в центре не заданы — «Как оплатить: уточните у администратора»; кнопок оплаты нет.
-	for _, want := range []string{"напоминание об оплате", "Алиев Азамат — 3 000 сом", "Алиева Айжан — 3 000 сом", "Итого: 6 000 сом", "оплатить до",
+	for _, want := range []string{"напоминание об оплате", "Алиев Азамат — 3 000 сом", "Алиева Айжан — 3 000 сом", "Итого: 6 000 сом", "срок до",
 		"Как оплатить:\nУточните способ оплаты у администратора центра.", "Если вы уже оплатили"} {
 		if !strings.Contains(m.Text, want) {
 			t.Errorf("сообщение без %q:\n%s", want, m.Text)
@@ -600,7 +600,8 @@ func TestNotifyPaid(t *testing.T) {
 	if n := env.dispatch(t); n != 1 {
 		t.Fatalf("отправлено %d", n)
 	}
-	if m := one(t, env.tg.Messages(chat)); m.Text != notify.For("ru").Paid(c.centerName(t), "Сыдыков Арген", 100_000, -200_000) {
+	want := "🏫 Центр «" + c.centerName(t) + "»\nОплата получена: 1 000 сом за Сыдыкова Аргена. Спасибо!\nБаланс: долг 2 000 сом"
+	if m := one(t, env.tg.Messages(chat)); m.Text != want {
 		t.Errorf("текст: %q", m.Text)
 	}
 	if rows := notificationsOf(t, env.api, s.Parent.ID); len(rows) != 1 || rows[0].Kind != "paid" || *rows[0].Key != "paid:"+op.ID.String() {
@@ -757,7 +758,7 @@ func TestDispatcherWakesOnNotify(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond) // диспетчер подписался и разобрал пустую очередь
 	c.mustOp(t, s.ID, pay(100_000))
-	if m := waitMessage(t, env.tg, chat); !strings.Contains(m.Text, "оплата получена") {
+	if m := waitMessage(t, env.tg, chat); !strings.Contains(m.Text, "Оплата получена") {
 		t.Errorf("текст: %q", m.Text)
 	}
 }

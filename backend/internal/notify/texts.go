@@ -4,7 +4,9 @@
 package notify
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -58,6 +60,8 @@ type Texts struct {
 	AllChildren      string
 	AttendanceHeader func(month int) string
 	AttendanceChild  func(child, center string, present, absent, excused int32) string
+	// AttendanceMark — строка отметки: «02.11 — по уважительной»; group — если у ребёнка за месяц несколько групп.
+	AttendanceMark func(date civil.Date, status, group string) string
 
 	// /balance.
 	BalanceCenter func(center string) string
@@ -76,8 +80,9 @@ type Texts struct {
 	HowToPayHeader    string
 	PayDetailsMissing string
 
-	// Событийные.
-	Paid       func(center, child string, amount, balance int64) string
+	// Событийные. Paid: оплата за ребёнка, его баланс после неё и others — другие дети родителя
+	// в этом центре с долгом («Ещё к оплате»).
+	Paid       func(center, child string, amount, balance int64, others []ChildDebt) string
 	PackageLow func(center, child, group string) string
 	Absent     func(center, child, group string, date civil.Date, start string) string
 }
@@ -88,14 +93,16 @@ type ChildDebt struct {
 	Debt        int64       // тыйыны, > 0
 	Due         *civil.Date // срок самого старого непогашенного начисления
 	DaysOverdue int
+	DueToday    bool // срок — сегодня
 }
 
-// DebtReminder — одно сообщение родителю по центру: все дети с долгом и суммы (R18), затем «Как оплатить:»
-// с реквизитами и инструкцией центра как есть (родитель платит сам и отправляет чек администратору).
+// DebtReminder — одно сообщение родителю по центру: все дети с долгом и суммы (R18) — сначала просроченные,
+// затем ожидающие по сроку, — затем «Как оплатить:» с реквизитами и инструкцией центра как есть
+// (родитель платит сам и отправляет чек администратору).
 func DebtReminder(tx *Texts, kind, center string, due civil.Date, children []ChildDebt, payDetails string) string {
 	lines := []string{tx.ReminderHeader(kind, center, due), ""}
 	var total int64
-	for _, c := range children {
+	for _, c := range SortDebts(children) {
 		lines = append(lines, tx.ReminderChild(c))
 		total += c.Debt
 	}
@@ -114,6 +121,61 @@ func HowToPay(tx *Texts, payDetails string) string {
 	}
 	return tx.HowToPayHeader + "\n" + d
 }
+
+// paidMessage — «оплата получена»: центр, строка об оплате, баланс ребёнка и, если должны другие дети родителя
+// в этом центре, «Ещё к оплате» (один — в строку, несколько — списком) с итогом, когда долгов больше одного.
+func paidMessage(center, head, balance, moreLabel, totalLabel string, childBalance int64, others []ChildDebt) string {
+	lines := []string{center, head, balance}
+	if len(others) == 0 {
+		return strings.Join(lines, "\n")
+	}
+	var total int64
+	if childBalance < 0 {
+		total = -childBalance
+	}
+	if len(others) == 1 {
+		lines = append(lines, moreLabel+": "+others[0].Name+" — "+Som(others[0].Debt)+" сом")
+	} else {
+		lines = append(lines, moreLabel+":")
+		for _, o := range others {
+			lines = append(lines, "• "+o.Name+" — "+Som(o.Debt)+" сом")
+		}
+	}
+	for _, o := range others {
+		total += o.Debt
+	}
+	if len(others) > 1 || childBalance < 0 {
+		lines = append(lines, totalLabel+": "+Som(total)+" сом")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// SortDebts — копия списка: сначала просроченные (дольше — выше), затем по сроку; при равенстве — как было.
+func SortDebts(children []ChildDebt) []ChildDebt {
+	out := slices.Clone(children)
+	slices.SortStableFunc(out, func(a, b ChildDebt) int {
+		if c := cmp.Compare(b.DaysOverdue, a.DaysOverdue); c != 0 {
+			return c
+		}
+		switch {
+		case a.Due == nil && b.Due == nil:
+			return 0
+		case a.Due == nil:
+			return 1
+		case b.Due == nil:
+			return -1
+		}
+		return a.Due.Compare(*b.Due)
+	})
+	return out
+}
+
+// Отметки посещаемости (attendance.status).
+const (
+	MarkPresent = "present"
+	MarkAbsent  = "absent"
+	MarkExcused = "excused"
+)
 
 // ddmm — «06.10».
 func ddmm(d civil.Date) string { return fmt.Sprintf("%02d.%02d", d.Day(), int(d.Month())) }

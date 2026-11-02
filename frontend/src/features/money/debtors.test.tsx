@@ -72,6 +72,28 @@ describe('должники', () => {
     expect(screen.getByText(/просрочено 3 дня/)).toBeInTheDocument()
   })
 
+  it('итоги: общий долг = просрочено + ожидают оплаты; «Собрано» — за вычетом возвратов, с определением', async () => {
+    mockApi({ 'GET /api/v1/me': { body: meOwner }, [`GET ${C}/debtors`]: { body: debtors }, [`GET ${C}/groups`]: { body: list([group]) } })
+    renderRoute('/c/c1/debtors')
+    const total = await screen.findByTestId('stat-total')
+    expect(total).toHaveTextContent('Общий долг')
+    expect(total).toHaveTextContent(/6\s900\sс/) // 4 500 + 2 400
+    expect(total).toHaveTextContent('3 ученика — просрочено и ожидают')
+    const overdue = screen.getByTestId('stat-overdue')
+    expect(overdue).toHaveTextContent('Просрочено')
+    expect(overdue).toHaveTextContent(/4\s500\sс/)
+    expect(overdue).toHaveTextContent('2 ученика — срок прошёл')
+    expect(screen.getByTestId('stat-pending')).toHaveTextContent(/2\s400\sс/)
+    const collected = screen.getByTestId('stat-collected')
+    expect(collected).toHaveTextContent(/за вычетом возвратов · начислено 9\s000\sс/)
+    expect(screen.queryByText('Долг')).not.toBeInTheDocument()
+    // Подсказка: по нажатию — определение.
+    const tip = within(collected).getByRole('button', { name: 'Что входит в «Собрано»' })
+    expect(within(collected).getByRole('note', { hidden: true })).not.toBeVisible()
+    await userEvent.click(tip)
+    expect(within(collected).getByRole('note')).toHaveTextContent('за вычетом возвратов этого месяца')
+  })
+
   it('фильтр по группе уходит в запрос', async () => {
     const { calls } = mockApi({ 'GET /api/v1/me': { body: meOwner }, [`GET ${C}/debtors`]: { body: debtors }, [`GET ${C}/groups`]: { body: list([group]) } })
     renderRoute('/c/c1/debtors')

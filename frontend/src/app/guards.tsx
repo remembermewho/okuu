@@ -8,6 +8,7 @@ import { errorMessage, isApiError } from '@/utils/errors'
 import { whatsappUrl } from '@/utils/whatsapp'
 import { useSignOut } from './AppLayout'
 import { CenterContext, centerPath, useCenter } from './center'
+import { NotFoundPage } from './pages'
 import { canSee, homeSection, type Section } from './permissions'
 import s from './layout.module.css'
 
@@ -52,13 +53,16 @@ export function HomeRedirect() {
   )
 }
 
-/** /c/:centerId — центр из /me; чужой центр — на главную; заявка или приостановленный — экран статуса. */
+/**
+ * /c/:centerId — центр из /me; чужой (или несуществующий) центр — «Не найдено» с кнопкой «На главную»,
+ * без молчаливого перехода; заявка или приостановленный — экран статуса.
+ */
 export function CenterScope({ children }: { children: React.ReactNode }) {
   const { centerId } = useParams()
   const me = useMe()
   const centers = me.data?.centers ?? []
   const c = centers.find((x) => x.id === centerId)
-  if (!c) return <Navigate to="/" replace />
+  if (!c) return <NotFoundPage />
   if (c.status !== 'active') return <CenterStatusScreen name={c.name} status={c.status} manyCenters={centers.length > 1} />
   return <CenterContext.Provider value={{ id: c.id, name: c.name, role: c.role, centersCount: centers.length, today: c.today }}>{children}</CenterContext.Provider>
 }

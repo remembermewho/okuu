@@ -312,7 +312,7 @@ func TestPayOnlineWebhook(t *testing.T) {
 	if n := env.dispatch(t); n != 1 {
 		t.Errorf("paid-уведомлений %d", n)
 	}
-	if m := env.tg.Last(u.id); m.Text != notify.For("ru").Paid(c.centerName(t), "Осмонова Мээрим", 300_000, 0) {
+	if m := env.tg.Last(u.id); m.Text != notify.For("ru").Paid(c.centerName(t), "Осмонова Мээрим", 300_000, 0, nil) {
 		t.Errorf("уведомление: %q", m.Text)
 	}
 	if p := decode[payPageResp](t, payPage(anon, tok)); p.Status != "paid" {

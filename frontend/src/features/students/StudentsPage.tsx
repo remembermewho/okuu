@@ -68,7 +68,7 @@ export function StudentsPage() {
     <>
       <PageHeader
         title={ru.students.title}
-        subtitle={list.data ? ru.students.count(items.length, list.hasNextPage) : undefined}
+        subtitle={list.data ? ru.students.count(list.data.pages[0]?.total ?? items.length) : undefined}
         actions={
           <Button icon={<Plus size={18} aria-hidden="true" />} onClick={() => setAdding(true)}>
             {ru.students.add}

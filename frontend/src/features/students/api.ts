@@ -34,6 +34,17 @@ export function useStudent(centerId: string, studentId: string) {
   })
 }
 
+/** Родитель центра с этим телефоном (форма ученика); phone — нормализованный (+996…), null — не искать. */
+export function useParentLookup(centerId: string, phone: string | null) {
+  return useQuery({
+    queryKey: qk.parentLookup(centerId, phone ?? ''),
+    queryFn: () => unwrap(api.GET('/api/v1/c/{centerId}/parents/lookup', { params: { path: { centerId }, query: { phone: phone ?? '' } } })),
+    enabled: phone !== null,
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
 /** После изменений ученика — карточка, списки и должники. */
 function invalidateStudent(qc: ReturnType<typeof useQueryClient>, centerId: string) {
   void qc.invalidateQueries({ queryKey: qk.students(centerId) })

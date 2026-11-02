@@ -247,7 +247,8 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/students/{studentId}/enrollments/{enrollmentId}/end", h.endEnrollment)
 					r.Post("/students/{studentId}/enrollments/{enrollmentId}/renew", h.renewEnrollment)
 
-					// Приглашение родителя в Telegram-бот: ссылка + текст для WhatsApp.
+					// Родитель по телефону (форма ученика) и приглашение в Telegram-бот: ссылка + текст для WhatsApp.
+					r.Get("/parents/lookup", h.lookupParent)
 					r.Post("/parents/{parentId}/invite", h.createParentInvite)
 
 					// Деньги: оплаты, отмены, история, должники (F6).

@@ -89,7 +89,7 @@ export function NotFoundPage() {
         text={ru.errors.notFoundText}
         action={
           <ButtonLink to="/" variant="secondary">
-            {ru.common.back}
+            {ru.errors.toHome}
           </ButtonLink>
         }
       />

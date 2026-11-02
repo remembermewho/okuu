@@ -835,6 +835,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/c/{centerId}/parents/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Найти родителя по телефону
+         * @description **Роли:** owner, admin. Форма ученика: есть ли в центре родитель с этим телефоном — тогда новый
+         *     ученик будет у него («Родитель найден: Гульнара (дети: Айдана Токтосунова)»). Не найден — `parent: null`.
+         */
+        get: operations["lookupParent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/c/{centerId}/parents/{parentId}/invite": {
         parameters: {
             query?: never;
@@ -850,7 +873,7 @@ export interface paths {
         /**
          * Пригласить родителя в Telegram-бот
          * @description **Роли:** owner, admin. Одноразовая ссылка на бота (30 дней) и готовый текст для WhatsApp
-         *     на русском и кыргызском; `whatsapp_url` — на языке родителя.
+         *     на языках бота (`BOT_LANGUAGES`: русский, кыргызский — если включён); `whatsapp_url` — на языке родителя.
          *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
          */
         post: operations["createParentInvite"];
@@ -1895,6 +1918,11 @@ export interface components {
         StudentList: {
             items: components["schemas"]["StudentListItem"][];
             next_cursor: components["schemas"]["NextCursor"];
+            /**
+             * Format: int64
+             * @description Сколько всего учеников под этими фильтрами (на всех страницах)
+             */
+            total: number;
         };
         CreateStudentRequest: {
             full_name: string;
@@ -1915,6 +1943,13 @@ export interface components {
              *     (`end_date`), на занятиях после неё ученика нет.
              */
             left_date?: components["schemas"]["Date"];
+            /**
+             * @description Только вместе с `status = left`. Отменить неотменённые начисления за месяцы после месяца
+             *     последнего дня (`period` > месяц `left_date`) — обычная отмена с причиной «ученик ушёл»,
+             *     каждая — `ledger.cancel` в журнале. Без `status = left` — `400 validation` (поле `cancel_future_charges`).
+             * @default false
+             */
+            cancel_future_charges?: boolean;
             discount?: components["schemas"]["NullableDiscount"];
             parent?: {
                 name?: string;
@@ -1946,6 +1981,14 @@ export interface components {
             enrollment: components["schemas"]["Enrollment"];
             charge: components["schemas"]["Charge"] | null;
         };
+        ParentLookup: {
+            parent: {
+                id: components["schemas"]["UUID"];
+                name: string;
+                /** @description ФИО учеников родителя, кроме ушедших */
+                children: string[];
+            } | null;
+        };
         ParentInvite: {
             id: components["schemas"]["UUID"];
             /**
@@ -1954,11 +1997,15 @@ export interface components {
              */
             bot_url: string;
             expires_at: components["schemas"]["DateTime"];
+            /** @description Текст приглашения для WhatsApp — только на языках бота (BOT_LANGUAGES); ru есть всегда, ky — если включён. */
             texts: {
                 ru: string;
-                ky: string;
+                ky?: string;
             };
-            /** @enum {string} */
+            /**
+             * @description Язык приглашения в whatsapp_url — язык родителя, если он включён в боте, иначе ru.
+             * @enum {string}
+             */
             lang: "ru" | "ky";
             /** Format: uri */
             whatsapp_url: string;
@@ -2089,7 +2136,7 @@ export interface components {
                 status: components["schemas"]["AttendanceStatus"] | null;
                 /** @description Только у абонемента */
                 lessons_left: number | null;
-                /** @description Только для owner и admin */
+                /** @description Только для owner и admin. Должник: долг и срок прошёл (как «Просрочено» в должниках); срок сегодня или позже — false */
                 has_debt?: boolean;
             }[];
         };
@@ -3784,6 +3831,35 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    lookupParent: {
+        parameters: {
+            query: {
+                /** @description Телефон в любом принятом виде (`0700 123 456`, `+996700123456`) */
+                phone: string;
+            };
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Родитель или null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParentLookup"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     createParentInvite: {

@@ -36,6 +36,15 @@ SET cancelled_at = now(), cancelled_by = @cancelled_by, cancel_reason = @cancel_
 WHERE center_id = @center_id AND id = @id AND cancelled_at IS NULL
 RETURNING *;
 
+-- name: ListChargesAfterPeriod :many
+-- Неотменённые начисления ученика за месяцы позже @after (1-е число месяца последнего дня):
+-- уход с «отменить начисления за месяцы после последнего дня».
+SELECT * FROM ledger
+WHERE center_id = @center_id AND student_id = @student_id AND kind = 'charge' AND cancelled_at IS NULL
+  AND period > @after::date
+ORDER BY period, id
+FOR UPDATE;
+
 -- name: ListStudentLedger :many
 -- История ученика: новые сверху, с отменёнными. after_* — последняя строка предыдущей страницы.
 SELECT * FROM ledger

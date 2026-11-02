@@ -15,9 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"okuu/internal/audit"
+	"okuu/internal/auth"
 	"okuu/internal/db/sqlc"
 	"okuu/internal/notify"
 	"okuu/internal/token"
+	"okuu/internal/validate"
 )
 
 var (
@@ -33,6 +35,7 @@ var (
 type Service struct {
 	pool        *pgxpool.Pool
 	botUsername string
+	langs       notify.Langs // языки бота (BOT_LANGUAGES): текст приглашения — только на них
 }
 
 // NewService создаёт сервис; botUsername — имя бота без @ (пустое — приглашения недоступны).
@@ -40,13 +43,19 @@ func NewService(pool *pgxpool.Pool, botUsername string) *Service {
 	return &Service{pool: pool, botUsername: botUsername}
 }
 
+// WithLangs — языки бота (BOT_LANGUAGES). Без вызова — только русский.
+func (s *Service) WithLangs(l notify.Langs) *Service {
+	s.langs = l
+	return s
+}
+
 // Invite — созданное приглашение. Токен из BotURL в БД не хранится (там hex(sha256)).
 type Invite struct {
 	ID          uuid.UUID
 	BotURL      string
 	ExpiresAt   time.Time
-	Texts       map[string]string // текст для WhatsApp на ru и ky
-	Lang        string            // язык родителя: на нём WhatsAppURL
+	Texts       map[string]string // текст для WhatsApp на языках бота: ru всегда, ky — если включён
+	Lang        string            // язык родителя (если включён, иначе ru): на нём WhatsAppURL
 	WhatsAppURL string
 	TgStatus    string // текущий статус связи (приглашение можно прислать и подключённому — например, новый телефон)
 }
@@ -84,20 +93,53 @@ func (s *Service) CreateInvite(ctx context.Context, actor, centerID, parentID uu
 			return fmt.Errorf("приглашение родителя: %w", err)
 		}
 		botURL := "https://t.me/" + s.botUsername + "?start=" + raw
+		lang := s.langs.Resolve(p.Lang)
 		inv = Invite{
-			ID: row.ID, BotURL: botURL, ExpiresAt: row.ExpiresAt, Lang: p.Lang, TgStatus: p.TgStatus,
-			Texts: map[string]string{
-				notify.LangRU: notify.For(notify.LangRU).Invite(p.Name, p.CenterName, botURL),
-				notify.LangKY: notify.For(notify.LangKY).Invite(p.Name, p.CenterName, botURL),
-			},
+			ID: row.ID, BotURL: botURL, ExpiresAt: row.ExpiresAt, Lang: lang, TgStatus: p.TgStatus,
+			Texts: map[string]string{notify.LangRU: notify.For(notify.LangRU).Invite(p.Name, p.CenterName, botURL)},
 		}
-		inv.WhatsAppURL = WhatsAppURL(p.Phone, notify.For(p.Lang).Invite(p.Name, p.CenterName, botURL))
+		if s.langs.Multi() {
+			inv.Texts[notify.LangKY] = notify.For(notify.LangKY).Invite(p.Name, p.CenterName, botURL)
+		}
+		inv.WhatsAppURL = WhatsAppURL(p.Phone, inv.Texts[lang])
 		return audit.Record(ctx, tx, audit.Entry{
 			CenterID: centerID, UserID: &actor, Action: audit.InviteCreate, Entity: "invite", EntityID: &row.ID,
 			After: map[string]any{"kind": "parent", "parent_id": p.ID, "expires_at": row.ExpiresAt},
 		})
 	})
 	return inv, err
+}
+
+// Found — существующий родитель центра по телефону: в форме ученика «Родитель найден: …».
+type Found struct {
+	ID       uuid.UUID
+	Name     string
+	Children []string // ученики родителя, кроме ушедших
+}
+
+// Lookup — родитель центра с этим телефоном (телефон в любом принятом виде) или nil, если такого нет.
+func (s *Service) Lookup(ctx context.Context, centerID uuid.UUID, phone string) (*Found, error) {
+	norm, err := auth.NormalizePhone(phone)
+	var verr *validate.Error
+	if errors.As(err, &verr) {
+		return nil, validate.Errorf("phone", "%s", verr.Message)
+	}
+	if err != nil {
+		return nil, err
+	}
+	q := sqlc.New(s.pool)
+	p, err := q.GetParentByPhone(ctx, sqlc.GetParentByPhoneParams{CenterID: centerID, Phone: norm})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	children, err := q.ListParentChildNames(ctx, sqlc.ListParentChildNamesParams{CenterID: centerID, ParentID: &p.ID})
+	if err != nil {
+		return nil, err
+	}
+	return &Found{ID: p.ID, Name: p.Name, Children: children}, nil
 }
 
 // WhatsAppURL — https://wa.me/<телефон без +>?text=<текст>. Пробелы — %20: «+» WhatsApp

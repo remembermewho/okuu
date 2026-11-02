@@ -2,7 +2,7 @@ import { BellRing, CheckCircle2, Send, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { centerPath, useCenter } from '@/app/center'
-import { StudentStatusBadge, TgBadge } from '@/components/shared'
+import { InfoTip, StudentStatusBadge, TgBadge } from '@/components/shared'
 import shared from '@/components/shared.module.css'
 import { Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, MoneyText, PageHeader, Select, Skeleton, SkeletonList, useToast } from '@/components/ui'
 import { PayDetailsBanner } from '@/features/admin/PayDetailsBanner'
@@ -80,26 +80,33 @@ export function DebtorsPage() {
       <div className={s.summary}>
         {sum ? (
           <>
-            <Card className={s.stat}>
-              <span className={s.statLabel}>
-                {ru.debtors.collected} {ru.debtors.monthOf(month)}
-              </span>
-              <MoneyText tyiyn={sum.collected} className={s.statValue} />
-              <span className={s.statNote}>{ru.debtors.charged(formatSom(sum.charged))}</span>
+            {/* Общий долг = просрочено + ожидают оплаты (все отрицательные балансы центра). */}
+            <Card className={s.stat} data-testid="stat-total">
+              <span className={s.statLabel}>{ru.debtors.totalDebt}</span>
+              <MoneyText tyiyn={sum.debt_total + sum.pending_total} className={s.statValue} />
+              <span className={s.statNote}>{ru.debtors.totalNote(sum.debtors_count + sum.pending_count)}</span>
             </Card>
-            <Card className={`${s.stat} ${s.statDebt}`}>
+            <Card className={`${s.stat} ${s.statDebt}`} data-testid="stat-overdue">
               <span className={s.statLabel}>{ru.debtors.debt}</span>
               <MoneyText tyiyn={sum.debt_total} className={s.statValue} />
               <span className={s.statNote}>{ru.debtors.debtorsCount(sum.debtors_count)}</span>
             </Card>
-            <Card className={s.stat}>
+            <Card className={s.stat} data-testid="stat-pending">
               <span className={s.statLabel}>{ru.debtors.pending}</span>
               <MoneyText tyiyn={sum.pending_total} className={s.statValue} />
               <span className={s.statNote}>{ru.debtors.pendingCount(sum.pending_count)}</span>
             </Card>
+            <Card className={s.stat} data-testid="stat-collected">
+              <span className={s.statLabel}>
+                {ru.debtors.collected} {ru.debtors.monthOf(month)}
+                <InfoTip label={ru.common.collectedTip} text={ru.common.collectedDef} />
+              </span>
+              <MoneyText tyiyn={sum.collected} className={s.statValue} />
+              <span className={s.statNote}>{ru.debtors.collectedNote(formatSom(sum.charged))}</span>
+            </Card>
           </>
         ) : (
-          [0, 1, 2].map((i) => <Skeleton key={i} height={112} />)
+          [0, 1, 2, 3].map((i) => <Skeleton key={i} height={112} />)
         )}
       </div>
 

@@ -7,7 +7,7 @@ import { centerPath, useCenter } from '@/app/center'
 import menu from '@/app/layout.module.css'
 import { can } from '@/app/permissions'
 import { MonthSwitcher, StudentStatusBadge, TgBadge } from '@/components/shared'
-import { Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, ErrorState, Input, MoneyText, PageHeader, Skeleton, SkeletonList, layout, useToast } from '@/components/ui'
+import { Badge, Button, Card, CardHeader, Checkbox, ConfirmDialog, EmptyState, ErrorState, Input, MoneyText, PageHeader, Skeleton, SkeletonList, layout, useToast } from '@/components/ui'
 import { useLedger, useReminders } from '@/features/money/api'
 import { ru } from '@/i18n/ru'
 import { addDays, formatDate, formatDateTime, formatDayMonth, formatMonth } from '@/utils/date'
@@ -65,7 +65,7 @@ export function StudentPage() {
             <StudentStatusBadge status={st.status} />
           </span>
         }
-        subtitle={[st.birth_date && ru.student.birth(formatDate(st.birth_date)), ru.student.created(formatDate(st.created_at.slice(0, 10)))].filter(Boolean).join(' · ')}
+        subtitle={[st.birth_date && ru.student.birth(formatDate(st.birth_date)), ru.student.created(formatDate(inCenterSince(st)))].filter(Boolean).join(' · ')}
         actions={<StudentMenu student={st} onOperation={setOp} />}
       />
       <div className={s.grid}>
@@ -82,6 +82,11 @@ export function StudentPage() {
       <OperationDialog kind={op} studentId={st.id} balance={st.balance} onClose={() => setOp(null)} />
     </>
   )
+}
+
+/** «В центре с» — начало самой ранней записи в группу; записей нет — дата карточки. */
+export function inCenterSince(st: Student): string {
+  return st.enrollments.reduce((min, e) => (e.start_date < min ? e.start_date : min), st.created_at.slice(0, 10))
 }
 
 function StudentMenu({ student, onOperation }: { student: Student; onOperation: (k: OperationKind) => void }) {
@@ -149,6 +154,13 @@ export function LeftDialog({ student, onClose }: { student: Student; onClose: ()
   const max = addDays(c.today, 30)
   const [date, setDate] = useState(min && min > c.today ? min : c.today)
   const [error, setError] = useState<string>()
+  // Начисления за месяцы после месяца последнего дня (их делают заранее): по умолчанию — отменить.
+  // Отменяет сервер по тому же правилу; здесь — список для подписи (из истории операций).
+  const ledger = useLedger(c.id, student.id)
+  const ahead = (ledger.data?.pages.flatMap((p) => p.items) ?? []).filter(
+    (o) => o.kind === 'charge' && !o.cancelled && o.period !== null && o.period.slice(0, 7) > date.slice(0, 7),
+  )
+  const [cancelAhead, setCancelAhead] = useState(true)
 
   const confirm = () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (min && date < min) || date > max) {
@@ -157,7 +169,7 @@ export function LeftDialog({ student, onClose }: { student: Student; onClose: ()
     }
     setError(undefined)
     patch.mutate(
-      { status: 'left', left_date: date },
+      { status: 'left', left_date: date, ...(ahead.length > 0 && cancelAhead ? { cancel_future_charges: true } : {}) },
       {
         onSuccess: () => {
           toast({ message: ru.student.statusChanged, tone: 'success' })
@@ -189,6 +201,14 @@ export function LeftDialog({ student, onClose }: { student: Student; onClose: ()
         error={error}
         onChange={(e) => setDate(e.target.value)}
       />
+      {ahead.length > 0 && (
+        <Checkbox
+          label={ru.student.leftCancelAhead(ahead.map((o) => ru.student.leftAheadItem(formatMonth(o.period!.slice(0, 7)).toLowerCase(), formatSom(-o.amount))).join(', '))}
+          hint={ru.student.leftCancelAheadHint}
+          checked={cancelAhead}
+          onChange={(e) => setCancelAhead(e.target.checked)}
+        />
+      )}
     </ConfirmDialog>
   )
 }
@@ -319,7 +339,7 @@ function EnrollmentsCard({ student }: { student: Student }) {
         ))
       )}
 
-      <EnrollDialog studentId={student.id} open={adding} onClose={() => setAdding(false)} />
+      <EnrollDialog studentId={student.id} discount={student.discount} open={adding} onClose={() => setAdding(false)} />
       <ConfirmDialog
         open={ending !== null}
         onOpenChange={(o) => !o && setEnding(null)}
