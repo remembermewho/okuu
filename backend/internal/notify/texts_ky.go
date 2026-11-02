@@ -156,6 +156,6 @@ var ky = &Texts{
 		return fmt.Sprintf("🏫 «%s» борбору: %s — абонементте (%s) 1 сабак калды. Абонементти узартуу убагы келди.", center, child, group)
 	},
 	Absent: func(center, child, group string, date civil.Date, start string) string {
-		return fmt.Sprintf("🏫 «%s» борбору: %s %s саат %s «%s» сабагына келген жок.", center, child, ddmm(date), start, group)
+		return fmt.Sprintf("🏫 «%s» борбору: %s — %s саат %s «%s» сабагына келген жок.", center, child, ddmm(date), start, group)
 	},
 }

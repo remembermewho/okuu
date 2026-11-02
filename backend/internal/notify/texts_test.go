@@ -58,6 +58,50 @@ func TestFrontendPreviewMatchesBot(t *testing.T) {
 	}
 }
 
+// Напоминание: сначала просроченные (дольше — выше), затем ожидающие по сроку; «срок сегодня», «срок до».
+func TestDebtReminderOrder(t *testing.T) {
+	d := func(s string) *civil.Date {
+		v, err := civil.Parse(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &v
+	}
+	text := DebtReminder(ru, KindManual, "Билим", *d("2026-11-02"), []ChildDebt{
+		{Name: "Азамат", Debt: 100_000, Due: d("2026-11-05")},
+		{Name: "Бакыт", Debt: 200_000, Due: d("2026-11-02"), DueToday: true},
+		{Name: "Вика", Debt: 150_000, Due: d("2026-11-01"), DaysOverdue: 1},
+		{Name: "Гуля", Debt: 50_000, Due: d("2026-10-20"), DaysOverdue: 13},
+	}, "")
+	want := "• Гуля — 500 сом, просрочено на 13 дней\n• Вика — 1 500 сом, просрочено на 1 день\n" +
+		"• Бакыт — 2 000 сом, срок сегодня\n• Азамат — 1 000 сом, срок до 05.11\nИтого: 5 000 сом"
+	if !strings.Contains(text, want) {
+		t.Errorf("напоминание:\n%s", text)
+	}
+}
+
+// Имя ребёнка в сообщениях бота не склоняется: всегда как в карточке, через тире.
+func TestChildNameNominative(t *testing.T) {
+	const name = "Айдана Токтосунова"
+	date := civil.New(2026, 11, 2)
+	for _, tt := range []struct{ msg, got, want string }{
+		{"Paid", ru.Paid("Билим", name, 150_000, 0, nil),
+			"🏫 Центр «Билим»\nОплата получена: 1 500 сом — Айдана Токтосунова. Спасибо!\nБаланс: 0 сом, долгов нет"},
+		{"Paid ky", ky.Paid("Билим", name, 150_000, 0, nil),
+			"🏫 «Билим» борбору\nТөлөм алынды: 1 500 сом — Айдана Токтосунова. Рахмат!\nБаланс: 0 сом, карыз жок"},
+		{"PackageLow", ru.PackageLow("Билим", name, "English"),
+			"🏫 Центр «Билим»: Айдана Токтосунова — в абонементе (English) осталось 1 занятие. Пора продлить абонемент."},
+		{"Absent", ru.Absent("Билим", name, "English", date, "15:00"),
+			"🏫 Центр «Билим»: Айдана Токтосунова — не был(а) на занятии «English» 02.11 в 15:00."},
+		{"Absent ky", ky.Absent("Билим", name, "English", date, "15:00"),
+			"🏫 «Билим» борбору: Айдана Токтосунова — 02.11 саат 15:00 «English» сабагына келген жок."},
+	} {
+		if tt.got != tt.want {
+			t.Errorf("%s:\n got %q\nwant %q", tt.msg, tt.got, tt.want)
+		}
+	}
+}
+
 // В обоих языках заполнены все тексты; в сообщениях о деньгах и привязке есть название центра.
 func TestTextsComplete(t *testing.T) {
 	for _, lang := range []string{LangRU, LangKY} {

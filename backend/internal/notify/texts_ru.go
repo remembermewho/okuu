@@ -163,9 +163,6 @@ var ru = &Texts{
 
 	Paid: func(center, child string, amount, balance int64, others []ChildDebt) string {
 		head := fmt.Sprintf("Оплата получена: %s сом — %s. Спасибо!", Som(amount), child)
-		if acc, ok := AccusativeRU(child); ok {
-			head = fmt.Sprintf("Оплата получена: %s сом за %s. Спасибо!", Som(amount), acc)
-		}
 		bal := balanceRU(balance)
 		if balance == 0 && len(others) > 0 {
 			bal = "Баланс: 0 сом" // «долгов нет» — только если не должен никто из детей
@@ -173,9 +170,9 @@ var ru = &Texts{
 		return paidMessage("🏫 Центр «"+center+"»", head, bal, "Ещё к оплате", "Итого к оплате", balance, others)
 	},
 	PackageLow: func(center, child, group string) string {
-		return fmt.Sprintf("🏫 Центр «%s»: у ученика %s в абонементе (%s) осталось 1 занятие. Пора продлить абонемент.", center, child, group)
+		return fmt.Sprintf("🏫 Центр «%s»: %s — в абонементе (%s) осталось 1 занятие. Пора продлить абонемент.", center, child, group)
 	},
 	Absent: func(center, child, group string, date civil.Date, start string) string {
-		return fmt.Sprintf("🏫 Центр «%s»: %s не был(а) на занятии «%s» %s в %s.", center, child, group, ddmm(date), start)
+		return fmt.Sprintf("🏫 Центр «%s»: %s — не был(а) на занятии «%s» %s в %s.", center, child, group, ddmm(date), start)
 	},
 }

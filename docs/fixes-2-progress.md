@@ -14,7 +14,8 @@
    - Правила отправки не менялись: дети, добавленные «для полноты», не попадают в `notifications.student_ids`,
      поэтому лимит «раз в час» считается только по тем, о ком напоминали; дни, дедупликация и R17 — как были.
 2. **«Оплата получена».**
-   - «🏫 Центр «…»» / «Оплата получена: 1 500 сом за Айдану Токтосунову. Спасибо!» / баланс ребёнка.
+   - «🏫 Центр «…»» / «Оплата получена: 1 500 сом — Айдана Токтосунова. Спасибо!» / баланс ребёнка
+     (имя не склоняется — см. «Доработка: имя без склонения» в конце).
    - Если должны другие дети родителя в этом центре: «Ещё к оплате: София Токтосунова — 4 000 сом»
      (несколько — списком) и «Итого к оплате», когда долгов больше одного (включая остаток этого ребёнка).
    - «Баланс: 0 сом, долгов нет» — только если не должен никто; иначе «Баланс: 0 сом».
@@ -26,19 +27,16 @@
    языков нет, если язык один.
 
 Решения на проверку:
-- **Склонение имени** («за Айдану Токтосунову»): правила по окончаниям, пол — по фамилии/отчеству
-  (-ова/-ина/-овна/кызы, -ов/-ин/-ович/уулу) или по окончанию имени на -а/-я. Если уверенности нет
-  («Бакыт Ким», латиница, дефис, «Лев Толстой») — без склонения: «Оплата получена: 1 500 сом — Бакыт Ким. Спасибо!».
-  Табличный тест — `notify/names_test.go`. Ошибиться в имени ребёнка хуже, чем не склонить.
+- ~~Склонение имени~~ — отклонено, убрано: имя всегда в именительном падеже через тире.
 - «Итого к оплате» в «оплата получена» включает и остаток ребёнка, за которого заплатили (если он ещё должен).
-- Кыргызский текст «оплата получена» — без склонения: «Төлөм алынды: 1 500 сом — Айдана Токтосунова. Рахмат!».
+- Кыргызский текст «оплата получена»: «Төлөм алынды: 1 500 сом — Айдана Токтосунова. Рахмат!».
 
 API: `ParentInvite.texts` — `ky` теперь необязателен (docs/openapi.yaml).
 
 Тесты (фейковый Telegram): `TestRemindAllParentDebts` (один просрочен, второй — срок сегодня; по любому из детей —
 оба, итого; лимит по ученику прежний), `TestRemindersAutoAllDebtsOverdueFirst`, `TestNotifyPaidOtherChildrenDebts`
 (оплата за одного при долге второго и третьего, частичная, «долгов нет» в конце), `TestBotAttendanceDates`,
-`TestParentInviteLangs`; `TestAccusativeRU`, `TestDebtReminderOrder`, `TestPaidFallback`. Предпросмотр в «Настройках»
+`TestParentInviteLangs`; `TestDebtReminderOrder`, `TestChildNameNominative`. Предпросмотр в «Настройках»
 («срок до 05.11») сверяется с ботом в `TestFrontendPreviewMatchesBot`.
 
 Проверки: gofmt, vet, sqlc diff, go test — ок; typecheck, lint, vitest 156/156, build, лендинг — ок.
@@ -139,7 +137,6 @@ API: `GET /parents/lookup` (+ схема `ParentLookup`), `PATCH /students/{id}`
 ## Файлы
 
 Новые:
-- `backend/internal/notify/names.go`, `names_test.go` — склонение имени для «оплата получена»;
 - `backend/internal/audit/labels_test.go` — у каждого действия журнала есть русская подпись;
 - `backend/internal/httpapi/parentdebts_test.go` — тесты частей A и B (бот, отчёт, lookup, уход, «Сегодня»);
 - `frontend/src/app/guards.test.tsx`, `frontend/src/features/students/fixes2.test.tsx`;
@@ -152,7 +149,8 @@ API: `GET /parents/lookup` (+ схема `ParentLookup`), `PATCH /students/{id}`
   - `internal/{attendance,billing,notify,parents,reminders,reports,students}`, `internal/telegram/bot/menu.go`;
   - `internal/httpapi/{parents,router,students}.go`;
   - `queries/{ledger,reminders,reports,students,telegram}.sql` + `internal/db/sqlc/*`;
-  - тесты `httpapi/{attendance,isolation,openapi,payments,reminders,reports,telegram}_test.go`, `notify/texts_test.go`.
+  - тесты `httpapi/{attendance,isolation,openapi,payments,reminders,reports,telegram}_test.go`, `notify/texts_test.go`;
+  - `internal/notify/texts_{ru,ky}.go` — имя ребёнка без склонения, через тире (доработка).
 - **Документация:** `docs/openapi.yaml`, `docs/errors.md`, `docs/E2E-MANUAL-PLAN.md`.
 - **Фронтенд:**
   - `src/api/{keys.ts,schema.d.ts}`, `src/app/{guards,pages}.tsx`, `src/components/shared.{tsx,module.css}`, `src/i18n/ru.ts`;
@@ -170,7 +168,9 @@ Bot: debt reminders list all of the parent's children with debt in the
 center (overdue first, "срок сегодня/до"); "оплата получена" names the
 child, shows remaining debts of siblings and says "долгов нет" only when
 nobody owes; attendance lists marked dates; invite text only in
-BOT_LANGUAGES. Sending rules are unchanged.
+BOT_LANGUAGES. Child names are never declined: always nominative after
+a dash ("1 500 сом — Айдана Токтосунова"), also in package-low and
+absence messages. Sending rules are unchanged.
 
 Web: debtors show total debt = overdue + pending; "Собрано" is net of
 refunds everywhere (report adds "Поступило оплат"); debt at month end
@@ -196,7 +196,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
    Сразу «Напомнить» у Софии — тоже уходит (лимит по ученику), снова у Айданы — «напоминали меньше часа назад».
 3. **«Должники» → «Отметить оплату» у Айданы на весь долг.** В Telegram:
-   - «Оплата получена: … сом за Айдану Токтосунову. Спасибо!»;
+   - «Оплата получена: … сом — Айдана Токтосунова. Спасибо!»;
    - «Баланс: 0 сом»;
    - «Ещё к оплате: София Токтосунова — …»;
    - без «долгов нет».
@@ -218,3 +218,22 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 11. **Журнал:** «Новая ссылка приглашения» и события смены пароля — по-русски. **Тарифы:** «В месяц». **Группа 20:00–19:00** — «Конец должен быть позже начала».
 12. **Адрес `/c/<чужой id>/students`** — «Не найдено» с кнопкой «На главную».
 13. **Лендинг http://localhost:5180** — «…курсов и секций Бишкека» в подзаголовке и подвале.
+
+## Доработка: имя без склонения
+
+Решение 1 (склонение) отклонено. Во всех сообщениях бота имя ребёнка — как в карточке, в именительном падеже, через тире:
+- «Оплата получена: 1 500 сом — Айдана Токтосунова. Спасибо!» (ky: «Төлөм алынды: 1 500 сом — Айдана Токтосунова. Рахмат!»);
+- «осталось 1 занятие»: «🏫 Центр «…»: Айдана Токтосунова — в абонементе (English) осталось 1 занятие…»
+  (было «у ученика Айдана Токтосунова…» — читалось как мужское имя в родительном падеже);
+- пропуск: «🏫 Центр «…»: Айдана Токтосунова — не был(а) на занятии «English» 02.11 в 15:00.» (ky — так же, через тире);
+- напоминание («• Имя — сумма»), баланс и посещения («👤 Имя») уже были в именительном падеже — не менялись.
+
+Удалены `notify/names.go` и `names_test.go` (удаление файлов — `rm`; правки текста — только Edit).
+`TestDebtReminderOrder` перенесён в `texts_test.go`; вместо `TestAccusativeRU`/`TestPaidFallback` —
+`TestChildNameNominative` (точные тексты Paid ru/ky, PackageLow, Absent ru/ky). Ожидания в
+`httpapi/{parentdebts,reminders}_test.go` — «— Айдана Токтосунова», «— Сыдыков Арген».
+Предпросмотр в «Настройках» показывает напоминание («• Асанов Бакыт — 3 500 сом, срок до 05.11») — склонения в нём
+не было, не менялся; совпадение с ботом по-прежнему стережёт `TestFrontendPreviewMatchesBot`.
+План: 7.9 — «Оплата получена: 1 500 сом — Айдана Токтосунова. Спасибо!».
+
+Проверки: gofmt, vet, sqlc diff, go test — ок; typecheck, lint, vitest 166/166, build, лендинг — ок; e2e 16/16.

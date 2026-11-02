@@ -600,7 +600,7 @@ func TestNotifyPaid(t *testing.T) {
 	if n := env.dispatch(t); n != 1 {
 		t.Fatalf("отправлено %d", n)
 	}
-	want := "🏫 Центр «" + c.centerName(t) + "»\nОплата получена: 1 000 сом за Сыдыкова Аргена. Спасибо!\nБаланс: долг 2 000 сом"
+	want := "🏫 Центр «" + c.centerName(t) + "»\nОплата получена: 1 000 сом — Сыдыков Арген. Спасибо!\nБаланс: долг 2 000 сом"
 	if m := one(t, env.tg.Messages(chat)); m.Text != want {
 		t.Errorf("текст: %q", m.Text)
 	}
