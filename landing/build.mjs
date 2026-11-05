@@ -9,11 +9,14 @@
 //                                          --prod не соберёт с http://, localhost или без SITE_URL/APP_URL
 //
 // SITE_URL и APP_URL, если заданы, заменяют siteUrl и appUrl из config.json (образ caddy получает их
-// из APP_DOMAIN и LANDING_DOMAIN в deploy/.env — см. deploy/web.Dockerfile).
+// из APP_DOMAIN и LANDING_DOMAIN в deploy/.env — см. deploy/caddy.Dockerfile).
 //
 // В src/*.html (и robots.txt, sitemap.xml) {{ключ}} заменяется значением из config.json (с экранированием HTML). Неизвестный ключ —
-// ошибка сборки; значение-заглушка в [скобках] — предупреждение (на проде его быть не должно).
-// <!-- if ключ=значение -->…<!-- endif --> — блок только при этом значении (например, registration=invite).
+// ошибка сборки. Незаполненное значение — «-», пустое или заглушка в [скобках]: обычная сборка предупреждает,
+// --prod падает, если оно попало на страницу, а также если в собранных HTML осталась «[ЗАГЛУШКА]» или «уточнить».
+// <!-- if ключ=значение -->…<!-- endif --> — блок только при этом значении (например, registration=invite);
+// <!-- if ключ -->…<!-- endif --> — только если ключ заполнен, <!-- if !ключ -->…<!-- endif --> — если не заполнен
+// (реквизиты исполнителя: пока их нет, строк в оферте нет). Блоки не вкладываются друг в друга.
 import { createHash } from 'node:crypto'
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -33,7 +36,8 @@ for (const [key, env] of [['siteUrl', 'SITE_URL'], ['appUrl', 'APP_URL']]) {
   if (v) config[key] = v.replace(/\/+$/, '')
 }
 // --prod: адреса в ссылках, canonical, sitemap — только боевые. Ошибка лучше, чем localhost на сайте.
-if (process.argv.includes('--prod')) {
+const prod = process.argv.includes('--prod')
+if (prod) {
   for (const [key, env] of [['siteUrl', 'SITE_URL'], ['appUrl', 'APP_URL']]) {
     if (!process.env[env]?.trim()) throw new Error(`--prod: задайте ${env} (например, https://okuu.kg) — ${key} из config.json только для разработки`)
     let url
@@ -66,26 +70,60 @@ if (!['invite', 'open'].includes(values.registration)) {
   throw new Error(`landing/config.json: registration — invite или open, получено ${JSON.stringify(values.registration)}`)
 }
 
+// Не заполнено: пусто, «-» (реквизиты до регистрации ИП) или заглушка в [скобках].
+const blank = (v) => /^(|-|—|\[.*\])$/.test(String(v).trim())
+
 function render(file) {
   const html = readFileSync(join(src, file), 'utf8')
-    // <!-- if ключ=значение -->…<!-- endif --> — блок остаётся, только если в config.json ключ = значение.
-    .replace(/<!-- if (\w+)=(\w+) -->([\s\S]*?)<!-- endif -->\n?/g, (_, key, want, body) => {
-      if (!(key in values)) throw new Error(`${file}: неизвестный ключ в <!-- if ${key}=… --> — добавьте его в landing/config.json`)
-      return values[key] === want ? body : ''
+    // <!-- if ключ=значение -->, <!-- if ключ -->, <!-- if !ключ --> … <!-- endif --> — блок по значению из config.json.
+    .replace(/<!-- if (!?)(\w+)(?:=(\w+))? -->([\s\S]*?)<!-- endif -->\n?/g, (_, not, key, want, body) => {
+      if (!(key in values)) throw new Error(`${file}: неизвестный ключ в <!-- if ${key} --> — добавьте его в landing/config.json`)
+      const ok = want === undefined ? !blank(values[key]) : values[key] === want
+      return ok !== (not === '!') ? body : ''
     })
   return html.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     if (!(key in values)) throw new Error(`${file}: неизвестный ключ {{${key}}} — добавьте его в landing/config.json`)
+    if (prod && blank(values[key])) {
+      throw new Error(`--prod: ${file}: {{${key}}} не заполнен (${JSON.stringify(values[key])}) — заполните в landing/config.json или выводите строку через <!-- if ${key} -->`)
+    }
     return escape(values[key])
   })
 }
 
-// Очищаем содержимое, а не сам каталог: Caddy монтирует dist в контейнер, новый каталог он бы не увидел.
+// --prod: в готовой странице не должно остаться заглушек вида [ДАТА], [РЕКВИЗИТЫ] и пометок «уточнить».
+function checkPlaceholders(file, text) {
+  const problems = []
+  text.split('\n').forEach((line, i) => {
+    for (const [re, what] of [
+      [/\[[A-ZА-ЯЁ][^\]\n]*\]?/, 'заглушка в [скобках]'],
+      [/уточнить/i, '«уточнить»'],
+      [/>\s*[-—]\s*</, 'прочерк вместо значения'],
+    ]) {
+      const m = re.exec(line)
+      if (m) problems.push(`  ${file}:${i + 1}: ${what}: …${line.slice(Math.max(0, m.index - 40), m.index + 80).trim()}…`)
+    }
+  })
+  if (problems.length > 0) {
+    throw new Error(`--prod: в собранных страницах остались незаполненные места — исправьте landing/src или landing/config.json:\n${problems.join('\n')}`)
+  }
+}
+
+// Сначала собираем всё в память: при ошибке --prod старый dist остаётся как был.
+const rendered = new Map()
+for (const file of readdirSync(src)) {
+  if (!/\.(html|txt|xml)$/.test(file)) continue
+  const text = render(file)
+  if (prod && file.endsWith('.html')) checkPlaceholders(file, text)
+  rendered.set(file, text)
+}
+
+// Очищаем содержимое, а не сам каталог (при разработке dist может быть смонтирован в контейнер).
 mkdirSync(dist, { recursive: true })
 for (const f of readdirSync(dist)) rmSync(join(dist, f), { recursive: true, force: true })
 const sizes = []
 for (const file of readdirSync(src)) {
-  if (/\.(html|txt|xml)$/.test(file)) {
-    const text = render(file)
+  if (rendered.has(file)) {
+    const text = rendered.get(file)
     writeFileSync(join(dist, file), text)
     if (file.endsWith('.html')) sizes.push(`${file} ${(Buffer.byteLength(text) / 1024).toFixed(1)} КБ`)
   } else {
@@ -95,10 +133,11 @@ for (const file of readdirSync(src)) {
 cpSync(join(root, 'img'), join(dist, 'img'), { recursive: true })
 cpSync(join(root, 'fonts'), join(dist, 'fonts'), { recursive: true })
 
-const placeholders = Object.entries(values).filter(([, v]) => /^\[.*\]$/.test(String(v)))
+const placeholders = Object.entries(values).filter(([, v]) => blank(v))
 console.log(`landing/dist: ${sizes.join(', ')}, styles.css ${(css.length / 1024).toFixed(1)} КБ`)
 if (placeholders.length > 0) {
-  console.warn(`Внимание: в landing/config.json не заполнено: ${placeholders.map(([k, v]) => `${k} ${v}`).join(', ')}`)
+  console.warn(`Внимание: в landing/config.json не заполнено: ${placeholders.map(([k, v]) => `${k} ${v}`).join(', ')}` +
+    ' (строки в <!-- if ключ --> не выводятся; если значение стоит на странице как есть, --prod не соберёт)')
 }
 
 // --serve: локальный просмотр. Как в Caddy: /offer → offer.html, неизвестное — 404.html; gzip для текста.

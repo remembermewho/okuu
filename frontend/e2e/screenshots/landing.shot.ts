@@ -111,6 +111,8 @@ test('картинка для соцсетей', async ({ browser }) => {
   const shot = readFileSync(join(OUT, 'debtors-390.webp')).toString('base64')
   const font = readFileSync(join('node_modules', '@fontsource', 'golos-text', 'files', 'golos-text-cyrillic-700-normal.woff2')).toString('base64')
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  // Предлог из 1–2 букв не остаётся в конце строки: «об оплате» переносится целиком.
+  const nbsp = (s: string) => s.replace(/(^|\s)([а-яё]{1,2}) /gi, '$1$2 ')
   const ctx = await browser.newContext({ viewport: { width: 1200, height: 630 } })
   const page = await ctx.newPage()
   await page.setContent(`<!doctype html><html lang="ru"><style>
@@ -124,7 +126,7 @@ test('картинка для соцсетей', async ({ browser }) => {
     .phone { flex: none; width: 330px; margin-top: 210px; padding: 10px; border-radius: 40px; background: #17201B; }
     .phone img { display: block; width: 100%; border-radius: 30px; }
   </style><div class="text"><div class="logo"><svg width="56" height="56" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1E6B47"/><circle cx="16" cy="16" r="7" fill="none" stroke="#fff" stroke-width="3"/></svg>${esc(cfg.name)}</div>
-    <h1>${esc(cfg.tagline).replace(' — ', ' — <span>')}</span></h1></div>
+    <h1>${nbsp(esc(cfg.tagline)).replace(' — ', ' — <span>')}</span></h1></div>
     <div class="phone"><img src="data:image/webp;base64,${shot}" alt=""></div></html>`)
   await page.evaluate(() => document.fonts.ready)
   writeFileSync(join(OUT, 'og.jpg'), await page.screenshot({ type: 'jpeg', quality: 86 }))
