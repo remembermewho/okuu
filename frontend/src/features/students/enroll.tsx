@@ -27,6 +27,16 @@ export function discountedPrice(price: number, d?: Discount | null): number {
   return price - Math.floor((price * Math.min(d.value, 100)) / 100)
 }
 
+/**
+ * Скидка проходит проверку формы для этой цены: процент — целый 0…100, фиксированная — 0…цена.
+ * Нет — подсказку суммы не показываем: под полем скидки уже ошибка (checkDiscount).
+ */
+export function discountFits(price: number, d?: Discount | null): boolean {
+  if (!d) return true
+  if (!Number.isFinite(d.value) || d.value < 0) return false
+  return d.kind === 'percent' ? Number.isInteger(d.value) && d.value <= 100 : d.value <= price
+}
+
 /** «3 150 с (скидка 10%)» или просто «3 500 с» без скидки. */
 export function priceWithDiscount(price: number, d?: Discount | null): string {
   const amount = formatSom(discountedPrice(price, d))
@@ -64,8 +74,23 @@ export function enrollBody(v: EnrollValues, groups: Group[], tariffs: Tariff[]):
 
 type FormWithEnroll = { enroll: EnrollValues }
 
-/** Группа, тариф, дата начала и «за текущий месяц» (R5); суммы — со скидкой ученика (discount). */
-export function EnrollFields({ groups, tariffs, discount }: { groups: Group[]; tariffs: Tariff[]; discount?: Discount | null }) {
+/**
+ * Группа, тариф, дата начала и «за текущий месяц» (R5); суммы — со скидкой ученика (discount).
+ * checkDiscount — скидку вводят в этой же форме: невалидная (больше 100% или цены тарифа) — без суммы,
+ * только ошибка под полем. Сохранённая скидка ученика (окно «Записать в группу») не проверяется:
+ * фиксированная больше цены на бэкенде урезается до цены (R6), и «0 с (скидка …)» — правда.
+ */
+export function EnrollFields({
+  groups,
+  tariffs,
+  discount,
+  checkDiscount,
+}: {
+  groups: Group[]
+  tariffs: Tariff[]
+  discount?: Discount | null
+  checkDiscount?: boolean
+}) {
   const {
     register,
     control,
@@ -74,6 +99,7 @@ export function EnrollFields({ groups, tariffs, discount }: { groups: Group[]; t
   const v = useWatch({ control, name: 'enroll' })
   const t = effectiveTariff(v, groups, tariffs)
   const e = errors.enroll
+  const amount = t && (!checkDiscount || discountFits(t.price, discount)) ? priceWithDiscount(t.price, discount) : undefined
 
   return (
     <div className={`${layout.formGrid} ${layout.formGrid2}`}>
@@ -92,7 +118,7 @@ export function EnrollFields({ groups, tariffs, discount }: { groups: Group[]; t
         {...register('enroll.tariff_id')}
       />
       <Input label={ru.studentForm.startDate} type="date" error={e?.start_date?.message} {...register('enroll.start_date')} />
-      {t?.kind === 'package' && <p className={layout.muted}>{ru.studentForm.packageNote(t.lessons_count, priceWithDiscount(t.price, discount))}</p>}
+      {t?.kind === 'package' && <p className={layout.muted}>{ru.studentForm.packageNote(t.lessons_count, amount)}</p>}
       {t?.kind === 'monthly' && (
         <>
           <Controller
@@ -107,7 +133,7 @@ export function EnrollFields({ groups, tariffs, discount }: { groups: Group[]; t
                 options={(['full', 'manual', 'none'] as const).map((k) => ({
                   value: k,
                   label: ru.studentForm.firstMonthOptions[k],
-                  hint: k === 'full' ? priceWithDiscount(t.price, discount) : undefined,
+                  hint: k === 'full' ? amount : undefined,
                 }))}
               />
             )}

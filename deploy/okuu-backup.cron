@@ -1,0 +1,8 @@
+# Ежедневный бэкап базы Окуу в 03:00 по времени сервера (deploy/backup.sh: pg_dump → BACKUP_DIR,
+# хранение KEEP_DAYS дней из deploy/.env, по умолчанию 14). Установка (под root):
+#   install -m 644 /opt/okuu/deploy/okuu-backup.cron /etc/cron.d/okuu-backup
+# Пользователь okuu должен быть в группе docker; каталоги /var/backups/okuu и /var/log/okuu — его.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 3 * * * okuu bash /opt/okuu/deploy/backup.sh >> /var/log/okuu/backup.log 2>&1

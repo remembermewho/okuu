@@ -1770,6 +1770,21 @@ export interface components {
             /** Format: int64 */
             id: number;
             at: components["schemas"]["DateTime"];
+            /** @description Ученики записи — для строки журнала: `ledger.*` — ученик операции, `attendance.*` — отмеченные на занятии (по имени); остальные действия — пустой список. */
+            students: {
+                id: components["schemas"]["UUID"];
+                full_name: string;
+            }[];
+            /**
+             * Format: int64
+             * @description `ledger.*` — сумма операции в тыйынах со знаком, как в истории (начисление и возврат < 0); иначе null
+             */
+            amount: number | null;
+            /** @description `attendance.*` — занятие; иначе null */
+            lesson: {
+                date: components["schemas"]["Date"];
+                group_name: string;
+            } | null;
             /** @description null — система (фоновые задачи, бот) */
             user: {
                 id: components["schemas"]["UUID"];
@@ -2107,10 +2122,12 @@ export interface components {
             all?: boolean;
         };
         RemindersResponse: {
-            /** @description Учеников, о которых напомнили */
+            /** @description Учеников, о которых напомнили (лимит «раз в час» — по ним) */
             sent: number;
-            /** @description Сообщений родителям */
+            /** @description Сообщений родителям — одно на родителя */
             messages: number;
+            /** @description Учеников во всех отправленных сообщениях: те, о ком напомнили, и показанные с ними братья и сёстры с долгом (их нет в sent и skipped). Для текста «Отправлено 1 родителю (учеников в сообщении: 2)». */
+            students_in_messages: number;
             skipped: {
                 student_id: components["schemas"]["UUID"];
                 /** @enum {string} */

@@ -30,10 +30,13 @@ const base = z.object({
 })
 type Values = z.infer<typeof base>
 
-/** Скидка формы → скидка API (fixed — в тыйынах, percent — 1..100). */
+/**
+ * Скидка формы → скидка API (fixed — в тыйынах, percent — 0..100). Не число — value NaN: такую форма
+ * не отправит (checkDiscount), а подсказка суммы её не покажет (discountFits).
+ */
 export function discountBody(kind: string, value: string): Schemas['Discount'] | null {
-  if (kind === 'fixed') return { kind: 'fixed', value: parseSom(value) ?? 0 }
-  if (kind === 'percent') return { kind: 'percent', value: Number(value) }
+  if (kind === 'fixed') return { kind: 'fixed', value: parseSom(value) ?? NaN }
+  if (kind === 'percent') return { kind: 'percent', value: /^\d+$/.test(value.trim()) ? Number(value) : NaN }
   return null
 }
 
@@ -237,7 +240,7 @@ export function AddStudentDialog({ open, onOpenChange }: { open: boolean; onOpen
               <Checkbox label={ru.studentForm.enroll} hint={ru.studentForm.enrollHint} checked={field.value} onChange={(e) => field.onChange(e.target.checked)} />
             )}
           />
-          {withEnroll && <EnrollFields groups={groups.data ?? []} tariffs={tariffs.data ?? []} discount={discountBody(discountKind, discountValue)} />}
+          {withEnroll && <EnrollFields groups={groups.data ?? []} tariffs={tariffs.data ?? []} discount={discountBody(discountKind, discountValue)} checkDiscount />}
           <FormError>{formError}</FormError>
         </form>
       </FormProvider>

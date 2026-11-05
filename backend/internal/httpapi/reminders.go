@@ -21,9 +21,11 @@ type skippedDTO struct {
 }
 
 type remindersResponse struct {
-	Sent     int          `json:"sent"`     // учеников, о которых напомнили
-	Messages int          `json:"messages"` // сообщений родителям (дети одного родителя — одно сообщение)
-	Skipped  []skippedDTO `json:"skipped"`
+	Sent     int `json:"sent"`     // учеников, о которых напомнили
+	Messages int `json:"messages"` // сообщений родителям (дети одного родителя — одно сообщение)
+	// учеников во всех отправленных сообщениях, с братьями и сёстрами, которых показали для полноты
+	StudentsInMessages int          `json:"students_in_messages"`
+	Skipped            []skippedDTO `json:"skipped"`
 }
 
 // sendReminders — POST /c/{id}/reminders: «Напомнить» по ученикам или по всем должникам (R17–R18).
@@ -39,7 +41,8 @@ func (h *handlers) sendReminders(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	out := remindersResponse{Sent: res.Sent, Messages: res.Messages, Skipped: make([]skippedDTO, 0, len(res.Skipped))}
+	out := remindersResponse{Sent: res.Sent, Messages: res.Messages, StudentsInMessages: res.InMessages,
+		Skipped: make([]skippedDTO, 0, len(res.Skipped))}
 	for _, s := range res.Skipped {
 		out.Skipped = append(out.Skipped, skippedDTO{StudentID: s.StudentID, Reason: s.Reason})
 	}

@@ -243,7 +243,7 @@ function ParentCard({ student }: { student: Student }) {
       {
         onSuccess: (r) => {
           const sk = r.skipped[0]
-          if (r.sent > 0 || !sk) toast({ message: ru.student.remindSent, tone: 'success' })
+          if (r.sent > 0 || !sk) toast({ message: r.sent > 0 ? ru.debtors.resultSent(r.messages, r.students_in_messages) : ru.student.remindSent, tone: 'success' })
           else toast({ message: ru.student.remindSkipped(ru.debtors.reasons[sk.reason] ?? sk.reason), tone: 'error' })
         },
       },

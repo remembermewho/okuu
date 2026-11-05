@@ -4,6 +4,12 @@
 //   node landing/build.mjs                 собрать landing/dist
 //   node landing/build.mjs --serve[=PORT]  собрать и открыть на http://localhost:PORT (по умолчанию 5180)
 //   node landing/build.mjs --config=FILE   взять настройки из FILE вместо landing/config.json
+//   SITE_URL=https://okuu.kg APP_URL=https://app.okuu.kg node landing/build.mjs --prod
+//                                          прод: адреса — из переменных (в config.json — локальные для разработки);
+//                                          --prod не соберёт с http://, localhost или без SITE_URL/APP_URL
+//
+// SITE_URL и APP_URL, если заданы, заменяют siteUrl и appUrl из config.json (образ caddy получает их
+// из APP_DOMAIN и LANDING_DOMAIN в deploy/.env — см. deploy/web.Dockerfile).
 //
 // В src/*.html (и robots.txt, sitemap.xml) {{ключ}} заменяется значением из config.json (с экранированием HTML). Неизвестный ключ —
 // ошибка сборки; значение-заглушка в [скобках] — предупреждение (на проде его быть не должно).
@@ -22,6 +28,25 @@ const dist = join(root, 'dist')
 // --config=путь — другой файл настроек (например, для тестового домена); по умолчанию landing/config.json.
 const configArg = process.argv.find((a) => a.startsWith('--config='))
 const config = JSON.parse(readFileSync(configArg ? configArg.slice('--config='.length) : join(root, 'config.json'), 'utf8'))
+for (const [key, env] of [['siteUrl', 'SITE_URL'], ['appUrl', 'APP_URL']]) {
+  const v = process.env[env]?.trim()
+  if (v) config[key] = v.replace(/\/+$/, '')
+}
+// --prod: адреса в ссылках, canonical, sitemap — только боевые. Ошибка лучше, чем localhost на сайте.
+if (process.argv.includes('--prod')) {
+  for (const [key, env] of [['siteUrl', 'SITE_URL'], ['appUrl', 'APP_URL']]) {
+    if (!process.env[env]?.trim()) throw new Error(`--prod: задайте ${env} (например, https://okuu.kg) — ${key} из config.json только для разработки`)
+    let url
+    try {
+      url = new URL(config[key])
+    } catch {
+      throw new Error(`--prod: ${env} — не адрес: ${JSON.stringify(config[key])}`)
+    }
+    if (url.protocol !== 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.pathname !== '/') {
+      throw new Error(`--prod: ${env} должен быть https://домен без пути и не localhost, получено ${JSON.stringify(config[key])}`)
+    }
+  }
+}
 const css = readFileSync(join(src, 'styles.css'))
 const values = Object.fromEntries(Object.entries(config).filter(([k]) => !k.startsWith('_')))
 Object.assign(values, {

@@ -2574,11 +2574,37 @@ components:
         left: { type: integer }
     AuditItem:
       type: object
-      required: [id, at, user, user_name, action, entity, entity_id, before, after]
+      required: [id, at, user, user_name, action, entity, entity_id, before, after, students, amount, lesson]
       additionalProperties: false
       properties:
         id: { type: integer, format: int64 }
         at: { $ref: '#/components/schemas/DateTime' }
+        students:
+          type: array
+          description: >-
+            Ученики записи — для строки журнала: `ledger.*` — ученик операции, `attendance.*` — отмеченные
+            на занятии (по имени); остальные действия — пустой список.
+          items:
+            type: object
+            required: [id, full_name]
+            additionalProperties: false
+            properties:
+              id: { $ref: '#/components/schemas/UUID' }
+              full_name: { type: string }
+        amount:
+          type: [integer, 'null']
+          format: int64
+          description: '`ledger.*` — сумма операции в тыйынах со знаком, как в истории (начисление и возврат < 0); иначе null'
+        lesson:
+          oneOf:
+            - type: object
+              required: [date, group_name]
+              additionalProperties: false
+              properties:
+                date: { $ref: '#/components/schemas/Date' }
+                group_name: { type: string }
+            - type: 'null'
+          description: '`attendance.*` — занятие; иначе null'
         user:
           oneOf:
             - type: object
@@ -3020,11 +3046,16 @@ components:
         all: { type: boolean }
     RemindersResponse:
       type: object
-      required: [sent, messages, skipped]
+      required: [sent, messages, students_in_messages, skipped]
       additionalProperties: false
       properties:
-        sent: { type: integer, description: 'Учеников, о которых напомнили' }
-        messages: { type: integer, description: 'Сообщений родителям' }
+        sent: { type: integer, description: 'Учеников, о которых напомнили (лимит «раз в час» — по ним)' }
+        messages: { type: integer, description: 'Сообщений родителям — одно на родителя' }
+        students_in_messages:
+          type: integer
+          description: >-
+            Учеников во всех отправленных сообщениях: те, о ком напомнили, и показанные с ними братья и сёстры
+            с долгом (их нет в sent и skipped). Для текста «Отправлено 1 родителю (учеников в сообщении: 2)».
         skipped:
           type: array
           items:

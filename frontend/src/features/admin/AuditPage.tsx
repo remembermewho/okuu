@@ -1,14 +1,18 @@
 import { History } from 'lucide-react'
-import { useSearchParams } from 'react-router'
-import { useCenter } from '@/app/center'
+import { Fragment, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
+import { centerPath, useCenter } from '@/app/center'
+import { can } from '@/app/permissions'
 import shared from '@/components/shared.module.css'
 import { Button, Card, EmptyState, ErrorState, Input, PageHeader, Select, SkeletonList } from '@/components/ui'
 import { useStaff } from '@/features/staff/api'
 import { ru } from '@/i18n/ru'
-import { formatDateTime } from '@/utils/date'
+import { formatDate, formatDateTime } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
+import { formatSom } from '@/utils/money'
 import { useAudit, type AuditFilter, type AuditItem } from './api'
 import s from './Audit.module.css'
+import { auditFields } from './auditDetails'
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
 
@@ -90,6 +94,100 @@ export function AuditPage() {
 
 const json = (v: unknown) => JSON.stringify(v, null, 2)
 
+/** Ученики записи — ссылками на карточку; у ledger.* — сумма, у отмены — вид отменённой операции. */
+function AuditSubject({ item }: { item: AuditItem }) {
+  const c = useCenter()
+  if (item.students.length === 0 && !item.lesson) return null
+  let amount = item.amount != null ? formatSom(item.amount) : null
+  const before = item.before as { kind?: string } | null
+  if (amount && item.action === 'ledger.cancel' && before?.kind) amount = ru.audit.cancelledOp(ru.audit.values.kind?.[before.kind] ?? before.kind, amount)
+  return (
+    <span className={s.subject} data-testid="audit-subject">
+      {item.lesson && <span>{ru.audit.lessonLine(item.lesson.group_name, formatDate(item.lesson.date))}</span>}
+      {item.students.length > 0 && (
+        <span>
+          {item.students.map((st, i) => (
+            <Fragment key={st.id}>
+              {i > 0 && ru.audit.sep}
+              <Link to={centerPath(c.id, `students/${st.id}`)}>{st.full_name}</Link>
+            </Fragment>
+          ))}
+        </span>
+      )}
+      {amount && <span className={s.amount}>{amount}</span>}
+    </span>
+  )
+}
+
+function AuditDetails({ item }: { item: AuditItem }) {
+  const c = useCenter()
+  const [raw, setRaw] = useState(false)
+  const fields = auditFields(item)
+  const diff = item.before != null && item.after != null
+  return (
+    <details className={s.details}>
+      <summary>{ru.audit.details}</summary>
+      {fields.length === 0 ? (
+        <p className={s.none}>{ru.audit.noChanges}</p>
+      ) : (
+        <table className={s.fields}>
+          <thead>
+            <tr>
+              <th scope="col">{ru.audit.field}</th>
+              {diff ? (
+                <>
+                  <th scope="col">{ru.audit.before}</th>
+                  <th scope="col">{ru.audit.after}</th>
+                </>
+              ) : (
+                <th scope="col">{ru.audit.value}</th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {fields.map((f) => (
+              <tr key={f.key}>
+                <th scope="row">{f.label}</th>
+                {diff ? (
+                  <>
+                    <td>{f.before ?? ru.audit.empty}</td>
+                    <td>{f.after ?? ru.audit.empty}</td>
+                  </>
+                ) : (
+                  <td>{f.after ?? f.before}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {can.auditRaw(c.role) && (
+        <>
+          <Button variant="ghost" size="sm" aria-expanded={raw} onClick={() => setRaw((v) => !v)}>
+            {ru.audit.techData}
+          </Button>
+          {raw && (
+            <div className={s.diff}>
+              {item.before != null && (
+                <div>
+                  <span className={s.diffLabel}>{ru.audit.before}</span>
+                  <pre>{json(item.before)}</pre>
+                </div>
+              )}
+              {item.after != null && (
+                <div>
+                  <span className={s.diffLabel}>{ru.audit.after}</span>
+                  <pre>{json(item.after)}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </details>
+  )
+}
+
 function AuditRow({ item }: { item: AuditItem }) {
   const hasDetails = item.before != null || item.after != null
   return (
@@ -100,26 +198,9 @@ function AuditRow({ item }: { item: AuditItem }) {
           {formatDateTime(item.at)}
         </time>
       </div>
+      <AuditSubject item={item} />
       <span className={s.who}>{item.user ? item.user_name : ru.audit.system}</span>
-      {hasDetails && (
-        <details className={s.details}>
-          <summary>{ru.audit.details}</summary>
-          <div className={s.diff}>
-            {item.before != null && (
-              <div>
-                <span className={s.diffLabel}>{ru.audit.before}</span>
-                <pre>{json(item.before)}</pre>
-              </div>
-            )}
-            {item.after != null && (
-              <div>
-                <span className={s.diffLabel}>{ru.audit.after}</span>
-                <pre>{json(item.after)}</pre>
-              </div>
-            )}
-          </div>
-        </details>
-      )}
+      {hasDetails && <AuditDetails item={item} />}
     </li>
   )
 }

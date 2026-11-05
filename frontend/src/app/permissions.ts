@@ -29,6 +29,7 @@ export const can = {
   money: (r: Role) => r === 'owner' || r === 'admin',
   manageStaff: (r: Role) => r === 'owner', // приглашения, роли, удаление
   cancelFinik: (r: Role) => r === 'owner',
+  auditRaw: (r: Role) => r === 'owner', // «Технические данные» в журнале — сырой before/after
 }
 
 /** Первый экран после входа в центр. */

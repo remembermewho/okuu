@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Бэкап базы: pg_dump | gzip в BACKUP_DIR, архивы старше KEEP_DAYS дней удаляются.
-# Запуск (cron, раз в сутки в 03:00 — см. README «Деплой на VPS»):
-#   /opt/okuu/deploy/backup.sh >> /var/log/okuu-backup.log 2>&1
+# Бэкап базы: pg_dump | gzip в BACKUP_DIR; хранятся архивы за последние KEEP_DAYS дней (при ежедневном
+# запуске — KEEP_DAYS архивов), более старые удаляются.
+# Запуск — cron раз в сутки (deploy/okuu-backup.cron, docs/DEPLOY.md «Бэкапы»):
+#   /opt/okuu/deploy/backup.sh >> /var/log/okuu/backup.log 2>&1
 # Печатает путь к новому архиву. Ненулевой код — бэкап не сделан (архив-обрывок удаляется).
 #
 # Переменные (по умолчанию — из deploy/.env и для docker-compose.prod.yml):
-#   BACKUP_DIR (/var/backups/okuu), KEEP_DAYS (30), COMPOSE, PG_SERVICE (postgres),
+#   BACKUP_DIR (/var/backups/okuu), KEEP_DAYS (14), COMPOSE, PG_SERVICE (postgres),
 #   POSTGRES_USER, POSTGRES_DB.
 set -euo pipefail
 
@@ -19,7 +20,12 @@ env_value() {
 
 BACKUP_DIR=${BACKUP_DIR:-$(env_value BACKUP_DIR)}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/okuu}
-KEEP_DAYS=${KEEP_DAYS:-30}
+KEEP_DAYS=${KEEP_DAYS:-$(env_value KEEP_DAYS)}
+KEEP_DAYS=${KEEP_DAYS:-14}
+if ! [[ $KEEP_DAYS =~ ^[1-9][0-9]*$ ]]; then
+	echo "KEEP_DAYS: целое число дней от 1, получено «$KEEP_DAYS»" >&2
+	exit 2
+fi
 COMPOSE=${COMPOSE:-docker compose -f docker-compose.prod.yml}
 PG_SERVICE=${PG_SERVICE:-postgres}
 PG_USER=${POSTGRES_USER:-$(env_value POSTGRES_USER)}
@@ -43,8 +49,14 @@ if [ "$(gzip -cd "$tmp" | head -c 1024 | wc -c)" -eq 0 ]; then
 	echo "бэкап пустой — pg_dump ничего не вернул" >&2
 	exit 1
 fi
+# pg_dump дописывает эту строку последней — без неё дамп оборван.
+if ! gzip -cd "$tmp" | tail -n 5 | grep -q 'PostgreSQL database dump complete'; then
+	echo "бэкап неполный — нет отметки конца дампа" >&2
+	exit 1
+fi
 mv "$tmp" "$file"
 trap - EXIT
 
-find "$BACKUP_DIR" -maxdepth 1 -name 'okuu-*.sql.gz' -mtime +"$KEEP_DAYS" -print -delete | sed 's/^/удалён старый: /' >&2
+# -mtime +N — возраст N+1 полных суток и больше: удаляем архивы от KEEP_DAYS суток, остальные храним.
+find "$BACKUP_DIR" -maxdepth 1 -name 'okuu-*.sql.gz' -mtime +"$((KEEP_DAYS - 1))" -print -delete | sed 's/^/удалён старый: /' >&2
 echo "$file"

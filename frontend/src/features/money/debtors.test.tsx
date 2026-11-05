@@ -109,7 +109,7 @@ describe('должники', () => {
       'GET /api/v1/me': { body: meOwner },
       [`GET ${C}/debtors`]: byStatus(debtors, pendingList),
       [`GET ${C}/groups`]: { body: list([group]) },
-      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, skipped: [] } },
+      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, students_in_messages: 1, skipped: [] } },
     })
     const { router } = renderRoute('/c/c1/debtors')
     const overdueTab = await screen.findByRole('tab', { name: /Просрочено/ })
@@ -139,7 +139,7 @@ describe('должники', () => {
       'GET /api/v1/me': { body: meOwner },
       [`GET ${C}/debtors`]: byStatus(debtors, pendingList),
       [`GET ${C}/groups`]: { body: list([group]) },
-      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, skipped: [] } },
+      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, students_in_messages: 1, skipped: [] } },
     })
     renderRoute('/c/c1/debtors?tab=pending')
     await screen.findByText('Сыдыков Эрлан')
@@ -155,14 +155,15 @@ describe('должники', () => {
       'GET /api/v1/me': { body: meOwner },
       [`GET ${C}/debtors`]: byStatus(debtors, pendingList),
       [`GET ${C}/groups`]: { body: list([group]) },
-      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, skipped: [{ student_id: 's2', reason: 'no_telegram' }] } },
+      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, students_in_messages: 2, skipped: [{ student_id: 's2', reason: 'no_telegram' }] } },
     })
     renderRoute('/c/c1/debtors')
     await userEvent.click(await screen.findByRole('button', { name: 'Напомнить всем' }))
     const confirm = await screen.findByRole('dialog')
     await userEvent.click(within(confirm).getByRole('button', { name: 'Напомнить всем' }))
     const result = await screen.findByRole('dialog', { name: 'Напоминания' })
-    expect(within(result).getByText(/Отправлено: 1 сообщение/)).toBeInTheDocument()
+    // По родителям: одно сообщение — с двумя детьми (второй показан вместе с первым); пропуски — по ученикам.
+    expect(within(result).getByText('Отправлено 1 родителю (учеников в сообщении: 2)')).toBeInTheDocument()
     expect(within(result).getByText(/Бекова Айжан/)).toBeInTheDocument()
     expect(within(result).getByText(/родитель не подключён к Telegram/)).toBeInTheDocument()
     expect(await bodyOf(calls.find((r) => r.url.endsWith('/reminders'))!)).toEqual({ all: true })
@@ -173,11 +174,12 @@ describe('должники', () => {
       'GET /api/v1/me': { body: meOwner },
       [`GET ${C}/debtors`]: { body: debtors },
       [`GET ${C}/groups`]: { body: list([group]) },
-      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, skipped: [] } },
+      [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, students_in_messages: 1, skipped: [] } },
     })
     renderRoute('/c/c1/debtors')
     await userEvent.click(await screen.findByRole('button', { name: 'Напомнить: Асанов Бекзат' }))
-    await screen.findByRole('dialog', { name: 'Напоминания' })
+    const result = await screen.findByRole('dialog', { name: 'Напоминания' })
+    expect(within(result).getByText('Отправлено 1 родителю (учеников в сообщении: 1)')).toBeInTheDocument()
     expect(await bodyOf(calls.find((r) => r.url.endsWith('/reminders'))!)).toEqual({ student_ids: ['s1'] })
   })
 

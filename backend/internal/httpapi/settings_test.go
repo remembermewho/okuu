@@ -272,3 +272,75 @@ func TestAuditLogEndpoint(t *testing.T) {
 	}
 	assertError(t, admin.do(http.MethodGet, path, nil), http.StatusForbidden, "forbidden")
 }
+
+type auditDetailResp struct {
+	Action   string `json:"action"`
+	Students []struct {
+		ID       uuid.UUID `json:"id"`
+		FullName string    `json:"full_name"`
+	} `json:"students"`
+	Amount *int64 `json:"amount"`
+	Lesson *struct {
+		Date      civil.Date `json:"date"`
+		GroupName string     `json:"group_name"`
+	} `json:"lesson"`
+}
+
+// Строка журнала: у ledger.* — ученик и сумма операции (со знаком), у attendance.* — занятие и отмеченные
+// ученики по имени; у остальных действий — пустой список и null.
+func TestAuditLogStudentAndAmount(t *testing.T) {
+	c := newCatalog(t, "+996708410001")
+	aidana := c.debtor(t, "Токтосунова Айдана", "+996708410101") // начисление −3 000
+	sofia := c.debtor(t, "Асанова София", "+996708410102")
+	paid := c.mustOp(t, aidana.ID, pay(150_000))
+	if rec := c.cancel(t, c.owner, paid.ID, "ошибка кассира"); rec.Code != http.StatusOK {
+		t.Fatalf("cancel: %d %s", rec.Code, rec.Body)
+	}
+	l := createLesson(t, c, map[string]any{"group_id": c.group.ID, "date": c.today.String(), "start_time": "12:00"})
+	mustMark(t, c, c.owner, l.ID, aidana.ID, "present", sofia.ID, "absent")
+
+	rec := c.owner.do(http.MethodGet, centerPath(c.center, "/audit?limit=200"), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("audit: %d %s", rec.Code, rec.Body)
+	}
+	got := map[string][]auditDetailResp{}
+	for _, it := range *decode[itemsResp[auditDetailResp]](t, rec).Items {
+		got[it.Action] = append(got[it.Action], it)
+	}
+	one := func(action string) auditDetailResp {
+		t.Helper()
+		if len(got[action]) == 0 {
+			t.Fatalf("нет записи %s", action)
+		}
+		return got[action][0] // новее всех
+	}
+	type want struct {
+		names  string
+		amount int64
+	}
+	for action, w := range map[string]want{
+		"ledger.payment": {"Токтосунова Айдана", 150_000},
+		"ledger.cancel":  {"Токтосунова Айдана", 150_000}, // сумма отменённой операции
+	} {
+		it := one(action)
+		if len(it.Students) != 1 || it.Students[0].ID != aidana.ID || it.Students[0].FullName != w.names ||
+			it.Amount == nil || *it.Amount != w.amount || it.Lesson != nil {
+			t.Errorf("%s = %+v", action, it)
+		}
+	}
+	charges := got["ledger.charge"]
+	if len(charges) != 2 || charges[0].Students[0].ID != sofia.ID || charges[0].Amount == nil || *charges[0].Amount != -300_000 {
+		t.Errorf("ledger.charge = %+v", charges)
+	}
+	m := one("attendance.mark")
+	if len(m.Students) != 2 || m.Students[0].FullName != "Асанова София" || m.Students[1].FullName != "Токтосунова Айдана" ||
+		m.Amount != nil || m.Lesson == nil || m.Lesson.Date != c.today || m.Lesson.GroupName != c.group.Name {
+		t.Errorf("attendance.mark = %+v", m)
+	}
+	if s := one("student.create"); len(s.Students) != 0 || s.Amount != nil || s.Lesson != nil {
+		t.Errorf("student.create = %+v", s)
+	}
+	if s := one("lesson.create"); s.Lesson != nil {
+		t.Errorf("lesson.create — без занятия в строке: %+v", s)
+	}
+}

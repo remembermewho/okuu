@@ -249,8 +249,8 @@ describe('журнал', () => {
       [`GET ${C}/staff`]: { body: list([{ user_id: 'u1', name: 'Айгуль', phone: '+996700123456', role: 'owner' }]) },
       [`GET ${C}/audit`]: {
         body: list([
-          { id: 2, at: '2026-10-19T09:00:00Z', user: { id: 'u1', name: 'Айгуль' }, user_name: 'Айгуль', action: 'ledger.cancel', entity: 'ledger', entity_id: 'l1', before: { amount: 1 }, after: { cancelled: true } },
-          { id: 1, at: '2026-10-01T00:05:00Z', user: null, user_name: 'Система', action: 'ledger.charge', entity: 'ledger', entity_id: 'l0', before: null, after: null },
+          { id: 2, at: '2026-10-19T09:00:00Z', user: { id: 'u1', name: 'Айгуль' }, user_name: 'Айгуль', action: 'ledger.cancel', entity: 'ledger', entity_id: 'l1', before: { amount: 1 }, after: { cancelled: true }, students: [], amount: null, lesson: null },
+          { id: 1, at: '2026-10-01T00:05:00Z', user: null, user_name: 'Система', action: 'ledger.charge', entity: 'ledger', entity_id: 'l0', before: null, after: null, students: [], amount: null, lesson: null },
         ]),
       },
     })
@@ -258,6 +258,8 @@ describe('журнал', () => {
     expect(await screen.findByText('Операция отменена')).toBeInTheDocument()
     expect(screen.getByText('Система')).toBeInTheDocument()
     await userEvent.click(screen.getByText('Подробнее'))
+    expect(screen.queryByText(/"cancelled": true/)).not.toBeInTheDocument() // сырой JSON — за кнопкой
+    await userEvent.click(screen.getByRole('button', { name: 'Технические данные' }))
     expect(screen.getByText(/"cancelled": true/)).toBeInTheDocument()
 
     await userEvent.selectOptions(screen.getByLabelText('Тип'), 'ledger.')

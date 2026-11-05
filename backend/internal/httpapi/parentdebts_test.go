@@ -36,7 +36,8 @@ func TestRemindAllParentDebts(t *testing.T) {
 
 	want := "• Айдана Токтосунова — 1 500 сом, просрочено на 1 день\n• София Токтосунова — 3 000 сом, срок сегодня\nИтого: 4 500 сом"
 	r := mustRemind(t, c, map[string]any{"student_ids": []uuid.UUID{aidana.ID}})
-	if r.Sent != 1 || r.Messages != 1 || len(r.Skipped) != 0 {
+	// Окно «Напомнить»: 1 родителю, учеников в сообщении — 2 (София показана вместе с Айданой).
+	if r.Sent != 1 || r.Messages != 1 || r.InMessages != 2 || len(r.Skipped) != 0 {
 		t.Fatalf("Айдана: %+v", r)
 	}
 	if m := env.tg.Last(chat); !strings.Contains(m.Text, want) {

@@ -32,6 +32,55 @@
   color: var(--text-2);
 }
 
+/* Ученик (ссылкой), занятие и сумма — под действием. */
+.subject {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+}
+
+.subject a {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-2);
+}
+
+.fields th,
+.fields td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px var(--space-2) 6px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+  white-space: pre-line; /* реквизиты — с переносами строк */
+}
+
+.fields thead th {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.fields tbody th {
+  font-weight: 500;
+  width: 40%;
+}
+
+.none {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
 .details summary {
   cursor: pointer;
   color: var(--primary);

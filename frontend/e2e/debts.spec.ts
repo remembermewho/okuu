@@ -42,6 +42,10 @@ test('общий долг = просрочено + ожидают; подска�
   await dialog.getByLabel('Размер скидки').fill('10')
   await dialog.getByLabel('Группа').selectOption({ label: 'English' })
   await expect(dialog.getByRole('radio', { name: /Начислить полностью\s+2\s700\sс \(скидка 10%\)/ })).toBeChecked()
+  // Скидка больше 100% — суммы нет (не «0 с (скидка 100%)»), только ошибка под полем.
+  await dialog.getByLabel('Размер скидки').fill('150')
+  await expect(dialog.getByRole('radio', { name: 'Начислить полностью', exact: true })).toBeChecked()
+  await expect(dialog.getByText(/скидка 100%/)).toHaveCount(0)
   await discount.selectOption('fixed')
   await dialog.getByLabel('Размер скидки').fill('500')
   await dialog.getByLabel('Группа').selectOption({ label: 'Робототехника' })

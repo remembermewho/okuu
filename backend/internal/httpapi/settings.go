@@ -184,6 +184,20 @@ type auditItemDTO struct {
 	EntityID *uuid.UUID      `json:"entity_id"`
 	Before   json.RawMessage `json:"before"`
 	After    json.RawMessage `json:"after"`
+	// Для строки журнала, без разбора before/after на клиенте:
+	Students []auditStudentDTO `json:"students"` // ledger.* — ученик операции, attendance.* — отмеченные; иначе []
+	Amount   *int64            `json:"amount"`   // ledger.* — сумма операции в тыйынах, со знаком (долг < 0)
+	Lesson   *auditLessonDTO   `json:"lesson"`   // attendance.* — занятие
+}
+
+type auditStudentDTO struct {
+	ID       uuid.UUID `json:"id"`
+	FullName string    `json:"full_name"`
+}
+
+type auditLessonDTO struct {
+	Date      civil.Date `json:"date"`
+	GroupName string     `json:"group_name"`
 }
 
 func (h *handlers) listAudit(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +242,20 @@ func (h *handlers) listAudit(w http.ResponseWriter, r *http.Request) {
 	out := make([]auditItemDTO, 0, len(rows))
 	for _, a := range rows {
 		it := auditItemDTO{ID: a.ID, At: a.At, UserName: audit.SystemName, Action: a.Action, Entity: a.Entity,
-			EntityID: a.EntityID, Before: rawJSON(a.Before), After: rawJSON(a.After)}
+			EntityID: a.EntityID, Before: rawJSON(a.Before), After: rawJSON(a.After), Students: []auditStudentDTO{}}
+		switch {
+		case a.LedgerStudentID != nil && a.LedgerStudentName != nil:
+			it.Students = append(it.Students, auditStudentDTO{ID: *a.LedgerStudentID, FullName: *a.LedgerStudentName})
+			it.Amount = a.LedgerAmount
+		case len(a.MarkedStudents) > 0:
+			if err := json.Unmarshal(a.MarkedStudents, &it.Students); err != nil {
+				h.fail(w, r, err)
+				return
+			}
+		}
+		if a.LessonDate != nil && a.LessonGroup != nil {
+			it.Lesson = &auditLessonDTO{Date: *a.LessonDate, GroupName: *a.LessonGroup}
+		}
 		if a.UserID != nil {
 			name := ""
 			if a.UserName != nil {

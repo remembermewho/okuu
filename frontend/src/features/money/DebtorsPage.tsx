@@ -239,7 +239,7 @@ export function DebtorsPage() {
           <>
             <p className={s.sent}>
               {result.sent > 0 && <CheckCircle2 size={20} aria-hidden="true" />}
-              {result.sent > 0 ? ru.debtors.resultSent(result.sent, result.messages) : ru.debtors.resultNone}
+              {result.sent > 0 ? ru.debtors.resultSent(result.messages, result.students_in_messages) : ru.debtors.resultNone}
             </p>
             {result.skipped.length > 0 && (
               <>

@@ -5,7 +5,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { group, list, meOwner, operation, student, tariffMonth, tariffPackage } from '@/test/fixtures'
 import { bodyOf, mockApi, renderRoute } from '@/test/utils'
-import { discountedPrice, priceWithDiscount } from './enroll'
+import { discountBody } from './AddStudentDialog'
+import { discountFits, discountedPrice, priceWithDiscount } from './enroll'
 
 const C = '/api/v1/c/c1'
 
@@ -51,6 +52,51 @@ describe('сумма со скидкой', () => {
     await userEvent.type(within(dialog).getByLabelText('Размер скидки'), '500')
     await userEvent.selectOptions(within(dialog).getByLabelText('Группа'), 'g2')
     expect(within(dialog).getByText(/Абонемент на 8 занятий: начислится 1\s900\sс \(скидка 500\sс\)/)).toBeInTheDocument()
+  })
+
+  it('невалидная скидка (> 100%, > цены, не число) — суммы нет', () => {
+    expect(discountFits(300_000, null)).toBe(true)
+    expect(discountFits(300_000, { kind: 'percent', value: 100 })).toBe(true)
+    expect(discountFits(300_000, { kind: 'percent', value: 0 })).toBe(true)
+    expect(discountFits(300_000, { kind: 'percent', value: 150 })).toBe(false)
+    expect(discountFits(300_000, { kind: 'percent', value: 10.5 })).toBe(false)
+    expect(discountFits(300_000, { kind: 'fixed', value: 300_000 })).toBe(true)
+    expect(discountFits(300_000, { kind: 'fixed', value: 500_000 })).toBe(false)
+    expect(discountFits(300_000, { kind: 'fixed', value: NaN })).toBe(false)
+    expect(discountBody('percent', 'abc')?.value).toBeNaN()
+    expect(discountBody('fixed', '5 000')).toEqual({ kind: 'fixed', value: 500_000 })
+  })
+
+  it('форма: процент 150 и фиксированная больше цены — без подсказки суммы, только ошибка под полем', async () => {
+    const { calls } = addApi()
+    const dialog = await openAdd()
+    await userEvent.type(within(dialog).getByLabelText('ФИО ученика'), 'Элина Ким')
+    await userEvent.type(within(dialog).getByLabelText('Имя родителя'), 'Асель')
+    await userEvent.type(within(dialog).getByLabelText('Телефон родителя'), '0700 333 102')
+    await userEvent.selectOptions(within(dialog).getByLabelText('Скидка'), 'percent')
+    await userEvent.type(within(dialog).getByLabelText('Размер скидки'), '150')
+    await userEvent.selectOptions(await within(dialog).findByLabelText('Группа'), 'g1')
+    const full = within(dialog).getByRole('radio', { name: /Начислить полностью/ })
+    expect(full).toHaveAccessibleName('Начислить полностью') // без «0 с (скидка 100%)»
+    expect(within(dialog).queryByText(/скидка 100%/)).not.toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Добавить ученика' }))
+    expect(await within(dialog).findByText('От 0 до 100')).toBeInTheDocument()
+    expect(within(dialog).queryByText(/\(скидка/)).not.toBeInTheDocument()
+
+    // Фиксированная 5 000 при абонементе 2 400 — «Абонемент на 8 занятий» без суммы, ошибка про цену.
+    await userEvent.selectOptions(within(dialog).getByLabelText('Скидка'), 'fixed')
+    await userEvent.clear(within(dialog).getByLabelText('Размер скидки'))
+    await userEvent.type(within(dialog).getByLabelText('Размер скидки'), '5000')
+    await userEvent.selectOptions(within(dialog).getByLabelText('Группа'), 'g2')
+    expect(await within(dialog).findByText(/Не больше цены тарифа/)).toBeInTheDocument()
+    expect(within(dialog).getByText('Абонемент на 8 занятий')).toBeInTheDocument()
+    expect(within(dialog).queryByText(/начислится/)).not.toBeInTheDocument()
+
+    // Исправили скидку — сумма вернулась.
+    await userEvent.clear(within(dialog).getByLabelText('Размер скидки'))
+    await userEvent.type(within(dialog).getByLabelText('Размер скидки'), '500')
+    expect(await within(dialog).findByText(/начислится 1\s900\sс \(скидка 500\sс\)/)).toBeInTheDocument()
+    expect(calls.some((r) => r.method === 'POST' && r.url.endsWith('/students'))).toBe(false)
   })
 })
 

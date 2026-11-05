@@ -478,9 +478,10 @@ func TestRemindersFailedAndBlocked(t *testing.T) {
 }
 
 type remindResp struct {
-	Sent     int `json:"sent"`
-	Messages int `json:"messages"`
-	Skipped  []struct {
+	Sent       int `json:"sent"`
+	Messages   int `json:"messages"`
+	InMessages int `json:"students_in_messages"`
+	Skipped    []struct {
 		StudentID uuid.UUID `json:"student_id"`
 		Reason    string    `json:"reason"`
 	} `json:"skipped"`
@@ -529,7 +530,7 @@ func TestRemindersManual(t *testing.T) {
 	all := []uuid.UUID{s1.ID, s2.ID, s3.ID, s4.ID, s5.ID, s6.ID, s1.ID} // дубль — не страшно
 	r := mustRemind(t, c, map[string]any{"student_ids": all})
 	wantSkipped := map[uuid.UUID]string{s2.ID: "no_telegram", s3.ID: "stopped", s4.ID: "blocked", s5.ID: "no_debt"}
-	if r.Sent != 2 || r.Messages != 1 || fmt.Sprint(r.reasons()) != fmt.Sprint(wantSkipped) {
+	if r.Sent != 2 || r.Messages != 1 || r.InMessages != 2 || fmt.Sprint(r.reasons()) != fmt.Sprint(wantSkipped) {
 		t.Fatalf("первый раз: %+v", r)
 	}
 	m := one(t, env.tg.Messages(chat))
@@ -551,7 +552,7 @@ func TestRemindersManual(t *testing.T) {
 	// Меньше часа — rate_limited.
 	env.api.clock.Advance(59 * time.Minute)
 	r = mustRemind(t, c, map[string]any{"student_ids": []uuid.UUID{s1.ID, s6.ID}})
-	if r.Sent != 0 || fmt.Sprint(r.reasons()) != fmt.Sprint(map[uuid.UUID]string{s1.ID: "rate_limited", s6.ID: "rate_limited"}) {
+	if r.Sent != 0 || r.Messages != 0 || r.InMessages != 0 || fmt.Sprint(r.reasons()) != fmt.Sprint(map[uuid.UUID]string{s1.ID: "rate_limited", s6.ID: "rate_limited"}) {
 		t.Errorf("через 59 минут: %+v", r)
 	}
 	// Через час — снова можно; all — только должники, s5 без долга в ответе не упоминается.

@@ -1,11 +1,20 @@
-# Прод на одном VPS: caddy (HTTPS, статика фронтенда) → app (API) → postgres (том).
-# Запуск из корня репозитория:
+# Прод на одном VPS: caddy (HTTPS, статика приложения и лендинга) → app (API, вебхуки, фоновые задачи) →
+# postgres (том pgdata). Пошагово — docs/DEPLOY.md. Запуск из корня репозитория:
 #   docker compose -f deploy/docker-compose.prod.yml up -d --build
-# Переменные — в deploy/.env (образец — deploy/.env.example); compose читает его сам, рядом
-# с этим файлом. Порт Postgres наружу не открыт,
-# app снаружи доступен только через Caddy.
+# Переменные — в deploy/.env (образец — deploy/.env.prod.example, chmod 600, в git не попадает); compose
+# читает его сам, рядом с этим файлом.
+#
+# Наружу открыты только 80 и 443 у caddy. У postgres и app портов нет: Docker публикует порты в обход ufw,
+# поэтому база и API доступны только из своих сетей (db — без выхода в интернет, edge — caddy и app).
 
-name: okuu
+name: okuu-prod
+
+x-logging: &logging
+  # Логи контейнеров — с ротацией, чтобы не заполнить диск.
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
 
 services:
   postgres:
@@ -24,7 +33,8 @@ services:
       retries: 20
     networks:
       - db
-    # ports: нет — база доступна только из сети db
+    logging: *logging
+    # ports: нет — база доступна только из сети db (бэкап и psql — через docker compose exec)
 
   app:
     build:
@@ -33,11 +43,17 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # Задано здесь, а не в .env: в проде только так (environment сильнее env_file).
       APP_ENV: prod
+      TELEGRAM_MODE: webhook
       HTTP_ADDR: ":8080"
+      APP_ORIGIN: https://${APP_DOMAIN:?задайте APP_DOMAIN в deploy/.env}
       DATABASE_URL: postgres://${POSTGRES_USER:-okuu}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-okuu}?sslmode=disable
       # X-Forwarded-For принимаем только от Caddy (сеть edge).
       TRUSTED_PROXIES: 172.30.0.0/24
+      # Регистрация центров — только по ссылке, онлайн-оплата выключена (до Finik). Поменять — в deploy/.env.
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-invite}
+      ONLINE_PAYMENTS_ENABLED: ${ONLINE_PAYMENTS_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,9 +61,18 @@ services:
       - db
       - edge # и Caddy, и выход в интернет (Telegram API)
     stop_grace_period: 30s # сервер сам ждёт текущие запросы и задачи до 20 с
+    logging: *logging
+    # ports: нет — API снаружи только через Caddy. Healthcheck — в образе (GET /readyz).
 
   caddy:
-    image: caddy:2.8-alpine
+    # Caddy + собранные фронтенд и лендинг (deploy/caddy.Dockerfile). Адреса для лендинга — из доменов.
+    build:
+      context: ..
+      dockerfile: deploy/caddy.Dockerfile
+      args:
+        SITE_URL: https://${LANDING_DOMAIN:?задайте LANDING_DOMAIN в deploy/.env}
+        APP_URL: https://${APP_DOMAIN:?задайте APP_DOMAIN в deploy/.env}
+    image: ${WEB_IMAGE:-okuu-web:latest}
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?задайте APP_DOMAIN в deploy/.env}
@@ -56,14 +81,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"
+      - "443:443/udp" # HTTP/3
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Сборка фронтенда: cd frontend && npm ci && npm run build → frontend/dist (см. README).
-      # Обновили сборку — Caddy отдаёт новые файлы сразу, перезапуск не нужен.
-      - ../frontend/dist:/srv/frontend:ro
-      # Лендинг: node landing/build.mjs → landing/dist (см. README). Так же без перезапуска.
-      - ../landing/dist:/srv/landing:ro
+      # Сертификаты Let's Encrypt — в томе: переживают пересборку и перезапуск.
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -71,6 +91,7 @@ services:
         condition: service_healthy
     networks:
       - edge
+    logging: *logging
 
 networks:
   db:

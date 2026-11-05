@@ -453,9 +453,12 @@ type Skipped struct {
 
 // ManualResult — итог ручного напоминания.
 type ManualResult struct {
-	Sent     int // учеников в отправленных сообщениях
+	Sent     int // учеников, о которых напомнили (лимит «раз в час» — по ним)
 	Messages int // сообщений (родителей)
-	Skipped  []Skipped
+	// InMessages — учеников во всех отправленных сообщениях: и те, о ком напомнили, и показанные с ними
+	// братья и сёстры с долгом.
+	InMessages int
+	Skipped    []Skipped
 }
 
 func validateManual(in ManualInput) ([]uuid.UUID, error) {
@@ -626,6 +629,7 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 		case outcomeSent:
 			res.Sent += len(g.students)
 			res.Messages++
+			res.InMessages += len(g.children)
 			sentIDs = append(sentIDs, g.students...)
 		default:
 			reason := ReasonSendFailed

@@ -60,9 +60,25 @@ ORDER BY l.created_at, l.id;
 
 -- name: ListAudit :many
 -- Журнал (F8): новые сверху. action_prefix — 'ledger.' и т.п. (с точкой на конце) или точное действие.
-SELECT a.id, a.at, a.user_id, u.name AS user_name, a.action, a.entity, a.entity_id, a.before, a.after
+-- Для строки журнала: ledger.* — ученик и сумма операции (со знаком, как в ledger); attendance.* — занятие
+-- (дата, группа) и отмеченные ученики: ключи before/after — id учеников.
+SELECT a.id, a.at, a.user_id, u.name AS user_name, a.action, a.entity, a.entity_id, a.before, a.after,
+  l.student_id AS ledger_student_id, ls.full_name AS ledger_student_name, l.amount AS ledger_amount,
+  le.date AS lesson_date, lg.name AS lesson_group,
+  (SELECT coalesce(jsonb_agg(jsonb_build_object('id', ms.id, 'full_name', ms.full_name) ORDER BY ms.full_name, ms.id), '[]'::jsonb)
+   FROM students ms
+   WHERE starts_with(a.action, 'attendance.') AND ms.center_id = a.center_id
+     AND ms.id::text IN (
+       SELECT jsonb_object_keys(CASE WHEN jsonb_typeof(a.before) = 'object' THEN a.before ELSE '{}'::jsonb END)
+       UNION
+       SELECT jsonb_object_keys(CASE WHEN jsonb_typeof(a.after) = 'object' THEN a.after ELSE '{}'::jsonb END)
+     ))::jsonb AS marked_students
 FROM audit_log a
 LEFT JOIN users u ON u.id = a.user_id
+LEFT JOIN ledger l ON a.entity = 'ledger' AND l.id = a.entity_id AND l.center_id = a.center_id
+LEFT JOIN students ls ON ls.id = l.student_id
+LEFT JOIN lessons le ON a.entity = 'lesson' AND starts_with(a.action, 'attendance.') AND le.id = a.entity_id AND le.center_id = a.center_id
+LEFT JOIN groups lg ON lg.id = le.group_id
 WHERE a.center_id = @center_id
   AND (sqlc.narg(user_id)::uuid IS NULL OR a.user_id = sqlc.narg(user_id)::uuid)
   AND (sqlc.narg(action)::text IS NULL OR a.action = sqlc.narg(action)::text)

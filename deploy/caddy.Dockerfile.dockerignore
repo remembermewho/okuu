@@ -1,0 +1,12 @@
+# Контекст образа caddy (корень репозитория): только то, что нужно для сборки фронтенда и лендинга.
+*
+!frontend
+!landing
+!deploy/Caddyfile
+frontend/node_modules
+frontend/dist
+frontend/playwright-report
+frontend/test-results
+frontend/.env*
+landing/dist
+**/.env

@@ -153,10 +153,17 @@ describe('карточка ученика', () => {
   })
 
   it('напомнить о долге — причина, если не отправлено', async () => {
-    cardApi({ [`POST ${C}/reminders`]: { body: { sent: 0, messages: 0, skipped: [{ student_id: 's1', reason: 'rate_limited' }] } } })
+    cardApi({ [`POST ${C}/reminders`]: { body: { sent: 0, messages: 0, students_in_messages: 0, skipped: [{ student_id: 's1', reason: 'rate_limited' }] } } })
     renderRoute('/c/c1/students/s1')
     await userEvent.click(await screen.findByRole('button', { name: 'Напомнить о долге' }))
     expect(await screen.findByText('Не отправлено: уже напоминали меньше часа назад')).toBeInTheDocument()
+  })
+
+  it('напомнить о долге — отправлено: по родителям, сколько учеников в сообщении', async () => {
+    cardApi({ [`POST ${C}/reminders`]: { body: { sent: 1, messages: 1, students_in_messages: 2, skipped: [] } } })
+    renderRoute('/c/c1/students/s1')
+    await userEvent.click(await screen.findByRole('button', { name: 'Напомнить о долге' }))
+    expect(await screen.findByText('Отправлено 1 родителю (учеников в сообщении: 2)')).toBeInTheDocument()
   })
 
   it('учителю карточка недоступна', async () => {

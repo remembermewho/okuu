@@ -1,7 +1,7 @@
-# Caddy: HTTPS (Let's Encrypt) для двух доменов.
-#   {$LANDING_DOMAIN} — лендинг: статика из /srv/landing (сборка node landing/build.mjs → landing/dist);
+# Caddy: HTTPS (Let's Encrypt) для двух доменов. Файл и статика встроены в образ (deploy/caddy.Dockerfile):
+#   {$LANDING_DOMAIN} — лендинг: статика из /srv/landing (landing/build.mjs --prod);
 #   {$APP_DOMAIN}     — приложение: /api/* и /webhooks/* → app, остальное — статика фронтенда
-#                       из /srv/frontend (SPA: неизвестные пути → index.html).
+#                       из /srv/frontend (npm run build; SPA: неизвестные пути → index.html).
 # Журнал запросов Caddy не включаем: в путях /api/v1/pay/<токен> и /webhooks/telegram/<секрет> —
 # секреты. Свой журнал (с шаблонами маршрутов вместо путей) пишет app.
 
