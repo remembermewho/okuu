@@ -344,10 +344,13 @@ type Debtor struct {
 	// ParentLastReminder — когда родителю последний раз ушло напоминание; RemindedToday — сегодня в поясе центра.
 	ParentLastReminder *time.Time
 	RemindedToday      bool
-	Debt               int64
-	DaysOverdue        int        // просрочено: дней с самого старого непогашенного срока
-	OldestDueDate      civil.Date // самый ранний непогашенный срок (у ожидающих — ближайший)
-	DueInDays          int        // ожидают оплаты: дней до срока (0 — срок сегодня)
+	// ParentLastWhatsApp — когда открывали WhatsApp-напоминание; WhatsAppOpenedToday — сегодня в поясе центра.
+	ParentLastWhatsApp  *time.Time
+	WhatsAppOpenedToday bool
+	Debt                int64
+	DaysOverdue         int        // просрочено: дней с самого старого непогашенного срока
+	OldestDueDate       civil.Date // самый ранний непогашенный срок (у ожидающих — ближайший)
+	DueInDays           int        // ожидают оплаты: дней до срока (0 — срок сегодня)
 }
 
 // Списки должников.
@@ -486,6 +489,14 @@ func (s *Service) debtors(ctx context.Context, centerID uuid.UUID, groupID *uuid
 				return nil, nil, err
 			}
 			row.RemindedToday = on == today
+		}
+		row.ParentLastWhatsApp = c.ParentLastWhatsappAt
+		if c.ParentLastWhatsappAt != nil {
+			on, err := civil.DateIn(*c.ParentLastWhatsappAt, tz)
+			if err != nil {
+				return nil, nil, err
+			}
+			row.WhatsAppOpenedToday = on == today
 		}
 		if d.IsDebtor {
 			overdue = append(overdue, row)

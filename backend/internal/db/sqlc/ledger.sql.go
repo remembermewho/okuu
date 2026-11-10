@@ -418,7 +418,7 @@ func (q *Queries) ListChargesAfterPeriod(ctx context.Context, arg ListChargesAft
 const listDebtCandidates = `-- name: ListDebtCandidates :many
 SELECT s.id, s.full_name, s.status,
        p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
-       p.last_reminder_at AS parent_last_reminder_at,
+       p.last_reminder_at AS parent_last_reminder_at, p.last_whatsapp_at AS parent_last_whatsapp_at,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)
                  FROM enrollments e JOIN groups g ON g.id = e.group_id
                  WHERE e.student_id = s.id AND e.end_date IS NULL), '[]'::jsonb)::jsonb AS groups,
@@ -447,6 +447,7 @@ type ListDebtCandidatesRow struct {
 	ParentPhone          *string    `json:"parent_phone"`
 	ParentTgStatus       *string    `json:"parent_tg_status"`
 	ParentLastReminderAt *time.Time `json:"parent_last_reminder_at"`
+	ParentLastWhatsappAt *time.Time `json:"parent_last_whatsapp_at"`
 	Groups               []byte     `json:"groups"`
 	Balance              int64      `json:"balance"`
 }
@@ -470,6 +471,7 @@ func (q *Queries) ListDebtCandidates(ctx context.Context, arg ListDebtCandidates
 			&i.ParentPhone,
 			&i.ParentTgStatus,
 			&i.ParentLastReminderAt,
+			&i.ParentLastWhatsappAt,
 			&i.Groups,
 			&i.Balance,
 		); err != nil {

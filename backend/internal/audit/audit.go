@@ -45,6 +45,10 @@ const (
 	ImportCommit         = "import.commit"
 	CenterUpdate         = "center.update"
 	ReminderManual       = "reminder.manual" // «Напомнить»: кому ушло, сколько пропущено
+	// Сотрудник открыл ссылку wa.me: отправка на его стороне, доставку мы не знаем.
+	ReminderWhatsApp      = "reminder.whatsapp"
+	BroadcastSend         = "broadcast.send"
+	BroadcastWhatsAppOpen = "broadcast.whatsapp_open"
 	// Аккаунт сотрудника (без паролей и токенов). Смена пароля и выход везде — в журнал каждого его центра.
 	UserPasswordChange     = "user.password_change"
 	UserLogoutAll          = "user.logout_all"

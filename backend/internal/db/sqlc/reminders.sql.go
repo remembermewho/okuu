@@ -353,7 +353,8 @@ func (q *Queries) ListOutbox(ctx context.Context, lim int32) ([]ListOutboxRow, e
 
 const listReminderStudents = `-- name: ListReminderStudents :many
 SELECT s.id, s.full_name, s.parent_id, p.tg_status AS parent_tg_status, p.telegram_chat_id AS parent_chat_id,
-       p.lang AS parent_lang, b.balance
+       p.lang AS parent_lang, p.name AS parent_name, p.phone AS parent_phone, p.last_whatsapp_at AS parent_last_whatsapp_at,
+       b.balance
 FROM students s
 LEFT JOIN parents p ON p.id = s.parent_id
 CROSS JOIN LATERAL (
@@ -375,13 +376,16 @@ type ListReminderStudentsParams struct {
 }
 
 type ListReminderStudentsRow struct {
-	ID             uuid.UUID  `json:"id"`
-	FullName       string     `json:"full_name"`
-	ParentID       *uuid.UUID `json:"parent_id"`
-	ParentTgStatus *string    `json:"parent_tg_status"`
-	ParentChatID   *int64     `json:"parent_chat_id"`
-	ParentLang     *string    `json:"parent_lang"`
-	Balance        int64      `json:"balance"`
+	ID                   uuid.UUID  `json:"id"`
+	FullName             string     `json:"full_name"`
+	ParentID             *uuid.UUID `json:"parent_id"`
+	ParentTgStatus       *string    `json:"parent_tg_status"`
+	ParentChatID         *int64     `json:"parent_chat_id"`
+	ParentLang           *string    `json:"parent_lang"`
+	ParentName           *string    `json:"parent_name"`
+	ParentPhone          *string    `json:"parent_phone"`
+	ParentLastWhatsappAt *time.Time `json:"parent_last_whatsapp_at"`
+	Balance              int64      `json:"balance"`
 }
 
 // Ученики центра с балансом и родителем. ids NULL — все; parent_ids — только дети этих родителей
@@ -407,6 +411,9 @@ func (q *Queries) ListReminderStudents(ctx context.Context, arg ListReminderStud
 			&i.ParentTgStatus,
 			&i.ParentChatID,
 			&i.ParentLang,
+			&i.ParentName,
+			&i.ParentPhone,
+			&i.ParentLastWhatsappAt,
 			&i.Balance,
 		); err != nil {
 			return nil, err

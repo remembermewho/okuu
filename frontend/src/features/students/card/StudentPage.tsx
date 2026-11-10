@@ -9,6 +9,7 @@ import { can } from '@/app/permissions'
 import { MonthSwitcher, StudentStatusBadge, TgBadge } from '@/components/shared'
 import { Badge, Button, Card, CardHeader, Checkbox, ConfirmDialog, EmptyState, ErrorState, Input, MoneyText, PageHeader, Skeleton, SkeletonList, layout, useToast } from '@/components/ui'
 import { useLedger, useReminders } from '@/features/money/api'
+import { WhatsAppActions } from '@/features/whatsapp/WhatsAppActions'
 import { ru } from '@/i18n/ru'
 import { addDays, formatDate, formatDateTime, formatDayMonth, formatMonth } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
@@ -264,6 +265,7 @@ function ParentCard({ student }: { student: Student }) {
               <TgBadge status={p.tg_status} />
             </span>
             {p.last_reminder_at && <span className={layout.muted}>{ru.student.lastReminder(formatDateTime(p.last_reminder_at))}</span>}
+            {p.last_whatsapp_at && <span className={layout.muted}>{ru.student.lastWhatsApp(formatDateTime(p.last_whatsapp_at))}</span>}
           </div>
           <div className={s.actions}>
             {student.balance < 0 && p.tg_status === 'active' && (
@@ -274,6 +276,15 @@ function ParentCard({ student }: { student: Student }) {
             <Button variant="secondary" icon={<Send size={18} aria-hidden="true" />} loading={invite.isPending} onClick={() => invite.mutate(p.id)}>
               {p.tg_status === 'active' ? ru.student.reinviteParent : ru.student.inviteParent}
             </Button>
+            <WhatsAppActions
+              studentId={student.id}
+              name={student.full_name}
+              phone={p.phone}
+              whatsappPhone={p.whatsapp_phone}
+              hasDebt={student.balance < 0}
+              label={ru.whatsapp.write}
+              alwaysLabeled
+            />
           </div>
           <InviteParentDialog invite={invite.data ?? null} onClose={() => invite.reset()} />
         </>

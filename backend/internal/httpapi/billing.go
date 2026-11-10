@@ -11,6 +11,7 @@ import (
 	"okuu/internal/billing"
 	"okuu/internal/civil"
 	"okuu/internal/httpx"
+	"okuu/internal/reminders"
 )
 
 type operationDTO struct {
@@ -38,6 +39,7 @@ type debtorParentDTO struct {
 	Phone          *string    `json:"phone"`
 	TgStatus       *string    `json:"tg_status"`
 	LastReminderAt *time.Time `json:"last_reminder_at"`
+	WhatsAppPhone  *string    `json:"whatsapp_phone"` // 996XXXXXXXXX; null — телефон некорректный или его нет
 }
 
 type debtorDTO struct {
@@ -51,6 +53,8 @@ type debtorDTO struct {
 	OldestDueDate civil.Date       `json:"oldest_due_date"`
 	DueInDays     int              `json:"due_in_days"`    // ожидают оплаты: дней до срока; у просроченных 0
 	RemindedToday bool             `json:"reminded_today"` // родителю сегодня (в поясе центра) уже напоминали
+	// сегодня открывали WhatsApp-напоминание этому родителю; доставку мы не знаем
+	WhatsAppOpenedToday bool `json:"whatsapp_opened_today"`
 }
 
 type summaryDTO struct {
@@ -177,10 +181,11 @@ func (h *handlers) listDebtors(w http.ResponseWriter, r *http.Request) {
 		dto := debtorDTO{
 			StudentID: d.StudentID, FullName: d.FullName, Status: d.Status, Groups: groups,
 			Debt: d.Debt, DaysOverdue: d.DaysOverdue, OldestDueDate: d.OldestDueDate, DueInDays: d.DueInDays,
-			RemindedToday: d.RemindedToday,
+			RemindedToday: d.RemindedToday, WhatsAppOpenedToday: d.WhatsAppOpenedToday,
 		}
 		if d.ParentName != nil {
-			dto.Parent = &debtorParentDTO{Name: d.ParentName, Phone: d.ParentPhone, TgStatus: d.ParentTgStatus, LastReminderAt: d.ParentLastReminder}
+			dto.Parent = &debtorParentDTO{Name: d.ParentName, Phone: d.ParentPhone, TgStatus: d.ParentTgStatus, LastReminderAt: d.ParentLastReminder,
+				WhatsAppPhone: reminders.WhatsAppPhonePtr(d.ParentPhone)}
 		}
 		items = append(items, dto)
 	}

@@ -130,7 +130,7 @@ const linkParentTelegram = `-- name: LinkParentTelegram :one
 UPDATE parents
 SET telegram_chat_id = $1, tg_status = 'active', consent_at = $2, lang = $3
 WHERE center_id = $4 AND id = $5
-RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at
+RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at, last_whatsapp_at
 `
 
 type LinkParentTelegramParams struct {
@@ -160,6 +160,7 @@ func (q *Queries) LinkParentTelegram(ctx context.Context, arg LinkParentTelegram
 		&i.Lang,
 		&i.ConsentAt,
 		&i.LastReminderAt,
+		&i.LastWhatsappAt,
 	)
 	return i, err
 }

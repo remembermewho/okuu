@@ -459,6 +459,13 @@ type ManualResult struct {
 	// братья и сёстры с долгом.
 	InMessages int
 	Skipped    []Skipped
+	// WhatsApp — родители, до которых бот не дошёл: готовые тексты и ссылки wa.me.
+	WhatsApp []WhatsAppMessage
+}
+
+// viaWhatsApp — причины пропуска, при которых родителю можно написать вручную. rate_limited и no_debt — нельзя и незачем.
+func viaWhatsApp(reason string) bool {
+	return reason == ReasonNoTelegram || reason == ReasonStopped || reason == ReasonBlocked || reason == ReasonSendFailed
 }
 
 func validateManual(in ManualInput) ([]uuid.UUID, error) {
@@ -501,9 +508,6 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 	if c.IsDemo {
 		return res, ErrDemoCenter
 	}
-	if s.tg == nil {
-		return res, ErrTelegramOff
-	}
 	now := s.now()
 	today, err := civil.Today(now, c.Timezone)
 	if err != nil {
@@ -523,6 +527,15 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 	}
 	var cands []candidate
 	var debtIDs []uuid.UUID
+	// Родители, которым бот не написал: им — ссылки WhatsApp. Бот выключен — все должники сюда.
+	var waParents []uuid.UUID
+	waSeen := map[uuid.UUID]bool{}
+	addWhatsApp := func(parent *uuid.UUID) {
+		if parent != nil && !waSeen[*parent] {
+			waSeen[*parent] = true
+			waParents = append(waParents, *parent)
+		}
+	}
 	for _, row := range rows {
 		reason := ""
 		r, ok := recipientOf(row.ParentID, row.ParentTgStatus, row.ParentChatID, row.ParentLang)
@@ -535,9 +548,14 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 			reason = ReasonBlocked
 		case !ok:
 			reason = ReasonNoTelegram
+		case s.tg == nil:
+			reason = ReasonSendFailed
 		}
 		if reason != "" {
 			res.Skipped = append(res.Skipped, Skipped{StudentID: row.ID, Reason: reason})
+			if viaWhatsApp(reason) {
+				addWhatsApp(row.ParentID)
+			}
 			continue
 		}
 		cands = append(cands, candidate{row: row, r: r})
@@ -618,7 +636,7 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 
 	details := payDetails(c.PayDetails)
 	var sentIDs []uuid.UUID
-	for _, g := range groups {
+	for _, g := range groups { // при выключенном боте групп нет: у всех причина пропуска
 		tx := s.langs.For(g.r.lang)
 		text := notify.DebtReminder(tx, notify.KindManual, c.Name, today, g.children, details)
 		outcome, err := s.send(ctx, g.id, g.r, text, bot.BalanceKeyboard(tx), true)
@@ -639,11 +657,20 @@ func (s *Service) Manual(ctx context.Context, actor, centerID uuid.UUID, in Manu
 			for _, id := range g.students {
 				res.Skipped = append(res.Skipped, Skipped{StudentID: id, Reason: reason})
 			}
+			addWhatsApp(&g.r.parentID)
 		}
+	}
+	res.WhatsApp, err = s.whatsAppForParents(ctx, c, today, waParents)
+	if err != nil {
+		return res, err
+	}
+	// Бот выключен и написать некому — объясняем причину, а не показываем пустой итог.
+	if s.tg == nil && len(res.WhatsApp) == 0 {
+		return res, ErrTelegramOff
 	}
 	err = audit.Record(context.WithoutCancel(ctx), s.pool, audit.Entry{
 		CenterID: centerID, UserID: &actor, Action: audit.ReminderManual, Entity: "reminder",
-		After: map[string]any{"all": in.All, "sent": sentIDs, "messages": res.Messages, "skipped": len(res.Skipped)},
+		After: map[string]any{"all": in.All, "sent": sentIDs, "messages": res.Messages, "skipped": len(res.Skipped), "whatsapp": len(res.WhatsApp)},
 	})
 	return res, err
 }
@@ -656,10 +683,31 @@ func lockKey(centerID uuid.UUID) int64 {
 // Dispatch — отправить событийные уведомления из notification_outbox. Вне окна 9–20 события
 // ждут утра; неактуальные (оплату отменили, отметку исправили, родитель отключился) и старше
 // 3 дней удаляются без отправки. Возвращает число отправленных.
+//
+// Заодно отправляет очередь рассылок — порциями вперемежку с событиями: «оплата получена» не ждёт конца большой рассылки.
 func (s *Service) Dispatch(ctx context.Context) (int, error) {
 	if s.tg == nil {
 		return 0, nil
 	}
+	total := 0
+	for {
+		sent, err := s.dispatchOutbox(ctx)
+		total += sent
+		if err != nil {
+			return total, err
+		}
+		batch, sent, err := s.dispatchBroadcasts(ctx)
+		total += sent
+		if err != nil {
+			return total, err
+		}
+		if batch < broadcastBatch {
+			return total, nil
+		}
+	}
+}
+
+func (s *Service) dispatchOutbox(ctx context.Context) (int, error) {
 	rows, err := s.q.ListOutbox(ctx, outboxBatch)
 	if err != nil {
 		return 0, err

@@ -64,7 +64,7 @@ export function CenterScope({ children }: { children: React.ReactNode }) {
   const c = centers.find((x) => x.id === centerId)
   if (!c) return <NotFoundPage />
   if (c.status !== 'active') return <CenterStatusScreen name={c.name} status={c.status} manyCenters={centers.length > 1} />
-  return <CenterContext.Provider value={{ id: c.id, name: c.name, role: c.role, centersCount: centers.length, today: c.today }}>{children}</CenterContext.Provider>
+  return <CenterContext.Provider value={{ id: c.id, name: c.name, role: c.role, centersCount: centers.length, today: c.today, isDemo: c.is_demo }}>{children}</CenterContext.Provider>
 }
 
 /** «Заявка на рассмотрении» / «Доступ приостановлен»: данные центра недоступны, /me и выход работают. */

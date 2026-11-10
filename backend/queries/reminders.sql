@@ -77,7 +77,8 @@ ORDER BY id;
 -- Ученики центра с балансом и родителем. ids NULL — все; parent_ids — только дети этих родителей
 -- (все долги родителя в сообщении); only_debt — только с отрицательным балансом.
 SELECT s.id, s.full_name, s.parent_id, p.tg_status AS parent_tg_status, p.telegram_chat_id AS parent_chat_id,
-       p.lang AS parent_lang, b.balance
+       p.lang AS parent_lang, p.name AS parent_name, p.phone AS parent_phone, p.last_whatsapp_at AS parent_last_whatsapp_at,
+       b.balance
 FROM students s
 LEFT JOIN parents p ON p.id = s.parent_id
 CROSS JOIN LATERAL (

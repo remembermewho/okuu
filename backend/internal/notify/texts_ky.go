@@ -141,6 +141,8 @@ var ky = &Texts{
 	ReminderTotal:  func(total int64) string { return "Жалпы: " + Som(total) + " сом" },
 	ReminderFooter: "Эгер төлөп койгон болсоңуз, көңүл бурбаңыз: администратор төлөмдү белгилейт, бот ырастоо жөнөтөт.",
 
+	ReminderFooterWhatsApp: "Эгер төлөп койгон болсоңуз, көңүл бурбаңыз: администратор төлөмдү белгилейт.",
+
 	HowToPayHeader:    "Кантип төлөө:",
 	PayDetailsMissing: "Төлөө ыкмасын борбордун администраторунан тактаңыз.",
 

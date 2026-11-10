@@ -1426,10 +1426,194 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: '`telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN); `demo_center` — демо-центр, напоминания не отправляются'
+          description: '`telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN) и написать в WhatsApp некому; `demo_center` — демо-центр, напоминания не отправляются'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/students/{studentId}/whatsapp-reminder:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [money]
+      operationId: getWhatsAppReminder
+      summary: Текст и ссылка WhatsApp-напоминания
+      description: |
+        **Роли:** owner, admin. Все дети родителя с долгом, суммы, итог и реквизиты — тот же состав, что в Telegram.
+        Ничего не записывает. Телефона нет или он некорректный — текст есть, `url` = null.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Напоминание
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WhatsAppReminder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`no_debt` — долга нет; `parent_phone_missing` — у ученика нет родителя'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [money]
+      operationId: openWhatsAppReminder
+      summary: Кнопка WhatsApp — ссылка открыта
+      description: |
+        **Роли:** owner, admin. То же, что GET, и запись в `notifications` (канал `whatsapp_link`, статус `link_opened`),
+        отметка в должниках и журнал. Это не гарантия доставки; на лимиты Telegram-напоминаний не влияет.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Напоминание со ссылкой
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WhatsAppReminder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`no_debt`; `parent_phone_missing`; `parent_phone_invalid`; `demo_center`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/broadcasts:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    get:
+      tags: [money]
+      operationId: listBroadcasts
+      summary: История рассылок
+      description: '**Роли:** owner, admin. Последние 100, новые сверху.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: История
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BroadcastList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [money]
+      operationId: createBroadcast
+      summary: Отправить рассылку
+      description: |
+        **Роли:** owner, admin. Родителям с Telegram — бот через очередь (`telegram_queued` уменьшается по мере отправки);
+        остальным — ссылки wa.me в `links`. Дети одного родителя — одно сообщение; ушедшие ученики не получают.
+        Заголовок `Idempotency-Key` обязателен: повтор с тем же ключом вернёт ту же рассылку. Не больше одной рассылки
+        в 5 минут на центр.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BroadcastRequest' }
+      responses:
+        '201':
+          description: Рассылка создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BroadcastDetail' }
+        '200':
+          description: Повтор с тем же Idempotency-Key — та же рассылка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BroadcastDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`demo_center` — демо-центр, рассылка не отправляется'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: '`idempotency_mismatch` — ключ уже использован с другим текстом; `validation` — среди получателей нет учеников'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: '`broadcast_too_soon` — прошлая рассылка центра была меньше 5 минут назад'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/c/{centerId}/broadcasts/preview:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+    post:
+      tags: [money]
+      operationId: previewBroadcast
+      summary: Предпросмотр рассылки
+      description: |
+        **Роли:** owner, admin. Сколько родителей по каким каналам и как будет выглядеть сообщение. Ничего не записывает,
+        работает и в демо-центре.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BroadcastRequest' }
+      responses:
+        '200':
+          description: Предпросмотр
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BroadcastPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/broadcasts/{broadcastId}:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - { name: broadcastId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    get:
+      tags: [money]
+      operationId: getBroadcast
+      summary: Итоги рассылки и ссылки WhatsApp
+      description: '**Роли:** owner, admin.'
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Рассылка
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BroadcastDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/c/{centerId}/broadcasts/{broadcastId}/recipients/{parentId}/whatsapp-opened:
+    parameters:
+      - $ref: '#/components/parameters/CenterId'
+      - { name: broadcastId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+      - { name: parentId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }
+    post:
+      tags: [money]
+      operationId: openBroadcastLink
+      summary: Ссылка WhatsApp получателя открыта
+      description: |
+        **Роли:** owner, admin. Повторное открытие запись не дублирует. Это не гарантия доставки.
+        **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '204': { description: Отмечено }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- attendance
   /api/v1/c/{centerId}/students/{studentId}/attendance:
@@ -2198,13 +2382,14 @@ components:
           type: array
           items:
             type: object
-            required: [id, name, role, status, today]
+            required: [id, name, role, status, today, is_demo]
             additionalProperties: false
             properties:
               id: { $ref: '#/components/schemas/UUID' }
               name: { type: string }
               role: { $ref: '#/components/schemas/Role' }
               status: { $ref: '#/components/schemas/CenterStatus' }
+              is_demo: { type: boolean, description: 'Демо-центр: родители вымышленные, сообщения не отправляются' }
               today:
                 $ref: '#/components/schemas/Date'
                 description: '«Сегодня» в часовом поясе центра — по нему интерфейс считает окно дат посещаемости'
@@ -2717,7 +2902,7 @@ components:
     # ---------------------------------------------------------------- students
     Parent:
       type: object
-      required: [id, name, phone, tg_status, last_reminder_at]
+      required: [id, name, phone, tg_status, last_reminder_at, last_whatsapp_at, whatsapp_phone]
       additionalProperties: false
       properties:
         id: { $ref: '#/components/schemas/UUID' }
@@ -2725,6 +2910,8 @@ components:
         phone: { type: string }
         tg_status: { $ref: '#/components/schemas/TgStatus' }
         last_reminder_at: { $ref: '#/components/schemas/NullableDateTime' }
+        last_whatsapp_at: { $ref: '#/components/schemas/NullableDateTime' }
+        whatsapp_phone: { type: [string, 'null'], description: '996XXXXXXXXX для ссылки wa.me; null — телефон некорректный' }
     NullableParent:
       oneOf:
         - { $ref: '#/components/schemas/Parent' }
@@ -2988,7 +3175,7 @@ components:
         reason: { type: string, minLength: 3, maxLength: 500 }
     Debtor:
       type: object
-      required: [student_id, full_name, status, groups, parent, debt, days_overdue, oldest_due_date, due_in_days, reminded_today]
+      required: [student_id, full_name, status, groups, parent, debt, days_overdue, oldest_due_date, due_in_days, reminded_today, whatsapp_opened_today]
       additionalProperties: false
       properties:
         student_id: { $ref: '#/components/schemas/UUID' }
@@ -2998,13 +3185,14 @@ components:
         parent:
           oneOf:
             - type: object
-              required: [name, phone, tg_status, last_reminder_at]
+              required: [name, phone, tg_status, last_reminder_at, whatsapp_phone]
               additionalProperties: false
               properties:
                 name: { type: [string, 'null'] }
                 phone: { type: [string, 'null'] }
                 tg_status: { type: [string, 'null'] }
                 last_reminder_at: { $ref: '#/components/schemas/NullableDateTime' }
+                whatsapp_phone: { type: [string, 'null'], description: '996XXXXXXXXX для ссылки wa.me; null — телефона нет или он некорректный' }
             - type: 'null'
         debt: { type: integer, format: int64, minimum: 1, description: 'Тыйыны, > 0' }
         days_overdue: { type: integer, minimum: 0, description: '`overdue` — дней просрочки (≥ 1); `pending` — 0' }
@@ -3013,6 +3201,7 @@ components:
           description: Самый ранний непогашенный срок (у «ожидают оплаты» — ближайший)
         due_in_days: { type: integer, minimum: 0, description: '`pending` — дней до срока (0 — срок сегодня); `overdue` — 0' }
         reminded_today: { type: boolean, description: 'Родителю сегодня (в поясе центра) уже напоминали — по `last_reminder_at`' }
+        whatsapp_opened_today: { type: boolean, description: 'Родителю сегодня открывали WhatsApp-напоминание. Это не гарантия доставки' }
     DebtorsResponse:
       type: object
       required: [items, next_cursor, summary]
@@ -3044,11 +3233,110 @@ components:
           maxItems: 500
           items: { $ref: '#/components/schemas/UUID' }
         all: { type: boolean }
-    RemindersResponse:
+    WhatsAppReminder:
       type: object
-      required: [sent, messages, students_in_messages, skipped]
+      required: [parent_id, parent_name, phone, students, total, text, url, opened_today]
       additionalProperties: false
       properties:
+        parent_id: { $ref: '#/components/schemas/UUID' }
+        parent_name: { type: string }
+        phone: { type: [string, 'null'], description: '996XXXXXXXXX; null — телефона нет или он некорректный, ссылки тоже нет' }
+        students:
+          type: array
+          description: Все дети родителя с долгом
+          items:
+            type: object
+            required: [id, full_name, debt]
+            additionalProperties: false
+            properties:
+              id: { $ref: '#/components/schemas/UUID' }
+              full_name: { type: string }
+              debt: { type: integer, format: int64, minimum: 1, description: 'Тыйыны, > 0' }
+        total: { type: integer, format: int64, description: 'Сумма долгов, тыйыны' }
+        text: { type: string, description: 'Готовый текст: *жирный* через звёздочки, без HTML' }
+        url: { type: [string, 'null'], description: 'https://wa.me/996XXXXXXXXX?text=…' }
+        opened_today: { type: boolean, description: 'Сегодня уже открывали. Это не гарантия доставки' }
+    BroadcastRequest:
+      type: object
+      required: [audience, text]
+      additionalProperties: false
+      properties:
+        audience: { type: string, enum: [center, groups], description: '`center` — родители всех учеников, кроме ушедших; `groups` — с активной записью в группы из `group_ids`' }
+        group_ids: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/UUID' } }
+        text: { type: string, maxLength: 1000 }
+    BroadcastPreview:
+      type: object
+      required: [telegram, whatsapp, no_contact, telegram_text, whatsapp_text]
+      additionalProperties: false
+      properties:
+        telegram: { type: integer, description: 'Родителей, которым напишет бот' }
+        whatsapp: { type: integer, description: 'Родителей, которым можно написать по ссылке' }
+        no_contact: { type: integer, description: 'Без контакта: нет Telegram и верного телефона, либо у ученика нет родителя' }
+        telegram_text: { type: string }
+        whatsapp_text: { type: string }
+    BroadcastCounts:
+      type: object
+      required: [telegram_sent, telegram_queued, whatsapp_total, whatsapp_opened, no_contact]
+      additionalProperties: false
+      properties:
+        telegram_sent: { type: integer }
+        telegram_queued: { type: integer, description: 'Ещё в очереди бота' }
+        whatsapp_total: { type: integer, description: 'Ссылок к отправке вручную; сюда же переходят те, до кого бот не дошёл' }
+        whatsapp_opened: { type: integer }
+        no_contact: { type: integer }
+    Broadcast:
+      type: object
+      required: [id, created_at, author, audience, group_names, text, counts]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        created_at: { type: string, format: date-time }
+        author: { type: string }
+        audience: { type: string, enum: [center, groups] }
+        group_names: { type: array, items: { type: string } }
+        text: { type: string }
+        counts: { $ref: '#/components/schemas/BroadcastCounts' }
+    BroadcastDetail:
+      type: object
+      required: [id, created_at, author, audience, group_names, text, counts, links]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        created_at: { type: string, format: date-time }
+        author: { type: string }
+        audience: { type: string, enum: [center, groups] }
+        group_names: { type: array, items: { type: string } }
+        text: { type: string }
+        counts: { $ref: '#/components/schemas/BroadcastCounts' }
+        links:
+          type: array
+          items:
+            type: object
+            required: [parent_id, parent_name, students, text, url, opened]
+            additionalProperties: false
+            properties:
+              parent_id: { $ref: '#/components/schemas/UUID' }
+              parent_name: { type: string }
+              students: { type: array, items: { type: string } }
+              text: { type: string }
+              url: { type: [string, 'null'], description: 'null — написать некуда' }
+              opened: { type: boolean }
+    BroadcastList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Broadcast' } }
+        next_cursor: { type: [string, 'null'] }
+    RemindersResponse:
+      type: object
+      required: [sent, messages, students_in_messages, skipped, whatsapp]
+      additionalProperties: false
+      properties:
+        whatsapp:
+          type: array
+          description: Родители, до которых бот не дошёл (нет Telegram, отключили, заблокировали, ошибка отправки) — готовые тексты и ссылки
+          items: { $ref: '#/components/schemas/WhatsAppReminder' }
         sent: { type: integer, description: 'Учеников, о которых напомнили (лимит «раз в час» — по ним)' }
         messages: { type: integer, description: 'Сообщений родителям — одно на родителя' }
         students_in_messages:

@@ -158,6 +158,8 @@ var ru = &Texts{
 	ReminderTotal:  func(total int64) string { return "Итого: " + Som(total) + " сом" },
 	ReminderFooter: "Если вы уже оплатили, не обращайте внимания: администратор отметит оплату, и бот пришлёт подтверждение.",
 
+	ReminderFooterWhatsApp: "Если вы уже оплатили, не обращайте внимания: администратор отметит оплату.",
+
 	HowToPayHeader:    "Как оплатить:",
 	PayDetailsMissing: "Уточните способ оплаты у администратора центра.",
 

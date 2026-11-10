@@ -81,7 +81,7 @@ func (q *Queries) GetMembershipAccess(ctx context.Context, arg GetMembershipAcce
 }
 
 const listMembershipsByUser = `-- name: ListMembershipsByUser :many
-SELECT m.center_id, m.role, c.name AS center_name, c.timezone, c.status AS center_status
+SELECT m.center_id, m.role, c.name AS center_name, c.timezone, c.status AS center_status, c.is_demo
 FROM memberships m
 JOIN centers c ON c.id = m.center_id
 WHERE m.user_id = $1
@@ -94,6 +94,7 @@ type ListMembershipsByUserRow struct {
 	CenterName   string    `json:"center_name"`
 	Timezone     string    `json:"timezone"`
 	CenterStatus string    `json:"center_status"`
+	IsDemo       bool      `json:"is_demo"`
 }
 
 // Центры пользователя для GET /me.
@@ -112,6 +113,7 @@ func (q *Queries) ListMembershipsByUser(ctx context.Context, userID uuid.UUID) (
 			&i.CenterName,
 			&i.Timezone,
 			&i.CenterStatus,
+			&i.IsDemo,
 		); err != nil {
 			return nil, err
 		}

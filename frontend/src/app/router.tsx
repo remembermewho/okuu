@@ -9,6 +9,7 @@ import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { RegisterPage } from '@/features/auth/RegisterPage'
 import { GroupPage } from '@/features/groups/GroupPage'
 import { GroupsPage } from '@/features/groups/GroupsPage'
+import { BroadcastsPage } from '@/features/broadcasts/BroadcastsPage'
 import { DebtorsPage } from '@/features/money/DebtorsPage'
 import { InvitePage } from '@/features/staff/InvitePage'
 import { StaffPage } from '@/features/staff/StaffPage'
@@ -72,6 +73,7 @@ export const routes: RouteObject[] = [
           section('debtors', <DebtorsPage />),
           section('students', <StudentsPage />),
           { path: 'students/:studentId', element: <RequireSection section="students"><StudentPage /></RequireSection> },
+          section('broadcasts', <BroadcastsPage />),
           section('groups', <GroupsPage />),
           // Состав группы — только владелец и админ (список учеников преподавателю недоступен).
           { path: 'groups/:groupId', element: <RequireSection section="students"><GroupPage /></RequireSection> },

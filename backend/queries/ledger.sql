@@ -59,7 +59,7 @@ LIMIT @lim;
 -- group_id: была запись в эту группу (в том числе завершённая — долг ушедших тоже виден, R7).
 SELECT s.id, s.full_name, s.status,
        p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
-       p.last_reminder_at AS parent_last_reminder_at,
+       p.last_reminder_at AS parent_last_reminder_at, p.last_whatsapp_at AS parent_last_whatsapp_at,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)
                  FROM enrollments e JOIN groups g ON g.id = e.group_id
                  WHERE e.student_id = s.id AND e.end_date IS NULL), '[]'::jsonb)::jsonb AS groups,

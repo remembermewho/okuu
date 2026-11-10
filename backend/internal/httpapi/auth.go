@@ -27,6 +27,7 @@ type meCenterDTO struct {
 	Role   string     `json:"role"`
 	Status string     `json:"status"` // pending — заявка, blocked — приостановлен: данные центра недоступны
 	Today  civil.Date `json:"today"`  // «сегодня» в часовом поясе центра
+	IsDemo bool       `json:"is_demo"`
 }
 
 type registerRequest struct {
@@ -136,7 +137,7 @@ func (h *handlers) writeMe(w http.ResponseWriter, r *http.Request, status int, u
 	dto := meDTO{ID: p.User.ID, Name: p.User.Name, Phone: p.User.Phone, Centers: make([]meCenterDTO, 0, len(p.Centers)),
 		IsPlatformAdmin: p.User.IsPlatformAdmin}
 	for _, c := range p.Centers {
-		dto.Centers = append(dto.Centers, meCenterDTO{ID: c.CenterID, Name: c.CenterName, Role: c.Role, Status: c.CenterStatus, Today: c.Today})
+		dto.Centers = append(dto.Centers, meCenterDTO{ID: c.CenterID, Name: c.CenterName, Role: c.Role, Status: c.CenterStatus, Today: c.Today, IsDemo: c.IsDemo})
 	}
 	httpx.JSON(w, status, dto)
 }

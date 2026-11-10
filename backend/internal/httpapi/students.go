@@ -14,6 +14,7 @@ import (
 	"okuu/internal/civil"
 	"okuu/internal/httpx"
 	"okuu/internal/optional"
+	"okuu/internal/reminders"
 	"okuu/internal/students"
 )
 
@@ -23,6 +24,8 @@ type parentDTO struct {
 	Phone          string     `json:"phone"`
 	TgStatus       string     `json:"tg_status"`
 	LastReminderAt *time.Time `json:"last_reminder_at"`
+	LastWhatsAppAt *time.Time `json:"last_whatsapp_at"`
+	WhatsAppPhone  *string    `json:"whatsapp_phone"` // 996XXXXXXXXX; null — телефон некорректный или его нет
 }
 
 type refDTO struct {
@@ -311,7 +314,8 @@ func toParentDTO(p *students.Parent) *parentDTO {
 	if p == nil {
 		return nil
 	}
-	return &parentDTO{ID: p.ID, Name: p.Name, Phone: p.Phone, TgStatus: p.TgStatus, LastReminderAt: p.LastReminderAt}
+	return &parentDTO{ID: p.ID, Name: p.Name, Phone: p.Phone, TgStatus: p.TgStatus, LastReminderAt: p.LastReminderAt,
+		LastWhatsAppAt: p.LastWhatsAppAt, WhatsAppPhone: reminders.WhatsAppPhonePtr(&p.Phone)}
 }
 
 func toEnrollmentDTO(e students.Enrollment) enrollmentDTO {

@@ -1007,6 +1007,138 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/c/{centerId}/students/{studentId}/whatsapp-reminder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                studentId: components["parameters"]["StudentId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Текст и ссылка WhatsApp-напоминания
+         * @description **Роли:** owner, admin. Все дети родителя с долгом, суммы, итог и реквизиты — тот же состав, что в Telegram.
+         *     Ничего не записывает. Телефона нет или он некорректный — текст есть, `url` = null.
+         */
+        get: operations["getWhatsAppReminder"];
+        put?: never;
+        /**
+         * Кнопка WhatsApp — ссылка открыта
+         * @description **Роли:** owner, admin. То же, что GET, и запись в `notifications` (канал `whatsapp_link`, статус `link_opened`),
+         *     отметка в должниках и журнал. Это не гарантия доставки; на лимиты Telegram-напоминаний не влияет.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["openWhatsAppReminder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/c/{centerId}/broadcasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * История рассылок
+         * @description **Роли:** owner, admin. Последние 100, новые сверху.
+         */
+        get: operations["listBroadcasts"];
+        put?: never;
+        /**
+         * Отправить рассылку
+         * @description **Роли:** owner, admin. Родителям с Telegram — бот через очередь (`telegram_queued` уменьшается по мере отправки);
+         *     остальным — ссылки wa.me в `links`. Дети одного родителя — одно сообщение; ушедшие ученики не получают.
+         *     Заголовок `Idempotency-Key` обязателен: повтор с тем же ключом вернёт ту же рассылку. Не больше одной рассылки
+         *     в 5 минут на центр.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["createBroadcast"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/c/{centerId}/broadcasts/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Предпросмотр рассылки
+         * @description **Роли:** owner, admin. Сколько родителей по каким каналам и как будет выглядеть сообщение. Ничего не записывает,
+         *     работает и в демо-центре.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["previewBroadcast"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/c/{centerId}/broadcasts/{broadcastId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                broadcastId: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Итоги рассылки и ссылки WhatsApp
+         * @description **Роли:** owner, admin.
+         */
+        get: operations["getBroadcast"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/c/{centerId}/broadcasts/{broadcastId}/recipients/{parentId}/whatsapp-opened": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                broadcastId: components["schemas"]["UUID"];
+                parentId: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ссылка WhatsApp получателя открыта
+         * @description **Роли:** owner, admin. Повторное открытие запись не дублирует. Это не гарантия доставки.
+         *     **Origin:** браузер обязан прислать заголовок `Origin` = `APP_ORIGIN`, иначе `403 bad_origin`.
+         */
+        post: operations["openBroadcastLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/c/{centerId}/students/{studentId}/attendance": {
         parameters: {
             query?: never;
@@ -1466,6 +1598,8 @@ export interface components {
                 name: string;
                 role: components["schemas"]["Role"];
                 status: components["schemas"]["CenterStatus"];
+                /** @description Демо-центр: родители вымышленные, сообщения не отправляются */
+                is_demo: boolean;
                 /** @description «Сегодня» в часовом поясе центра — по нему интерфейс считает окно дат посещаемости */
                 today: components["schemas"]["Date"];
             }[];
@@ -1873,6 +2007,9 @@ export interface components {
             phone: string;
             tg_status: components["schemas"]["TgStatus"];
             last_reminder_at: components["schemas"]["NullableDateTime"];
+            last_whatsapp_at: components["schemas"]["NullableDateTime"];
+            /** @description 996XXXXXXXXX для ссылки wa.me; null — телефон некорректный */
+            whatsapp_phone: string | null;
         };
         NullableParent: components["schemas"]["Parent"] | null;
         Enrollment: {
@@ -2087,6 +2224,8 @@ export interface components {
                 phone: string | null;
                 tg_status: string | null;
                 last_reminder_at: components["schemas"]["NullableDateTime"];
+                /** @description 996XXXXXXXXX для ссылки wa.me; null — телефона нет или он некорректный */
+                whatsapp_phone: string | null;
             } | null;
             /**
              * Format: int64
@@ -2101,6 +2240,8 @@ export interface components {
             due_in_days: number;
             /** @description Родителю сегодня (в поясе центра) уже напоминали — по `last_reminder_at` */
             reminded_today: boolean;
+            /** @description Родителю сегодня открывали WhatsApp-напоминание. Это не гарантия доставки */
+            whatsapp_opened_today: boolean;
         };
         DebtorsResponse: {
             items: components["schemas"]["Debtor"][];
@@ -2121,7 +2262,99 @@ export interface components {
             student_ids?: components["schemas"]["UUID"][];
             all?: boolean;
         };
+        WhatsAppReminder: {
+            parent_id: components["schemas"]["UUID"];
+            parent_name: string;
+            /** @description 996XXXXXXXXX; null — телефона нет или он некорректный, ссылки тоже нет */
+            phone: string | null;
+            /** @description Все дети родителя с долгом */
+            students: {
+                id: components["schemas"]["UUID"];
+                full_name: string;
+                /**
+                 * Format: int64
+                 * @description Тыйыны, > 0
+                 */
+                debt: number;
+            }[];
+            /**
+             * Format: int64
+             * @description Сумма долгов, тыйыны
+             */
+            total: number;
+            /** @description Готовый текст: *жирный* через звёздочки, без HTML */
+            text: string;
+            /** @description https://wa.me/996XXXXXXXXX?text=… */
+            url: string | null;
+            /** @description Сегодня уже открывали. Это не гарантия доставки */
+            opened_today: boolean;
+        };
+        BroadcastRequest: {
+            /**
+             * @description `center` — родители всех учеников, кроме ушедших; `groups` — с активной записью в группы из `group_ids`
+             * @enum {string}
+             */
+            audience: "center" | "groups";
+            group_ids?: components["schemas"]["UUID"][];
+            text: string;
+        };
+        BroadcastPreview: {
+            /** @description Родителей, которым напишет бот */
+            telegram: number;
+            /** @description Родителей, которым можно написать по ссылке */
+            whatsapp: number;
+            /** @description Без контакта: нет Telegram и верного телефона, либо у ученика нет родителя */
+            no_contact: number;
+            telegram_text: string;
+            whatsapp_text: string;
+        };
+        BroadcastCounts: {
+            telegram_sent: number;
+            /** @description Ещё в очереди бота */
+            telegram_queued: number;
+            /** @description Ссылок к отправке вручную; сюда же переходят те, до кого бот не дошёл */
+            whatsapp_total: number;
+            whatsapp_opened: number;
+            no_contact: number;
+        };
+        Broadcast: {
+            id: components["schemas"]["UUID"];
+            /** Format: date-time */
+            created_at: string;
+            author: string;
+            /** @enum {string} */
+            audience: "center" | "groups";
+            group_names: string[];
+            text: string;
+            counts: components["schemas"]["BroadcastCounts"];
+        };
+        BroadcastDetail: {
+            id: components["schemas"]["UUID"];
+            /** Format: date-time */
+            created_at: string;
+            author: string;
+            /** @enum {string} */
+            audience: "center" | "groups";
+            group_names: string[];
+            text: string;
+            counts: components["schemas"]["BroadcastCounts"];
+            links: {
+                parent_id: components["schemas"]["UUID"];
+                parent_name: string;
+                students: string[];
+                text: string;
+                /** @description null — написать некуда */
+                url: string | null;
+                opened: boolean;
+            }[];
+        };
+        BroadcastList: {
+            items: components["schemas"]["Broadcast"][];
+            next_cursor: string | null;
+        };
         RemindersResponse: {
+            /** @description Родители, до которых бот не дошёл (нет Telegram, отключили, заблокировали, ошибка отправки) — готовые тексты и ссылки */
+            whatsapp: components["schemas"]["WhatsAppReminder"][];
             /** @description Учеников, о которых напомнили (лимит «раз в час» — по ним) */
             sent: number;
             /** @description Сообщений родителям — одно на родителя */
@@ -4105,7 +4338,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description `telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN); `demo_center` — демо-центр, напоминания не отправляются */
+            /** @description `telegram_not_configured` — бот не запущен (нет TELEGRAM_BOT_TOKEN) и написать в WhatsApp некому; `demo_center` — демо-центр, напоминания не отправляются */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4114,6 +4347,251 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    getWhatsAppReminder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                studentId: components["parameters"]["StudentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Напоминание */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppReminder"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `no_debt` — долга нет; `parent_phone_missing` — у ученика нет родителя */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    openWhatsAppReminder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                studentId: components["parameters"]["StudentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Напоминание со ссылкой */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppReminder"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `no_debt`; `parent_phone_missing`; `parent_phone_invalid`; `demo_center` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listBroadcasts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description История */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BroadcastList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createBroadcast: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Уникальный ключ операции (например, UUID), 1–100 символов. Повтор запроса с тем же ключом не создаёт вторую операцию. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BroadcastRequest"];
+            };
+        };
+        responses: {
+            /** @description Повтор с тем же Idempotency-Key — та же рассылка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BroadcastDetail"];
+                };
+            };
+            /** @description Рассылка создана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BroadcastDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `demo_center` — демо-центр, рассылка не отправляется */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `idempotency_mismatch` — ключ уже использован с другим текстом; `validation` — среди получателей нет учеников */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `broadcast_too_soon` — прошлая рассылка центра была меньше 5 минут назад */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    previewBroadcast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BroadcastRequest"];
+            };
+        };
+        responses: {
+            /** @description Предпросмотр */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BroadcastPreview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getBroadcast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                broadcastId: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Рассылка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BroadcastDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    openBroadcastLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                centerId: components["parameters"]["CenterId"];
+                broadcastId: components["schemas"]["UUID"];
+                parentId: components["schemas"]["UUID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Отмечено */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     studentAttendance: {

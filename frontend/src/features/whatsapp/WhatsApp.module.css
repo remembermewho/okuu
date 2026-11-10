@@ -1,0 +1,63 @@
+.actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* На телефоне в строке должника — только значок. */
+.wideOnly {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .wideOnly {
+    display: inline;
+  }
+}
+
+.lead {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.itemMain {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.itemActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.note {
+  margin-top: var(--space-3);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}

@@ -17,7 +17,7 @@ WHERE m.user_id = $1 AND m.center_id = $2;
 
 -- name: ListMembershipsByUser :many
 -- Центры пользователя для GET /me.
-SELECT m.center_id, m.role, c.name AS center_name, c.timezone, c.status AS center_status
+SELECT m.center_id, m.role, c.name AS center_name, c.timezone, c.status AS center_status, c.is_demo
 FROM memberships m
 JOIN centers c ON c.id = m.center_id
 WHERE m.user_id = $1

@@ -4,13 +4,14 @@ import type { Schemas } from '@/api/client'
 
 export type Role = Schemas['Role']
 
-export type Section = 'today' | 'debtors' | 'students' | 'groups' | 'tariffs' | 'staff' | 'import' | 'report' | 'settings' | 'audit'
+export type Section = 'today' | 'debtors' | 'students' | 'broadcasts' | 'groups' | 'tariffs' | 'staff' | 'import' | 'report' | 'settings' | 'audit'
 
 const sections: Record<Section, Role[]> = {
   today: ['owner', 'admin', 'teacher'],
   groups: ['owner', 'admin', 'teacher'], // преподаватель — только свои, без изменений
   debtors: ['owner', 'admin'],
   students: ['owner', 'admin'],
+  broadcasts: ['owner', 'admin'],
   tariffs: ['owner', 'admin'],
   staff: ['owner', 'admin'],
   import: ['owner', 'admin'],

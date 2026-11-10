@@ -59,6 +59,15 @@ var isolationCases = map[string]any{
 	"GET /api/v1/c/{centerId}/debtors":                        nil,
 	"POST /api/v1/c/{centerId}/reminders":                     map[string]any{"all": true},
 
+	// WhatsApp и рассылка.
+	"GET /api/v1/c/{centerId}/students/{studentId}/whatsapp-reminder":                          nil,
+	"POST /api/v1/c/{centerId}/students/{studentId}/whatsapp-reminder":                         nil,
+	"GET /api/v1/c/{centerId}/broadcasts":                                                      nil,
+	"POST /api/v1/c/{centerId}/broadcasts":                                                     map[string]any{"audience": "center", "text": "Взлом"},
+	"POST /api/v1/c/{centerId}/broadcasts/preview":                                             map[string]any{"audience": "center", "text": "Взлом"},
+	"GET /api/v1/c/{centerId}/broadcasts/{broadcastId}":                                        nil,
+	"POST /api/v1/c/{centerId}/broadcasts/{broadcastId}/recipients/{parentId}/whatsapp-opened": nil,
+
 	// Посещаемость.
 	"GET /api/v1/c/{centerId}/lessons":                       nil, // 404 приходит раньше разбора ?date
 	"POST /api/v1/c/{centerId}/lessons":                      map[string]any{"group_id": "{groupId}", "date": "{today}", "start_time": "08:00"},
@@ -118,6 +127,7 @@ func TestIsolationAllCenterRoutes(t *testing.T) {
 	enrA := a.enroll(t, studentA.ID, map[string]any{"group_id": a.group.ID, "tariff_id": a.pkg.ID, "start_date": a.today.String()})
 	lessonA := createLesson(t, a, map[string]any{"group_id": a.group.ID, "date": a.today.String(), "start_time": "07:00"})
 	importA := a.preview(t, "a.csv", fixture(t, "utf8_semicolon.csv"))
+	broadcastA := mustBroadcast(t, a, "isolation-a", map[string]any{"audience": "center", "text": "Объявление А"})
 
 	// Центр Б — владелец Б и есть «чужой пользователь».
 	ownerB := api.client(t, "10.0.0.2")
@@ -129,6 +139,7 @@ func TestIsolationAllCenterRoutes(t *testing.T) {
 		"tariffId": a.monthly.ID.String(), "groupId": a.group.ID.String(), "studentId": studentA.ID.String(),
 		"enrollmentId": enrA.Enrollment.ID.String(), "ledgerId": enrA.Charge.ID.String(), "today": a.today.String(),
 		"lessonId": lessonA.ID.String(), "importId": importA.PreviewID.String(), "parentId": studentA.Parent.ID.String(),
+		"broadcastId": broadcastA.ID.String(),
 	}
 	before := centerFingerprint(t, api, a.center, centerB)
 
@@ -225,6 +236,8 @@ func centerFingerprint(t *testing.T, api *testAPI, centers ...uuid.UUID) string 
 		  UNION ALL SELECT 'imports:' || count(*) || '/' || count(committed_at) FROM import_sessions WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'notifications:' || count(*) FROM notifications WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'outbox:' || count(*) FROM notification_outbox WHERE center_id = ANY($1)
+		  UNION ALL SELECT 'broadcasts:' || count(*) FROM broadcasts WHERE center_id = ANY($1)
+		  UNION ALL SELECT 'broadcast_recipients:' || count(*) || '/' || count(opened_at) FROM broadcast_recipients WHERE center_id = ANY($1)
 		  UNION ALL SELECT 'centers:' || string_agg(name || '/' || billing_day || '/' || coalesce(billing_day_next, 0), ',' ORDER BY id) FROM centers WHERE id = ANY($1)
 		) s`, centers).Scan(&fp)
 	if err != nil {

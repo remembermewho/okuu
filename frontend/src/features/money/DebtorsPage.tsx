@@ -1,4 +1,4 @@
-import { BellRing, CheckCircle2, Send, Wallet } from 'lucide-react'
+import { BellRing, CheckCircle2, MessageCircle, Send, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { centerPath, useCenter } from '@/app/center'
@@ -8,13 +8,18 @@ import { Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, ErrorState, Mon
 import { PayDetailsBanner } from '@/features/admin/PayDetailsBanner'
 import { groupOptions, useGroups } from '@/features/catalog/api'
 import { OperationDialog } from '@/features/students/card/OperationDialog'
+import { useOpenWhatsApp } from '@/features/whatsapp/api'
+import { WhatsAppActions } from '@/features/whatsapp/WhatsAppActions'
+import { WhatsAppLinkRow } from '@/features/whatsapp/WhatsAppLinkRow'
+import wa from '@/features/whatsapp/WhatsApp.module.css'
 import { ru } from '@/i18n/ru'
 import { cx } from '@/utils/cx'
 import { formatDate, formatMonth } from '@/utils/date'
 import { errorMessage } from '@/utils/errors'
 import { formatSom } from '@/utils/money'
-import { useDebtors, useReminders, type Debtor, type DebtorsStatus, type RemindersResult } from './api'
+import { useDebtors, useReminders, type Debtor, type DebtorsStatus } from './api'
 import s from './DebtorsPage.module.css'
+import { useRemindersResult } from './useRemindersResult'
 
 /** API принимает до 500 учеников в одном «Напомнить». */
 const MAX_REMIND = 500
@@ -31,7 +36,12 @@ export function DebtorsPage() {
   const list = tab === 'pending' ? pending : overdue
   const remind = useReminders(c.id)
   const [confirmAll, setConfirmAll] = useState(false)
-  const [result, setResult] = useState<RemindersResult>()
+  const { result, setResult, openedParents, markOpened, closeResult } = useRemindersResult(c.id)
+  const openWhatsApp = useOpenWhatsApp(c.id)
+  const queue = result?.whatsapp ?? []
+  // Кто попал в список WhatsApp — уже не «не отправлено»: им пишут по ссылке.
+  const inQueue = new Set(queue.flatMap((m) => m.students.map((st) => st.id)))
+  const skippedRest = (result?.skipped ?? []).filter((sk) => !inQueue.has(sk.student_id))
   const [pendingId, setPendingId] = useState<string>()
   const [paying, setPaying] = useState<Debtor>() // «Отметить оплату» — тот же диалог, что в карточке
   const toast = useToast()
@@ -167,6 +177,11 @@ export function DebtorsPage() {
                           <BellRing size={12} aria-hidden="true" /> {ru.debtors.remindedToday}
                         </Badge>
                       )}
+                      {d.whatsapp_opened_today && (
+                        <Badge tone="excused">
+                          <MessageCircle size={12} aria-hidden="true" /> {ru.debtors.whatsappOpenedToday}
+                        </Badge>
+                      )}
                     </span>
                   </div>
                   <div className={shared.rowSide}>
@@ -198,6 +213,13 @@ export function DebtorsPage() {
                     >
                       {ru.debtors.remind}
                     </Button>
+                    <WhatsAppActions
+                      className={s.waGroup}
+                      studentId={d.student_id}
+                      name={d.full_name}
+                      phone={d.parent?.phone}
+                      whatsappPhone={d.parent?.whatsapp_phone}
+                    />
                   </div>
                 </li>
               ))}
@@ -231,21 +253,47 @@ export function DebtorsPage() {
 
       <Dialog
         open={result !== undefined}
-        onOpenChange={(o) => !o && setResult(undefined)}
-        title={ru.debtors.resultTitle}
-        footer={<Button onClick={() => setResult(undefined)}>{ru.common.close}</Button>}
+        onOpenChange={(o) => !o && closeResult()}
+        title={result && queue.length > 0 ? ru.whatsapp.queueTitle(queue.length) : ru.debtors.resultTitle}
+        wide={queue.length > 0}
+        footer={<Button onClick={closeResult}>{ru.common.close}</Button>}
       >
         {result && (
           <>
-            <p className={s.sent}>
-              {result.sent > 0 && <CheckCircle2 size={20} aria-hidden="true" />}
-              {result.sent > 0 ? ru.debtors.resultSent(result.messages, result.students_in_messages) : ru.debtors.resultNone}
-            </p>
-            {result.skipped.length > 0 && (
+            {(result.sent > 0 || queue.length === 0) && (
+              <p className={s.sent}>
+                {result.sent > 0 && <CheckCircle2 size={20} aria-hidden="true" />}
+                {result.sent > 0 ? ru.debtors.resultSent(result.messages, result.students_in_messages) : ru.debtors.resultNone}
+              </p>
+            )}
+            {queue.length > 0 && (
+              <>
+                <p className={wa.lead}>{ru.whatsapp.queueLead}</p>
+                <ul className={wa.list} aria-label={ru.whatsapp.queueList}>
+                  {queue.map((m) => (
+                    <WhatsAppLinkRow
+                      key={m.parent_id}
+                      title={m.students.map((st) => st.full_name).join(', ')}
+                      meta={m.parent_name}
+                      aside={<MoneyText tyiyn={m.total} tone="debt" />}
+                      url={m.url}
+                      text={m.text}
+                      opened={m.opened_today || openedParents.includes(m.parent_id)}
+                      onOpen={() => {
+                        markOpened(m.parent_id)
+                        openWhatsApp.mutate(m.students[0]!.id, { onError: (e) => toast({ message: errorMessage(e), tone: 'error' }) })
+                      }}
+                    />
+                  ))}
+                </ul>
+                <p className={wa.note}>{ru.whatsapp.notGuaranteed}</p>
+              </>
+            )}
+            {skippedRest.length > 0 && (
               <>
                 <h3 className={s.skippedTitle}>{ru.debtors.resultSkipped}</h3>
                 <ul className={s.skipped}>
-                  {result.skipped.map((sk) => (
+                  {skippedRest.map((sk) => (
                     <li key={sk.student_id}>
                       <strong>{names.get(sk.student_id) ?? ru.common.none}</strong>
                       <span className={shared.rowMeta}>{ru.debtors.reasons[sk.reason] ?? sk.reason}</span>

@@ -8,6 +8,7 @@ export const center = (role: 'owner' | 'admin' | 'teacher', id = 'c1', name = '�
   role,
   status,
   today: TODAY,
+  is_demo: false,
 })
 
 export const meOwner = { id: 'u1', name: 'Айгуль', phone: '+996700123456', centers: [center('owner')], is_platform_admin: false }
@@ -28,7 +29,7 @@ export const group: Schemas['Group'] = {
 export const tariffMonth: Schemas['Tariff'] = { id: 't1', name: 'Месяц', kind: 'monthly', price: 300_000, lessons_count: null, archived: false } as Schemas['Tariff']
 export const tariffPackage: Schemas['Tariff'] = { id: 't2', name: '8 занятий', kind: 'package', price: 240_000, lessons_count: 8, archived: false } as Schemas['Tariff']
 
-export const parent: Schemas['Parent'] = { id: 'p1', name: 'Гульнара', phone: '+996700111222', tg_status: 'active', last_reminder_at: null }
+export const parent: Schemas['Parent'] = { id: 'p1', name: 'Гульнара', phone: '+996700111222', tg_status: 'active', last_reminder_at: null, last_whatsapp_at: null, whatsapp_phone: '996700111222' }
 
 export function student(over: Partial<Schemas['Student']> = {}): Schemas['Student'] {
   return {

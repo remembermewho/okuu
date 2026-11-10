@@ -6,6 +6,7 @@ package notify
 import (
 	"cmp"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,6 +76,8 @@ type Texts struct {
 	ReminderChild  func(c ChildDebt) string
 	ReminderTotal  func(total int64) string
 	ReminderFooter string
+	// ReminderFooterWhatsApp — то же для сообщения из WhatsApp: бот родителю может быть не подключён.
+	ReminderFooterWhatsApp string
 
 	// «Как оплатить»: заголовок и реквизиты центра как есть; пустые реквизиты — PayDetailsMissing.
 	HowToPayHeader    string
@@ -100,26 +103,58 @@ type ChildDebt struct {
 // затем ожидающие по сроку, — затем «Как оплатить:» с реквизитами и инструкцией центра как есть
 // (родитель платит сам и отправляет чек администратору).
 func DebtReminder(tx *Texts, kind, center string, due civil.Date, children []ChildDebt, payDetails string) string {
-	lines := []string{tx.ReminderHeader(kind, center, due), ""}
+	return debtReminder(tx, plain, tx.ReminderFooter, kind, center, due, children, payDetails)
+}
+
+// DebtReminderWhatsApp — то же напоминание для ссылки wa.me: заголовок, итог и «Как оплатить:» — *жирным*,
+// без упоминания бота. Состав сообщения один на оба канала — debtReminder.
+func DebtReminderWhatsApp(tx *Texts, kind, center string, due civil.Date, children []ChildDebt, payDetails string) string {
+	return debtReminder(tx, waBold, tx.ReminderFooterWhatsApp, kind, center, due, children, payDetails)
+}
+
+func debtReminder(tx *Texts, bold func(string) string, footer, kind, center string, due civil.Date, children []ChildDebt, payDetails string) string {
+	lines := []string{bold(tx.ReminderHeader(kind, center, due)), ""}
 	var total int64
 	for _, c := range SortDebts(children) {
 		lines = append(lines, tx.ReminderChild(c))
 		total += c.Debt
 	}
 	if len(children) > 1 {
-		lines = append(lines, tx.ReminderTotal(total))
+		lines = append(lines, bold(tx.ReminderTotal(total)))
 	}
-	lines = append(lines, "", HowToPay(tx, payDetails), "", tx.ReminderFooter)
+	lines = append(lines, "", howToPay(tx, bold, payDetails), "", footer)
 	return strings.Join(lines, "\n")
 }
 
 // HowToPay — «Как оплатить:» и реквизиты центра с переносами строк как есть; пустые — «Уточните способ оплаты…».
-func HowToPay(tx *Texts, payDetails string) string {
+func HowToPay(tx *Texts, payDetails string) string { return howToPay(tx, plain, payDetails) }
+
+func howToPay(tx *Texts, bold func(string) string, payDetails string) string {
 	d := strings.TrimSpace(strings.ReplaceAll(payDetails, "\r\n", "\n"))
 	if d == "" {
 		d = tx.PayDetailsMissing
 	}
-	return tx.HowToPayHeader + "\n" + d
+	return bold(tx.HowToPayHeader) + "\n" + d
+}
+
+// Broadcast — объявление центра для бота: в начале название центра, дальше текст как есть.
+func Broadcast(tx *Texts, center, body string) string {
+	return tx.BalanceCenter(center) + "\n\n" + body
+}
+
+// BroadcastWhatsApp — то же объявление для ссылки wa.me.
+func BroadcastWhatsApp(tx *Texts, center, body string) string {
+	return waBold(tx.BalanceCenter(center)) + "\n\n" + body
+}
+
+func plain(s string) string { return s }
+
+// waBold — *жирный* в WhatsApp. Звёздочка внутри (например, в названии центра) закрыла бы выделение раньше времени.
+func waBold(s string) string { return "*" + strings.TrimSpace(strings.ReplaceAll(s, "*", "")) + "*" }
+
+// WhatsAppURL — ссылка wa.me с готовым текстом. phone — только цифры; пробелы в тексте — %20: «+» WhatsApp покажет как плюс.
+func WhatsAppURL(phone, text string) string {
+	return "https://wa.me/" + phone + "?text=" + strings.ReplaceAll(url.QueryEscape(text), "+", "%20")
 }
 
 // paidMessage — «оплата получена»: центр, строка об оплате, баланс ребёнка и, если должны другие дети родителя

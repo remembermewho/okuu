@@ -582,12 +582,6 @@ func TestRemindersManual(t *testing.T) {
 	assertError(t, teacher.do(http.MethodPost, centerPath(c.center, "/reminders"), map[string]any{"all": true}), http.StatusForbidden, "forbidden")
 }
 
-func TestRemindersManualTelegramOff(t *testing.T) {
-	c := newCatalog(t, "+996707800001")
-	s := c.debtor(t, "Без Бота", "0707 800 101")
-	assertError(t, remind(c, map[string]any{"student_ids": []uuid.UUID{s.ID}}), http.StatusConflict, "telegram_not_configured")
-}
-
 // paid: сразу после оплаты; отменённая до отправки — не уходит; ночью — утром; /stop — не уходит.
 func TestNotifyPaid(t *testing.T) {
 	env := newBotEnv(t)

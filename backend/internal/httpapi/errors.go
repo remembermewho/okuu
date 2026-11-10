@@ -82,6 +82,12 @@ var knownErrors = []struct {
 
 	{reminders.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{reminders.ErrTelegramOff, http.StatusConflict, "telegram_not_configured", "Telegram-бот не запущен (TELEGRAM_BOT_TOKEN)"},
+	{reminders.ErrNoPhone, http.StatusConflict, "parent_phone_missing", "У родителя нет телефона"},
+	{reminders.ErrBadPhone, http.StatusConflict, "parent_phone_invalid", "Телефон родителя записан неверно — исправьте его в карточке ученика"},
+	{reminders.ErrNoDebt, http.StatusConflict, "no_debt", "У ученика нет долга — напоминать не о чем"},
+	{reminders.ErrBroadcastTooSoon, http.StatusTooManyRequests, "broadcast_too_soon", "Рассылка уже была меньше 5 минут назад — подождите немного"},
+	{reminders.ErrGroupNotFound, http.StatusNotFound, "not_found", "Не найдено"},
+	{reminders.ErrBroadcastNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 
 	{platform.ErrNotFound, http.StatusNotFound, "not_found", "Не найдено"},
 	{platform.ErrStatusConflict, http.StatusConflict, "center_status_conflict", "Статус центра уже другой — обновите страницу"},

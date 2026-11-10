@@ -17,6 +17,7 @@ const (
 	KindOverdue3   = "overdue_3"   // 3 дня просрочки
 	KindOverdue7   = "overdue_7"   // 7 дней просрочки
 	KindManual     = "manual"      // кнопка «Напомнить»
+	KindBroadcast  = "broadcast"   // объявление центра (раздел «Рассылка»)
 	KindPaid       = "paid"        // после оплаты
 	KindPackageLow = "package_low" // в абонементе осталось 1 занятие (R10)
 	KindAbsent     = "absent"      // ребёнок отмечен «не был» (настройка центра notify_absent)

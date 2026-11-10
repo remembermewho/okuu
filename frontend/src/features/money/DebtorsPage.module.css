@@ -154,6 +154,11 @@
   }
 }
 
+/* WhatsApp и «Скопировать» на телефоне — значки: не делят ширину с основными кнопками. */
+.rowActions > .waGroup {
+  flex: 0 0 auto;
+}
+
 .dueIn {
   color: var(--text);
   font-size: var(--fs-sm);

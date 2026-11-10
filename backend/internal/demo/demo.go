@@ -147,6 +147,8 @@ func deleteDemo(ctx context.Context, tx pgx.Tx) ([]uuid.UUID, error) {
 		`DELETE FROM payment_links WHERE center_id = ANY($1)`,
 		`DELETE FROM notification_outbox WHERE center_id = ANY($1)`,
 		`DELETE FROM notifications WHERE center_id = ANY($1)`,
+		`DELETE FROM broadcast_recipients WHERE center_id = ANY($1)`,
+		`DELETE FROM broadcasts WHERE center_id = ANY($1)`,
 		`DELETE FROM invites WHERE center_id = ANY($1)`, // telegram_link_states — каскадом
 		`DELETE FROM import_sessions WHERE center_id = ANY($1)`,
 		`DELETE FROM password_resets WHERE center_id = ANY($1)`,

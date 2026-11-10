@@ -100,7 +100,7 @@ func (q *Queries) CreateStudent(ctx context.Context, arg CreateStudentParams) (S
 const getStudent = `-- name: GetStudent :one
 SELECT s.id, s.full_name, s.birth_date, s.status, s.discount_kind, s.discount_value, s.created_at,
        p.id AS parent_id, p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
-       p.last_reminder_at AS parent_last_reminder_at,
+       p.last_reminder_at AS parent_last_reminder_at, p.last_whatsapp_at AS parent_last_whatsapp_at,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l
         WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL)::bigint AS balance
 FROM students s
@@ -126,6 +126,7 @@ type GetStudentRow struct {
 	ParentPhone          *string     `json:"parent_phone"`
 	ParentTgStatus       *string     `json:"parent_tg_status"`
 	ParentLastReminderAt *time.Time  `json:"parent_last_reminder_at"`
+	ParentLastWhatsappAt *time.Time  `json:"parent_last_whatsapp_at"`
 	Balance              int64       `json:"balance"`
 }
 
@@ -145,6 +146,7 @@ func (q *Queries) GetStudent(ctx context.Context, arg GetStudentParams) (GetStud
 		&i.ParentPhone,
 		&i.ParentTgStatus,
 		&i.ParentLastReminderAt,
+		&i.ParentLastWhatsappAt,
 		&i.Balance,
 	)
 	return i, err
@@ -182,7 +184,7 @@ func (q *Queries) GetStudentForUpdate(ctx context.Context, arg GetStudentForUpda
 const listStudents = `-- name: ListStudents :many
 SELECT s.id, s.full_name, s.birth_date, s.status, s.discount_kind, s.discount_value,
        p.id AS parent_id, p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
-       p.last_reminder_at AS parent_last_reminder_at,
+       p.last_reminder_at AS parent_last_reminder_at, p.last_whatsapp_at AS parent_last_whatsapp_at,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l
         WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL)::bigint AS balance,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)
@@ -231,6 +233,7 @@ type ListStudentsRow struct {
 	ParentPhone          *string     `json:"parent_phone"`
 	ParentTgStatus       *string     `json:"parent_tg_status"`
 	ParentLastReminderAt *time.Time  `json:"parent_last_reminder_at"`
+	ParentLastWhatsappAt *time.Time  `json:"parent_last_whatsapp_at"`
 	Balance              int64       `json:"balance"`
 	Groups               []byte      `json:"groups"`
 }
@@ -269,6 +272,7 @@ func (q *Queries) ListStudents(ctx context.Context, arg ListStudentsParams) ([]L
 			&i.ParentPhone,
 			&i.ParentTgStatus,
 			&i.ParentLastReminderAt,
+			&i.ParentLastWhatsappAt,
 			&i.Balance,
 			&i.Groups,
 		); err != nil {

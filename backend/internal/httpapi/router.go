@@ -260,6 +260,17 @@ func NewRouter(d Deps) http.Handler {
 					// «Напомнить» в Telegram (R17–R18).
 					r.Post("/reminders", h.sendReminders)
 
+					// Напоминание со своего WhatsApp по ссылке wa.me: GET — текст и ссылка, POST — ссылку открыли.
+					r.Get("/students/{studentId}/whatsapp-reminder", h.getWhatsAppReminder)
+					r.Post("/students/{studentId}/whatsapp-reminder", h.openWhatsAppReminder)
+
+					// Рассылка: родителям с Telegram — бот, остальным — ссылки wa.me.
+					r.Get("/broadcasts", h.listBroadcasts)
+					r.Post("/broadcasts", h.createBroadcast)
+					r.Post("/broadcasts/preview", h.previewBroadcast)
+					r.Get("/broadcasts/{broadcastId}", h.getBroadcast)
+					r.Post("/broadcasts/{broadcastId}/recipients/{parentId}/whatsapp-opened", h.openBroadcastLink)
+
 					// История посещений ученика — для карточки (S5).
 					r.Get("/students/{studentId}/attendance", h.studentAttendance)
 

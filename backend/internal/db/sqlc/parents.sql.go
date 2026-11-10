@@ -44,7 +44,7 @@ func (q *Queries) CreateParentInvite(ctx context.Context, arg CreateParentInvite
 }
 
 const getParent = `-- name: GetParent :one
-SELECT p.id, p.center_id, p.name, p.phone, p.telegram_chat_id, p.tg_status, p.lang, p.consent_at, p.last_reminder_at, c.name AS center_name
+SELECT p.id, p.center_id, p.name, p.phone, p.telegram_chat_id, p.tg_status, p.lang, p.consent_at, p.last_reminder_at, p.last_whatsapp_at, c.name AS center_name
 FROM parents p
 JOIN centers c ON c.id = p.center_id
 WHERE p.center_id = $1 AND p.id = $2
@@ -65,6 +65,7 @@ type GetParentRow struct {
 	Lang           string     `json:"lang"`
 	ConsentAt      *time.Time `json:"consent_at"`
 	LastReminderAt *time.Time `json:"last_reminder_at"`
+	LastWhatsappAt *time.Time `json:"last_whatsapp_at"`
 	CenterName     string     `json:"center_name"`
 }
 
@@ -81,13 +82,14 @@ func (q *Queries) GetParent(ctx context.Context, arg GetParentParams) (GetParent
 		&i.Lang,
 		&i.ConsentAt,
 		&i.LastReminderAt,
+		&i.LastWhatsappAt,
 		&i.CenterName,
 	)
 	return i, err
 }
 
 const getParentByPhone = `-- name: GetParentByPhone :one
-SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at FROM parents
+SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at, last_whatsapp_at FROM parents
 WHERE center_id = $1 AND phone = $2
 `
 
@@ -109,12 +111,13 @@ func (q *Queries) GetParentByPhone(ctx context.Context, arg GetParentByPhonePara
 		&i.Lang,
 		&i.ConsentAt,
 		&i.LastReminderAt,
+		&i.LastWhatsappAt,
 	)
 	return i, err
 }
 
 const getParentForUpdate = `-- name: GetParentForUpdate :one
-SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at FROM parents
+SELECT id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at, last_whatsapp_at FROM parents
 WHERE center_id = $1 AND id = $2
 FOR UPDATE
 `
@@ -137,6 +140,7 @@ func (q *Queries) GetParentForUpdate(ctx context.Context, arg GetParentForUpdate
 		&i.Lang,
 		&i.ConsentAt,
 		&i.LastReminderAt,
+		&i.LastWhatsappAt,
 	)
 	return i, err
 }
@@ -145,7 +149,7 @@ const insertParentIfAbsent = `-- name: InsertParentIfAbsent :one
 INSERT INTO parents (center_id, name, phone)
 VALUES ($1, $2, $3)
 ON CONFLICT (center_id, phone) DO NOTHING
-RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at
+RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at, last_whatsapp_at
 `
 
 type InsertParentIfAbsentParams struct {
@@ -168,6 +172,7 @@ func (q *Queries) InsertParentIfAbsent(ctx context.Context, arg InsertParentIfAb
 		&i.Lang,
 		&i.ConsentAt,
 		&i.LastReminderAt,
+		&i.LastWhatsappAt,
 	)
 	return i, err
 }
@@ -179,7 +184,7 @@ SET name = $1, phone = $2,
     tg_status = CASE WHEN phone = $2 THEN tg_status ELSE 'none' END,
     consent_at = CASE WHEN phone = $2 THEN consent_at END
 WHERE center_id = $3 AND id = $4
-RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at
+RETURNING id, center_id, name, phone, telegram_chat_id, tg_status, lang, consent_at, last_reminder_at, last_whatsapp_at
 `
 
 type UpdateParentParams struct {
@@ -209,6 +214,7 @@ func (q *Queries) UpdateParent(ctx context.Context, arg UpdateParentParams) (Par
 		&i.Lang,
 		&i.ConsentAt,
 		&i.LastReminderAt,
+		&i.LastWhatsappAt,
 	)
 	return i, err
 }

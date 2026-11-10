@@ -8,7 +8,7 @@ RETURNING *;
 -- name: GetStudent :one
 SELECT s.id, s.full_name, s.birth_date, s.status, s.discount_kind, s.discount_value, s.created_at,
        p.id AS parent_id, p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
-       p.last_reminder_at AS parent_last_reminder_at,
+       p.last_reminder_at AS parent_last_reminder_at, p.last_whatsapp_at AS parent_last_whatsapp_at,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l
         WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL)::bigint AS balance
 FROM students s
@@ -55,7 +55,7 @@ WHERE s.center_id = @center_id
 -- Пагинация по ключу (full_name, id): after_* — последняя строка предыдущей страницы.
 SELECT s.id, s.full_name, s.birth_date, s.status, s.discount_kind, s.discount_value,
        p.id AS parent_id, p.name AS parent_name, p.phone AS parent_phone, p.tg_status AS parent_tg_status,
-       p.last_reminder_at AS parent_last_reminder_at,
+       p.last_reminder_at AS parent_last_reminder_at, p.last_whatsapp_at AS parent_last_whatsapp_at,
        (SELECT COALESCE(sum(l.amount), 0) FROM ledger l
         WHERE l.center_id = s.center_id AND l.student_id = s.id AND l.cancelled_at IS NULL)::bigint AS balance,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name) ORDER BY g.name, g.id)

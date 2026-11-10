@@ -32,6 +32,29 @@ type AuditLog struct {
 	At       time.Time  `json:"at"`
 }
 
+type Broadcast struct {
+	ID               uuid.UUID   `json:"id"`
+	CenterID         uuid.UUID   `json:"center_id"`
+	CreatedBy        uuid.UUID   `json:"created_by"`
+	IdempotencyKey   string      `json:"idempotency_key"`
+	Audience         string      `json:"audience"`
+	GroupIds         []uuid.UUID `json:"group_ids"`
+	GroupNames       []string    `json:"group_names"`
+	Body             string      `json:"body"`
+	NoParentStudents int32       `json:"no_parent_students"`
+	CreatedAt        time.Time   `json:"created_at"`
+}
+
+type BroadcastRecipient struct {
+	BroadcastID  uuid.UUID   `json:"broadcast_id"`
+	CenterID     uuid.UUID   `json:"center_id"`
+	ParentID     uuid.UUID   `json:"parent_id"`
+	Status       string      `json:"status"`
+	StudentIds   []uuid.UUID `json:"student_ids"`
+	StudentNames []string    `json:"student_names"`
+	OpenedAt     *time.Time  `json:"opened_at"`
+}
+
 type Center struct {
 	ID                 uuid.UUID   `json:"id"`
 	Name               string      `json:"name"`
@@ -152,6 +175,7 @@ type Notification struct {
 	DedupKey   *string     `json:"dedup_key"`
 	StudentIds []uuid.UUID `json:"student_ids"`
 	CreatedBy  *uuid.UUID  `json:"created_by"`
+	Channel    string      `json:"channel"`
 }
 
 type NotificationOutbox struct {
@@ -175,6 +199,7 @@ type Parent struct {
 	Lang           string     `json:"lang"`
 	ConsentAt      *time.Time `json:"consent_at"`
 	LastReminderAt *time.Time `json:"last_reminder_at"`
+	LastWhatsappAt *time.Time `json:"last_whatsapp_at"`
 }
 
 type PasswordReset struct {

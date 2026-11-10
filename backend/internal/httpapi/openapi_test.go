@@ -258,10 +258,27 @@ func TestOpenAPIResponsesMatchSpec(t *testing.T) {
 	c.headers = map[string]string{"Idempotency-Key": uuid.NewString()}
 	checked(t, v, c, http.MethodPost, cp("/students/"+st.ID.String()+"/payments"), pay(100_000), http.StatusCreated)
 	c.headers = nil
+
+	// WhatsApp и рассылка
+	wa := cp("/students/" + st.ID.String() + "/whatsapp-reminder")
+	checked(t, v, c, http.MethodGet, wa, nil, http.StatusOK)
+	checked(t, v, c, http.MethodPost, wa, nil, http.StatusOK)
+	checked(t, v, c, http.MethodPost, cp("/reminders"), map[string]any{"student_ids": []uuid.UUID{st.ID}}, http.StatusOK)
+	broadcastBody := map[string]any{"audience": "groups", "group_ids": []uuid.UUID{group.ID}, "text": "Объявление"}
+	checked(t, v, c, http.MethodPost, cp("/broadcasts/preview"), broadcastBody, http.StatusOK)
+	c.headers = map[string]string{"Idempotency-Key": uuid.NewString()}
+	broadcast := decode[broadcastResp](t, checked(t, v, c, http.MethodPost, cp("/broadcasts"), broadcastBody, http.StatusCreated))
+	checked(t, v, c, http.MethodPost, cp("/broadcasts"), broadcastBody, http.StatusOK)
+	c.headers = map[string]string{"Idempotency-Key": uuid.NewString()}
+	checked(t, v, c, http.MethodPost, cp("/broadcasts"), broadcastBody, http.StatusTooManyRequests)
+	c.headers = nil
+	checked(t, v, c, http.MethodGet, cp("/broadcasts"), nil, http.StatusOK)
+	checked(t, v, c, http.MethodGet, cp("/broadcasts/"+broadcast.ID.String()), nil, http.StatusOK)
+	checked(t, v, c, http.MethodPost, cp("/broadcasts/"+broadcast.ID.String()+"/recipients/"+broadcast.Links[0].ParentID.String()+"/whatsapp-opened"), nil, http.StatusNoContent)
 	checked(t, v, c, http.MethodGet, cp("/students/"+st.ID.String()+"/ledger"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/debtors"), nil, http.StatusOK)
 	checked(t, v, c, http.MethodGet, cp("/debtors?status=pending"), nil, http.StatusOK)
-	checked(t, v, c, http.MethodPost, cp("/reminders"), map[string]any{"all": true}, http.StatusConflict) // бот выключен
+	checked(t, v, c, http.MethodPost, cp("/reminders"), map[string]any{"all": true}, http.StatusOK) // бот выключен — список WhatsApp
 
 	// импорт: превью (multipart) и подтверждение; first_month — только full | none, как в бэкенде
 	csv := "ФИО ученика*;Имя родителя*;Телефон родителя*;Группа*;Тариф*\nИмпортов Азамат;Гульнара;0709 500 201;Английский;Месяц\n"
