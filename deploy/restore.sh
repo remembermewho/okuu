@@ -11,6 +11,7 @@
 #   CONFIRM=yes deploy/restore.sh <архив> okuu
 #   docker compose -f deploy/docker-compose.prod.yml start app caddy
 set -euo pipefail
+trap 'echo "restore.sh: ошибка в строке $LINENO: $BASH_COMMAND (код $?)" >&2' ERR
 
 if [ $# -lt 1 ]; then
 	echo "использование: $0 <архив.sql.gz> [база (по умолчанию okuu_restore_check)]" >&2
@@ -19,9 +20,10 @@ fi
 archive=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 cd "$(dirname "$0")"
 
+# Нет ключа в .env — пустая строка, не ошибка (иначе grep → 1, pipefail и set -e молча завершат скрипт).
 env_value() {
 	[ -f .env ] || return 0
-	grep -E "^$1=" .env | tail -n 1 | cut -d= -f2- | tr -d '\r"'"'"
+	{ grep -E "^$1=" .env || true; } | tail -n 1 | cut -d= -f2- | tr -d '\r"'"'"
 }
 
 COMPOSE=${COMPOSE:-docker compose -f docker-compose.prod.yml}

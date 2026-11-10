@@ -9,13 +9,15 @@
 #   BACKUP_DIR (/var/backups/okuu), KEEP_DAYS (14), COMPOSE, PG_SERVICE (postgres),
 #   POSTGRES_USER, POSTGRES_DB.
 set -euo pipefail
+trap 'echo "backup.sh: ошибка в строке $LINENO: $BASH_COMMAND (код $?), бэкап не сделан" >&2' ERR
 
 cd "$(dirname "$0")"
 
-# Из .env берём только нужные переменные, не исполняя файл.
+# Из .env берём только нужные переменные, не исполняя файл. Нет ключа — пустая строка, не ошибка:
+# без «|| true» grep вернул бы 1, pipefail передал бы его в $(...), и set -e молча завершил бы скрипт.
 env_value() {
 	[ -f .env ] || return 0
-	grep -E "^$1=" .env | tail -n 1 | cut -d= -f2- | tr -d '\r"'"'"
+	{ grep -E "^$1=" .env || true; } | tail -n 1 | cut -d= -f2- | tr -d '\r"'"'"
 }
 
 BACKUP_DIR=${BACKUP_DIR:-$(env_value BACKUP_DIR)}

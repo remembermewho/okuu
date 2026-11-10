@@ -39,7 +39,8 @@ services:
   app:
     build:
       context: ../backend
-    image: ${APP_IMAGE:-okuu-app:latest}
+    # Имя образа — фиксированное: на него ссылаются deploy/update.sh (метка :prev для отката) и docs/DEPLOY.md.
+    image: okuu-app:latest
     restart: unless-stopped
     env_file: .env
     environment:
@@ -72,7 +73,7 @@ services:
       args:
         SITE_URL: https://${LANDING_DOMAIN:?задайте LANDING_DOMAIN в deploy/.env}
         APP_URL: https://${APP_DOMAIN:?задайте APP_DOMAIN в deploy/.env}
-    image: ${WEB_IMAGE:-okuu-web:latest}
+    image: okuu-web:latest # как у app — фиксированное имя (deploy/update.sh, docs/DEPLOY.md)
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?задайте APP_DOMAIN в deploy/.env}

@@ -8,25 +8,17 @@
 # хвост лога. Если что-то пошло не так — печатает команды отката на прежнюю версию.
 #
 # Переменные: YES=1 — не спрашивать подтверждение; HEALTH_TIMEOUT — сколько секунд ждать healthy (120);
-# COMPOSE — команда compose; APP_IMAGE, WEB_IMAGE — имена образов (как у compose: из deploy/.env,
-# по умолчанию okuu-app:latest и okuu-web:latest).
+# COMPOSE — команда compose. deploy/.env скрипт не читает: его читает только compose.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 root=$(pwd)
 
-# Из deploy/.env берём только нужные переменные, не исполняя файл (как в backup.sh).
-env_value() {
-	[ -f deploy/.env ] || return 0
-	grep -E "^$1=" deploy/.env | tail -n 1 | cut -d= -f2- | tr -d '\r"'"'"
-}
-
 COMPOSE=${COMPOSE:-docker compose -f $root/deploy/docker-compose.prod.yml}
 HEALTH_TIMEOUT=${HEALTH_TIMEOUT:-120}
-APP_IMAGE=${APP_IMAGE:-$(env_value APP_IMAGE)}
-APP_IMAGE=${APP_IMAGE:-okuu-app:latest}
-WEB_IMAGE=${WEB_IMAGE:-$(env_value WEB_IMAGE)}
-WEB_IMAGE=${WEB_IMAGE:-okuu-web:latest}
+# Имена образов — как в deploy/docker-compose.prod.yml (image: у app и caddy).
+APP_IMAGE=okuu-app:latest
+WEB_IMAGE=okuu-web:latest
 if ! [[ $HEALTH_TIMEOUT =~ ^[1-9][0-9]*$ ]]; then
 	echo "HEALTH_TIMEOUT: целое число секунд, получено «$HEALTH_TIMEOUT»" >&2
 	exit 2
@@ -35,59 +27,33 @@ fi
 prev_of() { echo "${1%:*}:prev"; }
 step() { printf '\n== %s\n' "$*"; }
 
-# --- Git: на ветке, без локальных правок, обновление — перемотка вперёд.
-if ! branch=$(git symbolic-ref --quiet --short HEAD); then
-	echo "Код не на ветке (git checkout <коммит> после отката?). Вернитесь на ветку: git checkout main" >&2
-	exit 1
-fi
-if ! upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
-	echo "У ветки $branch нет удалённой ветки для обновления (git branch -u origin/$branch)" >&2
-	exit 1
-fi
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-	echo "В $root изменены файлы из репозитория — git pull может не пройти. Посмотрите: git status, git diff" >&2
-	exit 1
-fi
+# Тихих выходов нет: любая неожиданная ошибка (set -e) называет строку и команду, а on_exit ниже —
+# что успело измениться и как вернуть прежнюю версию.
+on_error() {
+	echo >&2
+	echo "update.sh: ошибка в строке $1: $2 (код $3)" >&2
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND" "$?"' ERR
 
-step "Новые коммиты ($upstream)"
-git fetch --quiet
-old=$(git rev-parse --short HEAD)
-if [ "$(git rev-list --count "HEAD..$upstream")" -eq 0 ]; then
-	echo "Новых коммитов нет, работает $(git log -1 --format='%h %s')."
-	echo "Пересобрать без изменений кода: $COMPOSE up -d --build"
-	exit 0
-fi
-if ! git merge-base --is-ancestor HEAD "$upstream"; then
-	echo "На сервере есть коммиты, которых нет в $upstream, — git pull --ff-only не пройдёт. Посмотрите: git log $upstream..HEAD" >&2
-	exit 1
-fi
-new=$(git rev-parse --short "$upstream")
-git log --oneline --no-decorate "HEAD..$upstream"
-migrations=$(git diff --name-only --diff-filter=A "HEAD..$upstream" -- backend/migrations)
-if [ -n "$migrations" ]; then
-	echo
-	echo "Новые миграции — применятся при старте, назад не откатываются:"
-	echo "$migrations" | sed 's/^/  /'
-fi
-if [ -t 0 ] && [ "${YES:-}" != 1 ]; then
-	echo
-	read -r -p "Обновить $old → $new? [y/N] " answer
-	if ! [[ $answer =~ ^[yYдД] ]]; then
-		echo "Отменено, ничего не изменено."
-		exit 0
-	fi
-fi
-
-# С этого места при ошибке печатаем, что с версией и как вернуть прежнюю.
-pulled=
+old=
+new=
 backup=
+pulled=
 declare -a prev_images=()
-rollback_help() {
+on_exit() {
 	local status=$?
 	[ "$status" -eq 0 ] && return
 	echo >&2
 	if [ -z "$pulled" ]; then
-		echo "Обновление остановлено до git pull: код и контейнеры не менялись, работает $old." >&2
+		{
+			echo "Обновление остановлено до git pull: код, контейнеры и база не менялись${old:+, работает $old}."
+			if [ -n "$backup" ]; then
+				echo "Бэкап перед обновлением сделан: $backup"
+			fi
+			if [ "${#prev_images[@]}" -gt 0 ]; then
+				echo "Образы помечены :prev (${prev_images[*]}) — это ничему не мешает, откатывать нечего."
+			fi
+		} >&2
 		return
 	fi
 	{
@@ -113,7 +79,55 @@ rollback_help() {
 		echo "Подробно — docs/DEPLOY.md, «Откат». Потом, когда исправление будет в GitHub: git checkout $branch"
 	} >&2
 }
-trap rollback_help EXIT
+trap on_exit EXIT
+
+# --- Git: на ветке, без локальных правок, обновление — перемотка вперёд.
+if ! branch=$(git symbolic-ref --quiet --short HEAD); then
+	echo "Код не на ветке (git checkout <коммит> после отката?). Вернитесь на ветку: git checkout main" >&2
+	exit 1
+fi
+if ! upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
+	echo "У ветки $branch нет удалённой ветки для обновления (git branch -u origin/$branch)" >&2
+	exit 1
+fi
+# Вывод git — в переменные, а не прямо в [ ]: так ошибка git не теряется (set -e и trap ERR видят её).
+changed=$(git status --porcelain --untracked-files=no)
+if [ -n "$changed" ]; then
+	echo "В $root изменены файлы из репозитория — git pull может не пройти. Посмотрите: git status, git diff" >&2
+	exit 1
+fi
+
+step "Новые коммиты ($upstream)"
+git fetch --quiet
+old=$(git rev-parse --short HEAD)
+incoming=$(git rev-list --count "HEAD..$upstream")
+if [ "$incoming" -eq 0 ]; then
+	echo "Новых коммитов нет, работает $(git log -1 --format='%h %s')."
+	echo "Пересобрать без изменений кода: $COMPOSE up -d --build"
+	exit 0
+fi
+if ! git merge-base --is-ancestor HEAD "$upstream"; then
+	echo "На сервере есть коммиты, которых нет в $upstream, — git pull --ff-only не пройдёт. Посмотрите: git log $upstream..HEAD" >&2
+	exit 1
+fi
+new=$(git rev-parse --short "$upstream")
+git log --oneline --no-decorate "HEAD..$upstream"
+migrations=$(git diff --name-only --diff-filter=A "HEAD..$upstream" -- backend/migrations)
+if [ -n "$migrations" ]; then
+	echo
+	echo "Новые миграции — применятся при старте, назад не откатываются:"
+	echo "$migrations" | sed 's/^/  /'
+fi
+if [ -t 0 ] && [ "${YES:-}" != 1 ]; then
+	echo
+	answer=
+	read -r -p "Обновить $old → $new? [y/N] " answer || true # Ctrl-D — то же, что «нет»
+	if ! [[ $answer =~ ^[yYдД] ]]; then
+		echo
+		echo "Отменено, ничего не изменено."
+		exit 0
+	fi
+fi
 
 step "Бэкап базы"
 backup=$(bash deploy/backup.sh)
@@ -145,14 +159,18 @@ fi
 
 if [ -z "$state" ]; then
 	step "Жду healthy у app (до $HEALTH_TIMEOUT с)"
-	id=$($COMPOSE ps -q app)
+	# Ошибки docker здесь не обрываем: ниже всё равно печатаем состояние, лог и команды отката.
+	id=$($COMPOSE ps -q app) || id=
 	deadline=$((SECONDS + HEALTH_TIMEOUT))
 	while :; do
 		if [ -z "$id" ]; then
 			state="контейнер app не найден"
 			break
 		fi
-		state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")
+		if ! state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id"); then
+			state="docker inspect не нашёл контейнер app"
+			break
+		fi
 		case $state in
 		"running healthy" | *unhealthy* | exited* | dead* | restarting*) break ;;
 		esac
@@ -166,11 +184,13 @@ fi
 echo "app: $state"
 
 step "Состояние"
-$COMPOSE ps
+$COMPOSE ps || echo "(docker compose ps не сработал)"
 step "Лог app (последние 30 строк)"
-$COMPOSE logs --no-color --tail 30 app
+$COMPOSE logs --no-color --tail 30 app || echo "(docker compose logs не сработал)"
 
 if [ "$state" != "running healthy" ]; then
+	echo >&2
+	echo "app не в состоянии «running healthy»: $state" >&2
 	exit 1
 fi
 echo
